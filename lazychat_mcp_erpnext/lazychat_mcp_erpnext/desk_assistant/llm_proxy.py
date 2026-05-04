@@ -30,18 +30,29 @@ from frappe import _
 # Critically: accept-encoding is stripped to avoid SSE buffering when upstreams
 # return brotli/zstd-encoded streaming responses (Werkzeug + python requests don't
 # transparently decode mid-stream).
+#
+# `authorization` is also denied because Frappe's auth middleware processes it
+# (Frappe-specific token / API-key / OAuth Bearer formats) BEFORE this handler
+# runs. The user's actual LLM API key arrives via the alternate header
+# `x-target-authorization` (and `x-target-api-key`) which Frappe leaves alone.
 _DENY_HEADERS = {
 	"host",
 	"content-length",
 	"connection",
 	"x-target-url",
+	"x-target-authorization",
+	"x-target-api-key",
+	"x-target-api-key-header",
+	"authorization",
+	"x-frappe-csrf-token",
+	"x-frappe-cmd",
 	"origin",
 	"referer",
 	"accept-encoding",
 	"cookie",
 	# Browser fetch metadata — never useful upstream
 }
-_DENY_PREFIXES = ("sec-fetch-", "sec-ch-")
+_DENY_PREFIXES = ("sec-fetch-", "sec-ch-", "x-frappe-")
 
 _DEFAULT_ALLOWED_HOSTS = [
 	"api.anthropic.com",
@@ -160,6 +171,17 @@ def handle():
 		)
 
 	headers = _filter_headers(req.headers)
+	# Re-attach the upstream auth: chat-ui sends the user's LLM API key via
+	# `x-target-authorization` (or x-target-api-key + x-target-api-key-header)
+	# because Frappe's auth middleware mangles a real `Authorization` header.
+	# We rename here so the upstream LLM sees the standard form.
+	tgt_auth = req.headers.get("x-target-authorization")
+	if tgt_auth:
+		headers["Authorization"] = tgt_auth
+	tgt_apikey = req.headers.get("x-target-api-key")
+	tgt_apikey_header = req.headers.get("x-target-api-key-header") or "x-api-key"
+	if tgt_apikey:
+		headers[tgt_apikey_header] = tgt_apikey
 	# Body — read raw; Frappe whitelisted methods may already have parsed form_dict but get_data returns the raw stream
 	body = req.get_data(cache=False, as_text=False) or b""
 
