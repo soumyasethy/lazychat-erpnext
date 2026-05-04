@@ -108,6 +108,22 @@ def dispatch(method, params, req_id=None):
 	return _jsonrpc_err(req_id, -32601, f"Method not found: {method}")
 
 
+def _jsonrpc_response(payload, status: int = 200):
+	"""Build a Werkzeug Response carrying the JSONRPC payload as JSON.
+
+	Don't assign a plain dict/list to `frappe.local.response` — Frappe expects a
+	`frappe._dict` (with attrs like `.http_status_code`, `.exception`) and crashes
+	in `frappe/utils/response.py:as_json` with `AttributeError: 'dict' object has
+	no attribute 'http_status_code'` if the shape is wrong. Returning a Werkzeug
+	Response sidesteps the json builder entirely (mirrors `llm_proxy.py` pattern).
+	"""
+	from werkzeug.wrappers import Response
+
+	resp = Response(json.dumps(payload, default=str), status=status, mimetype="application/json")
+	frappe.local.response = resp
+	return resp
+
+
 @frappe.whitelist(methods=["POST"], allow_guest=False)
 def handle():
 	"""HTTP entry point. Reads JSONRPC body, dispatches, returns JSONRPC response.
@@ -118,8 +134,7 @@ def handle():
 		raw = frappe.request.get_data(as_text=True) or "{}"
 		body = json.loads(raw)
 	except Exception as e:
-		frappe.local.response = _jsonrpc_err(None, -32700, f"Parse error: {e}")
-		return frappe.local.response
+		return _jsonrpc_response(_jsonrpc_err(None, -32700, f"Parse error: {e}"))
 
 	# Single request OR batch (we support both — batch returns a list of responses)
 	if isinstance(body, list):
@@ -128,12 +143,9 @@ def handle():
 			res = _handle_single(item)
 			if res is not None:
 				out.append(res)
-		frappe.local.response = out
-		return out
+		return _jsonrpc_response(out)
 
-	res = _handle_single(body)
-	frappe.local.response = res
-	return res
+	return _jsonrpc_response(_handle_single(body))
 
 
 def _handle_single(item):
