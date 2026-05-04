@@ -145,12 +145,14 @@ cd <bench>
 bench --site <site> execute lazychat_mcp_erpnext._smoke.run
 ```
 
-Currently asserts **53 cases** across all 38 tools against real ERPNext data:
+Currently asserts **66 cases** across all 38 tools + theme/route-context briefings + MCP wire transport against real ERPNext data:
 - Reads (T1–T4, T19–T31, T34–T39): exercise every read tool against actual rows
 - Mutations (T5–T8, T10–T13, T33, T40–T41): create + update + comment + assign + share + delete (each with cleanup)
 - Workflow + analytics (T9, T14–T16): real Workflow Action / Dashboard Chart / Number Card
 - Edge cases (T17–T18, T32): invalid token, unknown tool, gated email
 - Power tools (T42–T47): rejection when flag off, execution when flag on (monkey-patched in test)
+- Route-context briefings (T48–T51): form view names doc + asks for get_doc grounding, dirty flag, list-view selected rows, empty-context noise check
+- MCP wire transport (T52–T59): initialize handshake, ping, tools/list (38 tools, MCP-shaped inputSchema), tools/call dispatches to execute_tool, error paths (-32601 unknown tool, -32602 missing name, -32601 unknown method, isError on tool failure)
 - Cleanup at end removes all created Comments / ToDos / Notes
 
 When adding a new tool: add a corresponding T## case in `scripts/smoke-test-tools.py`, sync to bench (`cp`), re-run. Target = always 100% pass.
@@ -197,15 +199,16 @@ When user opens a new task in this repo:
 5. If task is "different LLM provider": Desk → LLM Provider doctype, no code change
 6. If task is "deploy to a new ERPNext bench": `./scripts/deploy-local.sh` with `BENCH_ROOT` + `DEPLOY_SITE` env
 
-## Sub-projects deferred
+## Sub-projects status
 
 | # | Sub-project | Status |
 |---|---|---|
-| MCP wire | Real MCP Streamable HTTP transport at `/api/method/lazychat_mcp_erpnext.mcp.handle` for external Claude Desktop / agent clients | not started |
-| Theme sync | Push Frappe Desk theme tokens → lazychat via `setDesignTokens` so chat matches Desk colors | not started |
-| Route context | `frappe.router.on('change')` → `setContext` postMessage → chat sees current Doctype/docname automatically | not started |
+| MCP wire | JSONRPC-over-HTTP MCP transport at `/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle` (initialize / ping / tools/list / tools/call) — Claude Desktop and other MCP clients can connect via Frappe API key+secret. See [desk_assistant/mcp.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/mcp.py). Smoke covered T52–T59. | **DONE** |
+| Theme sync | `pushTheme()` reads Frappe CSS vars (`--primary-color`, `--bg-color`, `--text-color`, `--border-color`, `--text-muted`) + resolved theme mode and posts `setTheme` + `setThemeTokens`. `MutationObserver` on `<html data-theme>` re-pushes on Frappe theme toggle. | **DONE** |
+| Route context | `deskRoute()` reads `cur_frm.doc` (name/doctype/title/workflow_state/status/dirty) on Form view + `cur_list.get_checked_items()` on List view. `_route_context_summary()` in `claude_bridge.py` prepends a briefing to the system prompt so the LLM auto-grounds "this doc" / "summarize" queries. Smoke covered T48–T51. | **DONE** |
 | Analytics extras | `analyze_business_data` (pandas-based) heavy analytics | deferred |
 | Visualization mutations | `create_dashboard`, `create_dashboard_chart` specialized creators (vs the generic `prepare_create_doc`) | deferred |
+| Streamable-HTTP MCP upgrade | SSE upgrade + `Mcp-Session-Id` header support for server-initiated notifications + progress | deferred (current sync JSONRPC is sufficient for tool-call clients) |
 
 ## Commit conventions
 
