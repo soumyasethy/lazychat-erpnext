@@ -1,0 +1,741 @@
+/**
+ * LLM Provider / LLM Model — desk form UI (warm SaaS, accessibility-first).
+ * Tokens align with DESIGN-pinterest.md; patterns follow ui-ux-pro-max priorities.
+ */
+:root {
+	--llm-bg-wash: hsla(60, 22%, 97%, 0.92);
+	--llm-bg-card: hsla(60, 18%, 99%, 0.98);
+	--llm-border: #e5e5e0;
+	--llm-border-strong: #c8c8c1;
+	--llm-text: #211922;
+	--llm-text-muted: #62625b;
+	--llm-text-subtle: #91918c;
+	--llm-accent: #e60023;
+	--llm-accent-soft: rgba(230, 0, 35, 0.08);
+	--llm-focus: #435ee5;
+	--llm-radius-lg: 20px;
+	--llm-radius-md: 12px;
+	--llm-radius-sm: 8px;
+	--llm-shadow: 0 1px 2px rgba(33, 25, 34, 0.04), 0 8px 28px rgba(33, 25, 34, 0.06);
+	--llm-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+	--llm-ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+	--llm-duration: 220ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	:root {
+		--llm-duration: 0ms;
+	}
+}
+
+/* —— Hero cards (HTML fields) —— */
+.llm-model-hero,
+.llm-provider-hero {
+	position: relative;
+	font-family: var(--llm-font);
+	background: linear-gradient(145deg, var(--llm-bg-card) 0%, var(--llm-bg-wash) 100%);
+	border: 1px solid var(--llm-border);
+	border-radius: var(--llm-radius-lg);
+	padding: 22px 24px 20px;
+	margin: 0 0 12px;
+	box-shadow: var(--llm-shadow);
+	max-width: 72ch;
+}
+
+.llm-model-hero::before,
+.llm-provider-hero::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	pointer-events: none;
+	background: radial-gradient(120% 80% at 0% 0%, var(--llm-accent-soft), transparent 55%);
+	opacity: 0.85;
+}
+
+.llm-model-hero > *,
+.llm-provider-hero > * {
+	position: relative;
+	z-index: 1;
+}
+
+.llm-hero-badge {
+	display: inline-flex;
+	align-items: center;
+	min-height: 28px;
+	padding: 0 12px;
+	margin: 0 0 12px;
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--llm-text-muted);
+	background: hsla(60, 20%, 96%, 0.9);
+	border: 1px solid var(--llm-border);
+	border-radius: 999px;
+}
+
+.llm-model-hero-title,
+.llm-provider-hero .llm-model-hero-title {
+	font-size: 1.375rem;
+	font-weight: 700;
+	letter-spacing: -0.035em;
+	line-height: 1.2;
+	color: var(--llm-text);
+	margin: 0 0 10px;
+}
+
+.llm-model-hero-text,
+.llm-provider-hero .llm-model-hero-text {
+	margin: 0 0 16px;
+	font-size: 15px;
+	line-height: 1.6;
+	color: var(--llm-text-muted);
+	font-weight: 400;
+}
+
+.llm-model-hero-text strong,
+.llm-provider-hero .llm-model-hero-text strong {
+	color: var(--llm-text);
+	font-weight: 700;
+}
+
+.llm-model-hero-text a,
+.llm-provider-hero a {
+	color: var(--llm-focus);
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
+
+.llm-model-hero-text a:focus-visible,
+.llm-provider-hero a:focus-visible {
+	outline: 2px solid var(--llm-focus);
+	outline-offset: 2px;
+	border-radius: 2px;
+}
+
+/* Step list — keyboard-friendly, clear scan line */
+.llm-hero-steps {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.llm-hero-steps li {
+	display: flex;
+	align-items: flex-start;
+	gap: 12px;
+	font-size: 13px;
+	line-height: 1.5;
+	color: var(--llm-text-muted);
+}
+
+.llm-hero-step-num {
+	flex-shrink: 0;
+	width: 28px;
+	height: 28px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 12px;
+	font-weight: 700;
+	color: var(--llm-text);
+	background: hsla(60, 25%, 94%, 1);
+	border: 1px solid var(--llm-border);
+	border-radius: 10px;
+}
+
+/* Muted / callout copy */
+.llm-setup-muted {
+	color: var(--llm-text-muted);
+	font-size: 13px;
+	line-height: 1.6;
+	margin: 0;
+}
+
+.llm-setup-muted code {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+	font-size: 12px;
+	background: hsla(60, 15%, 92%, 1);
+	color: var(--llm-text);
+	padding: 2px 7px;
+	border-radius: 6px;
+	border: 1px solid var(--llm-border);
+}
+
+.llm-setup-callout {
+	margin: 10px 0 14px;
+	padding: 14px 16px;
+	max-width: 72ch;
+	font-size: 13px;
+	line-height: 1.55;
+	color: var(--llm-text-muted);
+	background: hsla(60, 22%, 97%, 0.75);
+	border: 1px solid var(--llm-border);
+	border-left: 4px solid var(--llm-accent);
+	border-radius: var(--llm-radius-md);
+}
+
+.llm-setup-callout b,
+.llm-setup-callout strong {
+	color: var(--llm-text);
+	font-weight: 600;
+}
+
+/* —— Modals (cURL import) —— */
+.modal-dialog.llm-setup-dialog {
+	max-width: min(560px, 96vw);
+}
+
+.modal-dialog.llm-setup-dialog .modal-content {
+	border-radius: var(--llm-radius-lg);
+	border: 1px solid var(--llm-border);
+	box-shadow: var(--llm-shadow);
+	overflow: hidden;
+}
+
+.modal-dialog.llm-setup-dialog .modal-header {
+	padding: 18px 22px 12px;
+	border-bottom: 1px solid var(--llm-border);
+	background: linear-gradient(180deg, hsla(60, 22%, 99%, 1), hsla(60, 18%, 98%, 1));
+}
+
+.modal-dialog.llm-setup-dialog .modal-title {
+	font-family: var(--llm-font);
+	font-size: 1.125rem;
+	font-weight: 700;
+	letter-spacing: -0.02em;
+	color: var(--llm-text);
+}
+
+.modal-dialog.llm-setup-dialog .modal-body {
+	padding: 18px 22px 22px;
+	font-family: var(--llm-font);
+}
+
+.modal-dialog.llm-setup-dialog .help-box,
+.modal-dialog.llm-setup-dialog .small.text-muted {
+	color: var(--llm-text-subtle) !important;
+	font-size: 13px;
+	line-height: 1.55;
+}
+
+.modal-dialog.llm-setup-dialog .btn-primary {
+	min-height: 40px;
+	padding-left: 18px;
+	padding-right: 18px;
+	font-weight: 600;
+	border-radius: var(--llm-radius-sm);
+	background-color: var(--llm-accent);
+	border-color: var(--llm-accent);
+	transition: filter var(--llm-duration) var(--llm-ease), transform var(--llm-duration) var(--llm-ease);
+}
+
+.modal-dialog.llm-setup-dialog .btn-primary:hover {
+	filter: brightness(1.05);
+}
+
+.modal-dialog.llm-setup-dialog .btn-primary:focus-visible {
+	outline: 2px solid var(--llm-focus);
+	outline-offset: 2px;
+}
+
+.modal-dialog.llm-setup-dialog textarea.form-control {
+	min-height: 140px;
+	border-radius: var(--llm-radius-sm);
+	border-color: var(--llm-border);
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+	font-size: 12px;
+	line-height: 1.45;
+}
+
+.modal-dialog.llm-setup-dialog textarea.form-control:focus {
+	border-color: var(--llm-focus);
+	box-shadow: 0 0 0 1px var(--llm-focus);
+}
+
+/* —— Headers child table (scoped) —— */
+.frappe-control[data-fieldname="http_headers"] .form-grid {
+	border-radius: var(--llm-radius-md);
+	border: 1px solid var(--llm-border);
+	overflow: hidden;
+}
+
+.frappe-control[data-fieldname="http_headers"] .grid-heading-row {
+	background: hsla(60, 22%, 97%, 0.95);
+	font-weight: 600;
+	color: var(--llm-text);
+}
+
+.frappe-control[data-fieldname="http_headers"] .grid-row {
+	transition: background-color var(--llm-duration) var(--llm-ease);
+}
+
+.frappe-control[data-fieldname="http_headers"] .grid-row:hover {
+	background: hsla(60, 30%, 98%, 0.85);
+}
+
+/* API Key — room for toggle, full-width on narrow layouts */
+.frappe-control[data-fieldname="api_key"] .control-input {
+	position: relative;
+	display: flex;
+	flex-wrap: nowrap;
+	align-items: stretch;
+	min-height: 34px;
+	max-width: 100%;
+}
+
+.frappe-control[data-fieldname="api_key"] .control-input > .form-control,
+.frappe-control[data-fieldname="api_key"] input.form-control {
+	flex: 1 1 auto;
+	min-width: 0;
+	width: 100%;
+	max-width: 100%;
+	box-sizing: border-box;
+	padding-right: 2.5rem !important;
+}
+
+@media (max-width: 576px) {
+	.frappe-control[data-fieldname="api_key"] input.form-control {
+		font-size: 16px; /* reduce iOS zoom-on-focus */
+		min-height: 44px;
+		padding-right: 2.75rem !important;
+	}
+
+	.frappe-control[data-fieldname="api_key"] .cad-api-key-toggle {
+		right: 4px;
+		min-width: 44px;
+		min-height: 44px;
+		padding: 8px;
+	}
+}
+
+/* Reveal plain text when toggled (WebKit can keep disc glyphs otherwise) */
+.frappe-control[data-fieldname="api_key"] input[type="text"].form-control {
+	-webkit-text-security: none !important;
+}
+
+.frappe-control[data-fieldname="api_key"] .toggle-password,
+.frappe-control[data-fieldname="api_key"] .cad-api-key-toggle {
+	opacity: 1 !important;
+	visibility: visible !important;
+	position: absolute;
+	right: 6px;
+	top: 50%;
+	transform: translateY(-50%);
+	z-index: 3;
+	pointer-events: auto;
+	cursor: pointer;
+	border: none;
+	background: transparent;
+	box-shadow: none;
+	min-width: 32px;
+	min-height: 28px;
+	padding: 4px;
+	line-height: 1;
+	border-radius: var(--border-radius, 6px);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.frappe-control[data-fieldname="api_key"] .cad-api-key-toggle:hover {
+	opacity: 0.85;
+}
+
+/* LLM Provider — Base URL / API key use full column width (responsive with Desk models panel) */
+[id="page-LLM Provider"] .form-layout .frappe-control[data-fieldname="base_url"],
+[id="page-LLM Provider"] .form-layout .frappe-control[data-fieldname="api_key"] {
+	max-width: 100% !important;
+	width: 100%;
+	box-sizing: border-box;
+}
+
+[id="page-LLM Provider"] .form-layout .frappe-control[data-fieldname="base_url"] .control-input-wrapper,
+[id="page-LLM Provider"] .form-layout .frappe-control[data-fieldname="api_key"] .control-input-wrapper {
+	max-width: 100%;
+	width: 100%;
+}
+
+[id="page-LLM Provider"] .form-layout .frappe-control[data-fieldname="base_url"] .control-input,
+[id="page-LLM Provider"] .form-layout .frappe-control[data-fieldname="api_key"] .control-input {
+	width: 100%;
+	max-width: 100%;
+}
+
+@media (max-width: 991px) {
+	[id="page-LLM Provider"] .form-layout .form-section.card-section .section-body {
+		padding-left: 12px;
+		padding-right: 12px;
+	}
+}
+
+/* Connection section — Desk models panel (nested rows, responsive gutters — ui-ux-pro-max) */
+.cad-provider-models-panel {
+	position: relative;
+	font-family: var(--llm-font);
+	background: linear-gradient(145deg, var(--llm-bg-card) 0%, var(--llm-bg-wash) 100%);
+	border: 1px solid var(--llm-border);
+	border-radius: var(--llm-radius-md);
+	padding: 16px 18px;
+	margin: 12px 0 10px;
+	max-width: 100%;
+	width: 100%;
+	box-sizing: border-box;
+	box-shadow: var(--llm-shadow);
+}
+
+.cad-provider-models-panel .cad-provider-models-intro-row {
+	margin-bottom: 2px;
+}
+
+.cad-provider-models-panel .cad-provider-models-intro-row .help-box:last-child {
+	margin-bottom: 0;
+}
+
+.cad-provider-models-panel .cad-provider-models-toolbar-row {
+	margin-top: 10px;
+	align-items: flex-start !important;
+}
+
+.cad-provider-models-panel .cad-provider-models-toolbar-row > [class*="col-"] {
+	margin-bottom: 14px;
+	align-self: flex-start !important;
+	min-height: 0;
+	min-width: 0;
+}
+
+@media (min-width: 992px) {
+	.cad-provider-models-panel .cad-provider-models-toolbar-row > [class*="col-"] {
+		margin-bottom: 0;
+	}
+}
+
+.cad-provider-models-panel .cad-provider-models-manual-row {
+	margin-top: 2px;
+}
+
+.cad-provider-models-panel .cad-provider-models-hint-row {
+	margin-top: 6px;
+}
+
+.cad-provider-models-panel .control-label {
+	margin-top: 0;
+	margin-bottom: 6px;
+	font-weight: 600;
+	color: var(--llm-text);
+}
+
+.cad-provider-models-panel .cad-provider-models-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: stretch;
+	justify-content: flex-start;
+	gap: 10px;
+	width: 100%;
+	flex: 0 0 auto;
+}
+
+@media (min-width: 992px) {
+	.cad-provider-models-panel .cad-provider-models-actions {
+		justify-content: flex-end;
+		align-items: stretch;
+		flex-direction: column;
+		gap: 8px;
+		min-width: 200px;
+		max-width: 280px;
+		margin-left: auto;
+		padding: 1.375rem 0 0 16px;
+		border-left: 1px solid var(--llm-border);
+		box-sizing: border-box;
+	}
+}
+
+.cad-provider-models-panel .cad-provider-models-actions .btn {
+	flex: 1 1 auto;
+	min-height: 38px;
+	padding-left: 14px;
+	padding-right: 14px;
+}
+
+@media (min-width: 576px) and (max-width: 991px) {
+	.cad-provider-models-panel .cad-provider-models-actions .btn {
+		flex: 1 1 calc(50% - 5px);
+		min-width: 140px;
+	}
+}
+
+@media (min-width: 992px) {
+	.cad-provider-models-panel .cad-provider-models-actions .btn {
+		flex: 0 1 auto;
+		min-width: 0;
+		width: auto;
+	}
+}
+
+@media (max-width: 575px) {
+	.cad-provider-models-panel .cad-provider-models-actions {
+		flex-direction: column;
+	}
+
+	.cad-provider-models-panel .cad-provider-models-actions .btn {
+		width: 100%;
+		min-height: 44px;
+	}
+}
+
+.cad-provider-models-panel .cad-provider-models-select-wrap {
+	position: relative;
+	z-index: 1;
+	margin-bottom: 0;
+	min-height: 0;
+	min-width: 0;
+}
+
+.cad-provider-models-panel .cad-provider-models-subtle-label {
+	display: block;
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--llm-text-muted);
+	margin: 0 0 6px;
+}
+
+.cad-provider-models-panel .cad-provider-models-manual-wrap {
+	margin-top: 0;
+	padding-top: 14px;
+	border-top: 1px dashed var(--llm-border);
+}
+
+.cad-provider-models-panel .cad-provider-model-manual {
+	font-family: var(--llm-font);
+	min-height: 38px;
+	width: 100%;
+	box-sizing: border-box;
+}
+
+@media (max-width: 575px) {
+	.cad-provider-models-panel .cad-provider-model-manual {
+		min-height: 44px;
+		font-size: 16px;
+	}
+}
+
+/* Searchable model picker — dropdown must not expand layout; scroll lives on the list (flex + min-height:0) */
+.cad-model-combobox {
+	position: relative;
+	width: 100%;
+	max-width: 100%;
+}
+
+.cad-provider-models-select-wrap:has(.cad-model-combobox-inner.is-open) {
+	z-index: 60;
+}
+
+.cad-model-combobox-inner {
+	position: relative;
+	width: 100%;
+	min-height: 0;
+	isolation: isolate;
+}
+
+/* Closed state must not reserve space (some Desk themes weaken [hidden]) */
+.cad-model-combobox-dropdown[hidden] {
+	display: none !important;
+}
+
+/* Open overlay: lock to viewport-relative max height; never stretch the grid column */
+.cad-model-combobox-inner.is-open .cad-model-combobox-dropdown:not([hidden]) {
+	position: absolute !important;
+	left: 0 !important;
+	right: 0 !important;
+	top: calc(100% + 6px) !important;
+	max-height: min(55vh, 380px) !important;
+	overflow: hidden !important;
+	z-index: 200;
+}
+
+.cad-model-combobox-inner.is-open {
+	z-index: 100;
+}
+
+.cad-model-combobox-trigger {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	width: 100%;
+	min-height: 38px;
+	padding: 8px 12px;
+	margin: 0;
+	font-family: var(--llm-font);
+	font-size: 13px;
+	line-height: 1.35;
+	text-align: left;
+	color: var(--llm-text);
+	background: #fff;
+	border: 1px solid var(--llm-border-strong);
+	border-radius: var(--llm-radius-sm);
+	box-shadow: 0 1px 0 rgba(33, 25, 34, 0.04);
+	cursor: pointer;
+	transition: border-color var(--llm-duration) var(--llm-ease), box-shadow var(--llm-duration) var(--llm-ease);
+}
+
+.cad-model-combobox-trigger:hover {
+	border-color: var(--llm-text-subtle);
+}
+
+.cad-model-combobox-inner.is-open .cad-model-combobox-trigger {
+	border-color: var(--llm-focus);
+	box-shadow: 0 0 0 1px var(--llm-focus);
+}
+
+.cad-model-combobox-trigger:focus-visible {
+	outline: none;
+	border-color: var(--llm-focus);
+	box-shadow: 0 0 0 2px rgba(67, 94, 229, 0.35);
+}
+
+.cad-model-combobox-value {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+	font-size: 12.5px;
+}
+
+.cad-model-combobox-value--placeholder {
+	color: var(--llm-text-subtle);
+	font-family: var(--llm-font);
+	font-size: 13px;
+}
+
+.cad-model-combobox-chevron {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	color: var(--llm-text-muted);
+	transition: transform var(--llm-duration) var(--llm-ease);
+}
+
+.cad-model-combobox-inner.is-open .cad-model-combobox-chevron {
+	transform: rotate(180deg);
+	color: var(--llm-text);
+}
+
+.cad-model-combobox-dropdown {
+	position: absolute;
+	left: 0;
+	right: 0;
+	top: calc(100% + 6px);
+	z-index: 200;
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	min-height: 0;
+	max-height: min(55vh, 380px);
+	overflow: hidden;
+	padding: 10px;
+	background: #fff;
+	border: 1px solid var(--llm-border-strong);
+	border-radius: var(--llm-radius-md);
+	box-shadow:
+		0 12px 36px rgba(33, 25, 34, 0.1),
+		0 4px 12px rgba(33, 25, 34, 0.06);
+	box-sizing: border-box;
+	flex: 0 0 auto;
+	width: 100%;
+	margin: 0 0 8px;
+	padding: 8px 10px !important;
+	font-size: 13px !important;
+	border-radius: var(--llm-radius-sm) !important;
+	border: 1px solid var(--llm-border) !important;
+}
+
+.cad-model-combobox-search:focus {
+	border-color: var(--llm-focus) !important;
+	box-shadow: 0 0 0 1px var(--llm-focus) !important;
+	outline: none;
+}
+
+.cad-model-combobox-list {
+	flex: 1 1 auto;
+	min-height: 0;
+	list-style: none;
+	margin: 0;
+	padding: 4px 0;
+	overflow-y: auto;
+	overflow-x: hidden;
+	-webkit-overflow-scrolling: touch;
+	overscroll-behavior: contain;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+	font-size: 12px;
+	line-height: 1.4;
+	border-radius: var(--llm-radius-sm);
+	background: hsla(60, 18%, 99%, 0.6);
+}
+
+.cad-model-combobox-option {
+	margin: 0;
+	padding: 9px 10px;
+	cursor: pointer;
+	color: var(--llm-text);
+	border-radius: var(--llm-radius-sm);
+	transition: background var(--llm-duration) var(--llm-ease);
+	word-break: break-all;
+}
+
+.cad-model-combobox-option:hover,
+.cad-model-combobox-option:focus {
+	background: var(--llm-accent-soft);
+	outline: none;
+}
+
+.cad-model-combobox-option[aria-selected="true"] {
+	background: hsla(60, 25%, 94%, 0.95);
+	font-weight: 600;
+}
+
+.cad-model-combobox-empty {
+	flex: 0 0 auto;
+	margin: 8px 4px 4px !important;
+	padding: 8px !important;
+	text-align: center;
+	color: var(--llm-text-muted) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.cad-model-combobox-trigger,
+	.cad-model-combobox-chevron,
+	.cad-model-combobox-option {
+		transition: none;
+	}
+}
+
+@media (max-width: 576px) {
+	.cad-model-combobox-trigger {
+		min-height: 44px;
+		font-size: 16px;
+	}
+
+	.cad-model-combobox-search {
+		font-size: 16px !important;
+		min-height: 44px;
+	}
+
+	.cad-model-combobox-option {
+		min-height: 44px;
+		display: flex;
+		align-items: center;
+		padding: 10px 12px;
+		font-size: 14px;
+	}
+}
+

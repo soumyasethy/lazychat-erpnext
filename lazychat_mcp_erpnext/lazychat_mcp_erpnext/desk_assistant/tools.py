@@ -1,0 +1,1231 @@
+import io
+import json
+import re
+import secrets
+
+import frappe
+
+PREP_TTL_SEC = 300
+PREP_KEY = "lazychat:prep:"
+
+# DANGEROUS-TOOL GUARD
+# These tools (prepare_run_sql, prepare_run_python) require:
+#   1. site_config.json: "lazychat_allow_dangerous_tools": true
+#   2. Caller has "System Manager" role
+#   3. User /commit confirmation per call (two-phase)
+SQL_DML_PATTERN = re.compile(
+	r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|REPLACE|GRANT|REVOKE|RENAME|LOCK|UNLOCK|CALL|HANDLER)\b",
+	re.IGNORECASE,
+)
+SQL_ALLOWED_PATTERN = re.compile(r"^\s*(WITH|SELECT|\()", re.IGNORECASE)
+
+
+def _dangerous_tools_enabled():
+	if not frappe.get_site_config().get("lazychat_allow_dangerous_tools"):
+		return False, "dangerous tools disabled (set 'lazychat_allow_dangerous_tools': true in site_config.json)"
+	if "System Manager" not in frappe.get_roles():
+		return False, "requires System Manager role"
+	return True, None
+
+
+def _validate_select_sql(sql):
+	stripped = (sql or "").strip().rstrip(";")
+	if not stripped:
+		return "empty query"
+	if ";" in stripped:
+		return "multi-statement queries not allowed"
+	if not SQL_ALLOWED_PATTERN.match(stripped):
+		return "only SELECT (or WITH ... SELECT) queries allowed"
+	if SQL_DML_PATTERN.search(stripped):
+		return "DML/DDL keywords not allowed (INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/...)"
+	return None  # OK
+
+
+def _stage_action(action, payload):
+	"""Cache an action payload bound to the current user; return a one-time token."""
+	token = secrets.token_urlsafe(16)
+	user = frappe.session.user
+	frappe.cache().set_value(
+		PREP_KEY + token,
+		json.dumps({"action": action, "user": user, "payload": payload}, default=str),
+		expires_in_sec=PREP_TTL_SEC,
+	)
+	return token
+
+
+def _retrieve_action(token):
+	user = frappe.session.user
+	raw = frappe.cache().get_value(PREP_KEY + token)
+	if not raw:
+		return None
+	try:
+		obj = json.loads(raw if isinstance(raw, str) else raw.decode("utf-8"))
+	except Exception:
+		return None
+	if obj.get("user") != user:
+		return None
+	return obj
+
+
+def _consume_action(token):
+	frappe.cache().delete_value(PREP_KEY + token)
+
+
+def execute_tool(name, args, *, allow_writes=False, desk_context=None):
+	if name == "get_list":
+		dt = args.get("doctype")
+		if not dt or not frappe.db.exists("DocType", dt):
+			return {"error": "invalid doctype"}
+		if not frappe.has_permission(dt, "read"):
+			return {"error": "no read permission"}
+		filters = args.get("filters") or {}
+		if isinstance(filters, str):
+			filters = json.loads(filters)
+		fields = args.get("fields") or ["name"]
+		limit = min(int(args.get("limit") or 20), 50)
+		try:
+			rows = frappe.get_list(dt, filters=filters, fields=fields, limit_page_length=limit)
+			return {"ok": True, "count": len(rows), "rows": rows}
+		except Exception as e:
+			return {"error": str(e)}
+
+	if name == "get_doc":
+		dt = args.get("doctype")
+		dn = args.get("name")
+		if not dt or not dn:
+			return {"error": "doctype and name required"}
+		if not frappe.has_permission(dt, "read", doc=dn):
+			return {"error": "no read permission"}
+		try:
+			doc = frappe.get_doc(dt, dn)
+			return {"ok": True, "doc": doc.as_dict()}
+		except Exception as e:
+			return {"error": str(e)}
+
+	if name == "get_current_context":
+		return {"ok": True, "context": desk_context or {}}
+
+	if name == "describe_doctype":
+		dt = args.get("doctype")
+		if not dt or not frappe.db.exists("DocType", dt):
+			return {"error": "invalid doctype"}
+		if not frappe.has_permission(dt, "read"):
+			return {"error": "no read permission"}
+		try:
+			meta = frappe.get_meta(dt)
+			fields = []
+			for df in meta.fields:
+				fields.append(
+					{
+						"fieldname": df.fieldname,
+						"label": df.label,
+						"fieldtype": df.fieldtype,
+						"options": df.options,
+						"reqd": bool(df.reqd),
+						"read_only": bool(df.read_only),
+						"hidden": bool(df.hidden),
+					}
+				)
+			return {
+				"ok": True,
+				"doctype": dt,
+				"is_submittable": bool(meta.is_submittable),
+				"is_table": bool(meta.istable),
+				"fields": fields,
+			}
+		except Exception as e:
+			return {"error": str(e)}
+
+	if name == "prepare_create_doc":
+		dt = args.get("doctype")
+		values = args.get("values") or {}
+		if not dt or not frappe.db.exists("DocType", dt):
+			return {"error": "invalid doctype"}
+		if not frappe.has_permission(dt, "create"):
+			return {"error": "no create permission"}
+		token = _stage_action("create", {"doctype": dt, "values": values})
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will create {dt} with {len(values)} field(s)",
+			"preview": {"doctype": dt, "fields": values},
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "prepare_update_doc":
+		dt = args.get("doctype")
+		dn = args.get("name")
+		patch = args.get("patch") or {}
+		if not dt or not dn:
+			return {"error": "doctype and name required"}
+		if not frappe.has_permission(dt, "write", doc=dn):
+			return {"error": "no write permission"}
+		try:
+			doc = frappe.get_doc(dt, dn)
+		except Exception as e:
+			return {"error": str(e)}
+		diff = {}
+		for f, v in patch.items():
+			diff[f] = {"from": doc.get(f) if hasattr(doc, "get") else None, "to": v}
+		token = _stage_action("update", {"doctype": dt, "name": dn, "patch": patch})
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will update {dt}/{dn} — {len(patch)} field(s)",
+			"diff": diff,
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "prepare_submit_doc":
+		dt = args.get("doctype")
+		dn = args.get("name")
+		if not dt or not dn:
+			return {"error": "doctype and name required"}
+		if not frappe.has_permission(dt, "submit", doc=dn):
+			return {"error": "no submit permission"}
+		try:
+			meta = frappe.get_meta(dt)
+		except Exception as e:
+			return {"error": str(e)}
+		if not meta.is_submittable:
+			return {"error": f"{dt} is not submittable"}
+		token = _stage_action("submit", {"doctype": dt, "name": dn})
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will submit {dt}/{dn}",
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "list_workflow_actions":
+		dt = args.get("doctype")
+		dn = args.get("name")
+		if not dt or not dn:
+			return {"error": "doctype and name required"}
+		if not frappe.has_permission(dt, "read", doc=dn):
+			return {"error": "no read permission"}
+		try:
+			from frappe.model.workflow import get_transitions
+
+			doc = frappe.get_doc(dt, dn)
+			transitions = get_transitions(doc) or []
+			return {
+				"ok": True,
+				"doctype": dt,
+				"name": dn,
+				"current_state": getattr(doc, "workflow_state", None),
+				"transitions": [
+					{
+						"action": t.get("action"),
+						"next_state": t.get("next_state"),
+						"allowed_role": t.get("allowed"),
+					}
+					for t in transitions
+				],
+			}
+		except Exception as e:
+			return {"error": str(e)}
+
+	if name == "prepare_workflow_action":
+		dt = args.get("doctype")
+		dn = args.get("name")
+		action = args.get("action")
+		if not dt or not dn or not action:
+			return {"error": "doctype, name, and action required"}
+		if not frappe.has_permission(dt, "write", doc=dn):
+			return {"error": "no write permission"}
+		try:
+			from frappe.model.workflow import get_transitions
+
+			doc = frappe.get_doc(dt, dn)
+			allowed = [t.get("action") for t in (get_transitions(doc) or [])]
+			if action not in allowed:
+				return {
+					"error": f"action '{action}' not allowed from current state",
+					"allowed": allowed,
+				}
+		except Exception as e:
+			return {"error": str(e)}
+		token = _stage_action("workflow_action", {"doctype": dt, "name": dn, "action": action})
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will apply workflow action '{action}' on {dt}/{dn}",
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "prepare_add_comment":
+		dt = args.get("doctype")
+		dn = args.get("name")
+		text = args.get("text")
+		if not dt or not dn or not text:
+			return {"error": "doctype, name, and text required"}
+		if not frappe.has_permission(dt, "read", doc=dn):
+			return {"error": "no read permission"}
+		token = _stage_action("add_comment", {"doctype": dt, "name": dn, "text": text})
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will add comment on {dt}/{dn}",
+			"preview": {"text": text[:500]},
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "prepare_assign_to":
+		dt = args.get("doctype")
+		dn = args.get("name")
+		assign_user = args.get("user")
+		description = args.get("description") or ""
+		if not dt or not dn or not assign_user:
+			return {"error": "doctype, name, and user required"}
+		if not frappe.has_permission(dt, "read", doc=dn):
+			return {"error": "no read permission"}
+		if not frappe.db.exists("User", assign_user):
+			return {"error": f"user not found: {assign_user}"}
+		token = _stage_action(
+			"assign_to",
+			{"doctype": dt, "name": dn, "user": assign_user, "description": description},
+		)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will assign {dt}/{dn} to {assign_user}",
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "aggregate":
+		dt = args.get("doctype")
+		func = (args.get("function") or "").lower()
+		field = args.get("field") or "name"
+		group_by = args.get("group_by")
+		filters = args.get("filters") or {}
+		limit = min(int(args.get("limit") or 50), 200)
+		if not dt or not frappe.db.exists("DocType", dt):
+			return {"error": "invalid doctype"}
+		if not frappe.has_permission(dt, "read"):
+			return {"error": "no read permission"}
+		if func not in ("sum", "avg", "count", "min", "max"):
+			return {"error": "function must be one of sum/avg/count/min/max"}
+		if isinstance(filters, str):
+			try:
+				filters = json.loads(filters)
+			except Exception:
+				return {"error": "filters must be a JSON object or list"}
+		# Validate field/group_by are real fieldnames on the doctype
+		try:
+			meta = frappe.get_meta(dt)
+			valid_fields = {df.fieldname for df in meta.fields} | {"name", "creation", "modified", "owner", "modified_by", "docstatus"}
+			if field != "name" and field not in valid_fields:
+				return {"error": f"unknown field on {dt}: {field}"}
+			if group_by and group_by not in valid_fields:
+				return {"error": f"unknown field on {dt}: {group_by}"}
+		except Exception as e:
+			return {"error": str(e)}
+		select_fields = []
+		if group_by:
+			select_fields.append(group_by)
+		select_fields.append(f"{func}(`{field}`) as value")
+		try:
+			rows = frappe.get_all(
+				dt,
+				filters=filters,
+				fields=select_fields,
+				group_by=group_by,
+				order_by="value desc",
+				limit_page_length=limit,
+			)
+			return {
+				"ok": True,
+				"doctype": dt,
+				"function": func,
+				"field": field,
+				"group_by": group_by,
+				"count": len(rows),
+				"rows": rows,
+			}
+		except Exception as e:
+			return {"error": str(e)}
+
+	if name == "dashboard_chart_data":
+		chart_name = args.get("name")
+		if not chart_name or not frappe.db.exists("Dashboard Chart", chart_name):
+			return {"error": "invalid Dashboard Chart name"}
+		if not frappe.has_permission("Dashboard Chart", "read", doc=chart_name):
+			return {"error": "no read permission on Dashboard Chart"}
+		try:
+			from frappe.desk.doctype.dashboard_chart.dashboard_chart import get
+
+			data = get(chart_name=chart_name, refresh=1)
+			return {"ok": True, "name": chart_name, "data": data}
+		except Exception as e:
+			return {"error": str(e)}
+
+	if name == "search_global":
+		query = (args.get("query") or "").strip()
+		if not query:
+			return {"error": "query required"}
+		doctypes = args.get("doctypes") or []
+		if isinstance(doctypes, str):
+			doctypes = [doctypes]
+		limit = min(int(args.get("limit") or 20), 50)
+		try:
+			where = ["content LIKE %(q)s"]
+			params = {"q": f"%{query}%", "limit": limit}
+			if doctypes:
+				ph = ", ".join(f"%(dt{i})s" for i in range(len(doctypes)))
+				where.append(f"doctype IN ({ph})")
+				for i, dt in enumerate(doctypes):
+					params[f"dt{i}"] = dt
+			rows = frappe.db.sql(
+				f"SELECT doctype, name, content FROM `__global_search` WHERE {' AND '.join(where)} LIMIT %(limit)s",
+				params,
+				as_dict=True,
+			)
+			# permission filter
+			out = []
+			for r in rows:
+				if frappe.has_permission(r["doctype"], "read", doc=r["name"]):
+					snippet = (r.get("content") or "").strip()[:240]
+					out.append({"doctype": r["doctype"], "name": r["name"], "snippet": snippet})
+			return {"ok": True, "count": len(out), "results": out}
+		except Exception as e:
+			return {"error": str(e)}
+
+	if name == "count_doc":
+		dt = args.get("doctype")
+		if not dt or not frappe.db.exists("DocType", dt):
+			return {"error": "invalid doctype"}
+		if not frappe.has_permission(dt, "read"):
+			return {"error": "no read permission"}
+		filters = args.get("filters") or {}
+		if isinstance(filters, str):
+			try:
+				filters = json.loads(filters)
+			except Exception:
+				return {"error": "invalid filters JSON"}
+		try:
+			n = frappe.db.count(dt, filters=filters)
+			return {"ok": True, "doctype": dt, "count": int(n)}
+		except Exception as e:
+			return {"error": str(e)}
+
+	if name == "get_value":
+		dt = args.get("doctype")
+		dn = args.get("name")
+		field = args.get("fieldname")
+		if not dt or not dn or not field:
+			return {"error": "doctype, name, fieldname required"}
+		if not frappe.has_permission(dt, "read", doc=dn):
+			return {"error": "no read permission"}
+		try:
+			v = frappe.db.get_value(dt, dn, field)
+			return {"ok": True, "doctype": dt, "name": dn, "fieldname": field, "value": v}
+		except Exception as e:
+			return {"error": str(e)}
+
+	if name == "get_doctype_links":
+		dt = args.get("doctype")
+		dn = args.get("name")
+		if not dt or not dn:
+			return {"error": "doctype and name required"}
+		if not frappe.has_permission(dt, "read", doc=dn):
+			return {"error": "no read permission"}
+		try:
+			from frappe.desk.form.linked_with import get_linked_doctypes
+
+			linkinfo = get_linked_doctypes(dt) or {}
+			out = {}
+			for linked_dt, info in linkinfo.items():
+				if not frappe.has_permission(linked_dt, "read"):
+					continue
+				link_field = info.get("fieldname") if isinstance(info, dict) else None
+				if not link_field:
+					continue
+				try:
+					rows = frappe.get_all(
+						linked_dt, filters={link_field: dn}, fields=["name"], limit_page_length=20
+					)
+					if rows:
+						out[linked_dt] = [r["name"] for r in rows]
+				except Exception:
+					continue
+			return {"ok": True, "doctype": dt, "name": dn, "linked": out, "linked_count": sum(len(v) for v in out.values())}
+		except Exception as e:
+			return {"error": str(e)}
+
+	if name == "list_reports":
+		module = args.get("module")
+		filters = {"disabled": 0}
+		if module:
+			filters["module"] = module
+		try:
+			rows = frappe.get_all(
+				"Report",
+				filters=filters,
+				fields=["name", "report_type", "ref_doctype", "module"],
+				limit_page_length=100,
+				order_by="name",
+			)
+			# Filter by user perm on ref_doctype
+			out = [r for r in rows if not r.get("ref_doctype") or frappe.has_permission(r["ref_doctype"], "read")]
+			return {"ok": True, "count": len(out), "reports": out}
+		except Exception as e:
+			return {"error": str(e)}
+
+	if name == "run_report":
+		report_name = args.get("name")
+		report_filters = args.get("filters") or {}
+		if isinstance(report_filters, str):
+			try:
+				report_filters = json.loads(report_filters)
+			except Exception:
+				return {"error": "invalid filters JSON"}
+		if not report_name or not frappe.db.exists("Report", report_name):
+			return {"error": "invalid report name"}
+		try:
+			ref_dt = frappe.db.get_value("Report", report_name, "ref_doctype")
+			if ref_dt and not frappe.has_permission(ref_dt, "read"):
+				return {"error": "no read permission on report's ref_doctype"}
+			from frappe.desk.query_report import run
+
+			data = run(report_name=report_name, filters=report_filters)
+			# Trim huge results
+			result = data.get("result") if isinstance(data, dict) else data
+			if isinstance(result, list) and len(result) > 200:
+				result = result[:200]
+				truncated = True
+			else:
+				truncated = False
+			return {
+				"ok": True,
+				"report": report_name,
+				"columns": data.get("columns") if isinstance(data, dict) else None,
+				"result": result,
+				"truncated": truncated,
+			}
+		except Exception as e:
+			return {"error": str(e)}
+
+	if name == "get_stock_balance":
+		item_code = args.get("item_code")
+		warehouse = args.get("warehouse")
+		posting_date = args.get("posting_date")
+		if not item_code:
+			return {"error": "item_code required"}
+		try:
+			from erpnext.stock.utils import get_stock_balance
+
+			bal = get_stock_balance(item_code, warehouse, posting_date) if warehouse else get_stock_balance(item_code, None, posting_date)
+			return {
+				"ok": True,
+				"item_code": item_code,
+				"warehouse": warehouse,
+				"posting_date": posting_date,
+				"balance": bal,
+			}
+		except ImportError:
+			return {"error": "erpnext not installed"}
+		except Exception as e:
+			return {"error": str(e)}
+
+	if name == "get_account_balance":
+		account = args.get("account")
+		date = args.get("date")
+		if not account or not frappe.db.exists("Account", account):
+			return {"error": "invalid account"}
+		if not frappe.has_permission("Account", "read", doc=account):
+			return {"error": "no read permission on Account"}
+		try:
+			from erpnext.accounts.utils import get_balance_on
+
+			bal = get_balance_on(account=account, date=date)
+			return {"ok": True, "account": account, "date": date, "balance": bal}
+		except ImportError:
+			return {"error": "erpnext not installed"}
+		except Exception as e:
+			return {"error": str(e)}
+
+	if name == "get_outstanding":
+		party_type = args.get("party_type")
+		party = args.get("party")
+		if party_type not in ("Customer", "Supplier"):
+			return {"error": "party_type must be Customer or Supplier"}
+		if not party or not frappe.db.exists(party_type, party):
+			return {"error": f"invalid {party_type}"}
+		if not frappe.has_permission(party_type, "read", doc=party):
+			return {"error": f"no read permission on {party_type}"}
+		invoice_dt = "Sales Invoice" if party_type == "Customer" else "Purchase Invoice"
+		party_field = "customer" if party_type == "Customer" else "supplier"
+		try:
+			rows = frappe.get_all(
+				invoice_dt,
+				filters={party_field: party, "docstatus": 1, "outstanding_amount": [">", 0]},
+				fields=["name", "posting_date", "due_date", "grand_total", "outstanding_amount", "status"],
+				order_by="due_date asc",
+				limit_page_length=100,
+			)
+			total = sum((r.get("outstanding_amount") or 0) for r in rows)
+			return {
+				"ok": True,
+				"party_type": party_type,
+				"party": party,
+				"total_outstanding": total,
+				"invoice_count": len(rows),
+				"invoices": rows,
+			}
+		except Exception as e:
+			return {"error": str(e)}
+
+	if name == "get_open_invoices":
+		party_type = args.get("party_type")
+		party = args.get("party")
+		invoice_dt = "Sales Invoice" if party_type == "Customer" else "Purchase Invoice" if party_type == "Supplier" else None
+		if not invoice_dt:
+			return {"error": "party_type must be Customer or Supplier"}
+		if not frappe.has_permission(invoice_dt, "read"):
+			return {"error": f"no read permission on {invoice_dt}"}
+		filters = {"docstatus": 1, "outstanding_amount": [">", 0]}
+		if party:
+			party_field = "customer" if party_type == "Customer" else "supplier"
+			filters[party_field] = party
+		try:
+			rows = frappe.get_all(
+				invoice_dt,
+				filters=filters,
+				fields=["name", "posting_date", "due_date", "grand_total", "outstanding_amount", "status"],
+				order_by="due_date asc",
+				limit_page_length=int(args.get("limit") or 50),
+			)
+			return {"ok": True, "doctype": invoice_dt, "count": len(rows), "invoices": rows}
+		except Exception as e:
+			return {"error": str(e)}
+
+	if name == "get_sales_summary":
+		group_by = args.get("group_by") or "customer"
+		from_date = args.get("from_date")
+		to_date = args.get("to_date")
+		customer = args.get("customer")
+		if not frappe.has_permission("Sales Invoice", "read"):
+			return {"error": "no read permission on Sales Invoice"}
+		filters = {"docstatus": 1}
+		if from_date:
+			filters["posting_date"] = [">=", from_date]
+		if to_date:
+			filters.setdefault("posting_date", [">=", "1900-01-01"])
+			filters["posting_date"] = ["between", [filters["posting_date"][1] if isinstance(filters["posting_date"], list) and filters["posting_date"][0] == ">=" else from_date or "1900-01-01", to_date]]
+		if customer:
+			filters["customer"] = customer
+		# Whitelist group_by to known fields on Sales Invoice
+		allowed_group_by = {"customer", "owner", "company", "currency", "status", "posting_date"}
+		if group_by not in allowed_group_by:
+			return {"error": f"group_by must be one of {sorted(allowed_group_by)}"}
+		try:
+			rows = frappe.get_all(
+				"Sales Invoice",
+				filters=filters,
+				fields=[group_by, "sum(grand_total) as total", "count(name) as invoices"],
+				group_by=group_by,
+				order_by="total desc",
+				limit_page_length=int(args.get("limit") or 50),
+			)
+			return {"ok": True, "group_by": group_by, "rows": rows}
+		except Exception as e:
+			return {"error": str(e)}
+
+	if name == "get_item_price":
+		item_code = args.get("item_code")
+		price_list = args.get("price_list")
+		if not item_code:
+			return {"error": "item_code required"}
+		filters = {"item_code": item_code}
+		if price_list:
+			filters["price_list"] = price_list
+		try:
+			rows = frappe.get_all(
+				"Item Price",
+				filters=filters,
+				fields=["price_list", "price_list_rate", "currency", "valid_from", "valid_upto", "uom"],
+				order_by="valid_from desc",
+				limit_page_length=20,
+			)
+			return {"ok": True, "item_code": item_code, "count": len(rows), "prices": rows}
+		except Exception as e:
+			return {"error": str(e)}
+
+	if name == "get_company_defaults":
+		try:
+			defaults = dict(frappe.defaults.get_defaults() or {})
+			# Strip private fields
+			for k in list(defaults.keys()):
+				if k.startswith("_") or "password" in k.lower():
+					defaults.pop(k)
+			company = defaults.get("company") or defaults.get("Company")
+			company_info = None
+			if company and frappe.db.exists("Company", company):
+				company_info = frappe.db.get_value(
+					"Company",
+					company,
+					["name", "default_currency", "country", "default_letter_head"],
+					as_dict=True,
+				)
+			return {
+				"ok": True,
+				"defaults": defaults,
+				"company": company_info,
+				"current_user": frappe.session.user,
+				"user_roles": frappe.get_roles(),
+			}
+		except Exception as e:
+			return {"error": str(e)}
+
+	if name == "prepare_send_email":
+		# Gated by site_config flag — opt-in to prevent accidental mass-mail.
+		if not frappe.get_site_config().get("lazychat_allow_email"):
+			return {
+				"error": "Email sending disabled. Set 'lazychat_allow_email': true in site_config.json to enable.",
+			}
+		recipients = args.get("recipients") or []
+		if isinstance(recipients, str):
+			recipients = [r.strip() for r in recipients.split(",") if r.strip()]
+		subject = args.get("subject") or ""
+		content = args.get("content") or ""
+		ref_dt = args.get("doctype")
+		ref_name = args.get("name")
+		if not recipients or not subject:
+			return {"error": "recipients and subject required"}
+		if ref_dt and ref_name and not frappe.has_permission(ref_dt, "read", doc=ref_name):
+			return {"error": "no read permission on referenced doc"}
+		token = _stage_action(
+			"send_email",
+			{
+				"recipients": recipients,
+				"subject": subject,
+				"content": content,
+				"doctype": ref_dt,
+				"name": ref_name,
+			},
+		)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will email {len(recipients)} recipient(s): '{subject}'",
+			"preview": {
+				"recipients": recipients,
+				"subject": subject,
+				"content": content[:500],
+				"linked": f"{ref_dt}/{ref_name}" if ref_dt and ref_name else None,
+			},
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "prepare_delete_doc":
+		dt = args.get("doctype")
+		dn = args.get("name")
+		if not dt or not dn:
+			return {"error": "doctype and name required"}
+		if not frappe.has_permission(dt, "delete", doc=dn):
+			return {"error": "no delete permission"}
+		if not frappe.db.exists(dt, dn):
+			return {"error": f"{dt}/{dn} does not exist"}
+		token = _stage_action("delete", {"doctype": dt, "name": dn})
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will delete {dt}/{dn} (irreversible)",
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "search_doctype":
+		query = (args.get("query") or "").strip()
+		limit = min(int(args.get("limit") or 20), 50)
+		if not query:
+			return {"error": "query required"}
+		try:
+			rows = frappe.get_all(
+				"DocType",
+				filters={"name": ["like", f"%{query}%"], "istable": 0},
+				fields=["name", "module", "is_submittable", "issingle"],
+				order_by="name",
+				limit_page_length=limit,
+			)
+			out = [r for r in rows if frappe.has_permission(r["name"], "read")]
+			return {"ok": True, "query": query, "count": len(out), "doctypes": out}
+		except Exception as e:
+			return {"error": str(e)}
+
+	if name == "search_link":
+		dt = args.get("doctype")
+		txt = args.get("query") or ""
+		limit = min(int(args.get("limit") or 10), 50)
+		if not dt or not frappe.db.exists("DocType", dt):
+			return {"error": "invalid doctype"}
+		if not frappe.has_permission(dt, "read"):
+			return {"error": "no read permission"}
+		try:
+			from frappe.desk.search import search_link as _search_link
+
+			# search_link writes its result to frappe.response["results"]
+			frappe.response.pop("results", None)
+			_search_link(doctype=dt, txt=txt, page_length=limit)
+			results = frappe.response.get("results") or []
+			return {"ok": True, "doctype": dt, "query": txt, "count": len(results), "results": results}
+		except Exception as e:
+			return {"error": str(e)}
+
+	if name == "get_pending_approvals":
+		target_user = args.get("user") or frappe.session.user
+		if target_user != frappe.session.user and "System Manager" not in frappe.get_roles():
+			return {"error": "can only view your own pending approvals (or be System Manager)"}
+		try:
+			rows = frappe.get_all(
+				"Workflow Action",
+				filters={"user": target_user, "status": "Open"},
+				fields=["name", "reference_doctype", "reference_name", "workflow_state", "creation"],
+				order_by="creation desc",
+				limit_page_length=int(args.get("limit") or 50),
+			)
+			# Enrich each with doc title (if accessible)
+			out = []
+			for r in rows:
+				if not frappe.has_permission(r["reference_doctype"], "read", doc=r["reference_name"]):
+					continue
+				title = frappe.db.get_value(r["reference_doctype"], r["reference_name"], "title") or r["reference_name"]
+				out.append({
+					"workflow_action": r["name"],
+					"doctype": r["reference_doctype"],
+					"name": r["reference_name"],
+					"title": title,
+					"workflow_state": r["workflow_state"],
+					"created": r["creation"],
+				})
+			return {"ok": True, "user": target_user, "count": len(out), "pending": out}
+		except Exception as e:
+			return {"error": str(e)}
+
+	if name == "report_requirements":
+		report_name = args.get("name")
+		if not report_name or not frappe.db.exists("Report", report_name):
+			return {"error": "invalid report name"}
+		try:
+			rep = frappe.get_doc("Report", report_name)
+			if rep.ref_doctype and not frappe.has_permission(rep.ref_doctype, "read"):
+				return {"error": "no read permission on report's ref_doctype"}
+			info = {
+				"name": rep.name,
+				"report_type": rep.report_type,
+				"ref_doctype": rep.ref_doctype,
+				"is_standard": rep.is_standard,
+			}
+			# Filters live in `json` for Report Builder; in `script_filters` or JS for Script Reports.
+			if rep.report_type == "Report Builder":
+				try:
+					rb = json.loads(rep.json or "{}")
+					info["filters"] = rb.get("filters") or []
+					info["columns"] = rb.get("columns") or []
+				except Exception:
+					info["filters"] = []
+			elif rep.report_type == "Script Report":
+				info["filters_hint"] = "Script Report — filter definitions live in the .js file alongside the report; pass filters as a JSON object when calling run_report"
+			elif rep.report_type == "Query Report":
+				info["query_excerpt"] = (rep.query or "")[:500]
+				info["filters_hint"] = "Query Report — supply filters as %(name)s parameters used in the SQL"
+			return {"ok": True, "info": info}
+		except Exception as e:
+			return {"error": str(e)}
+
+	if name == "list_user_dashboards":
+		try:
+			user = frappe.session.user
+			# owned + shared dashboards
+			owned = frappe.get_all(
+				"Dashboard",
+				filters={"owner": user},
+				fields=["name", "dashboard_name", "is_default", "owner", "modified"],
+				limit_page_length=50,
+			)
+			shared = frappe.get_all(
+				"DocShare",
+				filters={"share_doctype": "Dashboard", "user": user},
+				fields=["share_name as name"],
+				limit_page_length=50,
+			)
+			shared_names = [s["name"] for s in shared if s.get("name")]
+			extra = []
+			if shared_names:
+				extra = frappe.get_all(
+					"Dashboard",
+					filters={"name": ["in", shared_names]},
+					fields=["name", "dashboard_name", "is_default", "owner", "modified"],
+					limit_page_length=50,
+				)
+			# dedupe by name
+			by_name = {d["name"]: d for d in owned}
+			for d in extra:
+				by_name.setdefault(d["name"], d)
+			# also list public dashboards (no DocShare needed) — best-effort
+			try:
+				public = frappe.get_all(
+					"Dashboard",
+					filters={"is_default": 1},
+					fields=["name", "dashboard_name", "is_default", "owner", "modified"],
+					limit_page_length=20,
+				)
+				for d in public:
+					by_name.setdefault(d["name"], d)
+			except Exception:
+				pass
+			return {"ok": True, "count": len(by_name), "dashboards": list(by_name.values())}
+		except Exception as e:
+			return {"error": str(e)}
+
+	if name == "extract_file_content":
+		ref = (args.get("file") or args.get("name") or "").strip()
+		max_chars = min(int(args.get("max_chars") or 20000), 100000)
+		if not ref:
+			return {"error": "file (File doctype name or file_url) required"}
+		try:
+			# Resolve File doc by name OR by file_url
+			file_doc = None
+			if frappe.db.exists("File", ref):
+				file_doc = frappe.get_doc("File", ref)
+			else:
+				# try by file_url
+				match = frappe.get_all("File", filters={"file_url": ref}, limit=1, fields=["name"])
+				if match:
+					file_doc = frappe.get_doc("File", match[0].name)
+			if not file_doc:
+				return {"error": f"File not found: {ref}"}
+			# Permission: if attached to a doc, check perm on that doc
+			if file_doc.attached_to_doctype and file_doc.attached_to_name:
+				if not frappe.has_permission(file_doc.attached_to_doctype, "read", doc=file_doc.attached_to_name):
+					return {"error": "no read permission on attached doc"}
+			try:
+				content_bytes = file_doc.get_content()
+			except FileNotFoundError:
+				return {
+					"error": "file record exists but underlying file is missing on disk",
+					"name": file_doc.name,
+					"file_url": file_doc.file_url,
+				}
+			if isinstance(content_bytes, bytes):
+				try:
+					text = content_bytes.decode("utf-8")
+				except UnicodeDecodeError:
+					return {
+						"ok": False,
+						"error": "binary file — text extraction not supported (only UTF-8 text files)",
+						"file_name": file_doc.file_name,
+						"file_size": file_doc.file_size,
+						"file_type": file_doc.file_type,
+					}
+			else:
+				text = str(content_bytes)
+			truncated = len(text) > max_chars
+			return {
+				"ok": True,
+				"name": file_doc.name,
+				"file_name": file_doc.file_name,
+				"file_url": file_doc.file_url,
+				"file_size": file_doc.file_size,
+				"truncated": truncated,
+				"content": text[:max_chars],
+			}
+		except Exception as e:
+			return {"error": str(e)}
+
+	if name == "prepare_run_sql":
+		ok, err = _dangerous_tools_enabled()
+		if not ok:
+			return {"error": err}
+		query = (args.get("query") or "").strip()
+		validation_error = _validate_select_sql(query)
+		if validation_error:
+			return {"error": validation_error}
+		limit = min(int(args.get("limit") or 200), 1000)
+		token = _stage_action("run_sql", {"query": query, "limit": limit})
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will execute SELECT query (returns up to {limit} rows)",
+			"preview": {"query": query[:2000], "limit": limit, "warning": "Raw SQL bypasses Frappe per-user permissions — review the query carefully before /commit."},
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "prepare_run_python":
+		ok, err = _dangerous_tools_enabled()
+		if not ok:
+			return {"error": err}
+		code = args.get("code") or ""
+		if not code.strip():
+			return {"error": "code required"}
+		timeout = min(int(args.get("timeout") or 30), 120)
+		token = _stage_action("run_python", {"code": code, "timeout": timeout})
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will execute Python code (timeout {timeout}s) with full Frappe access",
+			"preview": {"code": code[:4000], "timeout": timeout, "warning": "This code runs with FULL access to your Frappe data and the server filesystem (as the calling user). Review carefully before /commit."},
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "prepare_share_doc":
+		dt = args.get("doctype")
+		dn = args.get("name")
+		share_user = args.get("user")
+		read = bool(args.get("read", True))
+		write = bool(args.get("write", False))
+		if not dt or not dn or not share_user:
+			return {"error": "doctype, name, user required"}
+		if not frappe.has_permission(dt, "share", doc=dn):
+			return {"error": "no share permission on this doc (need 'Share' perm)"}
+		if not frappe.db.exists("User", share_user):
+			return {"error": f"user not found: {share_user}"}
+		token = _stage_action(
+			"share_doc",
+			{"doctype": dt, "name": dn, "user": share_user, "read": read, "write": write},
+		)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will share {dt}/{dn} with {share_user} (read={read}, write={write})",
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "number_card_value":
+		card_name = args.get("name")
+		if not card_name or not frappe.db.exists("Number Card", card_name):
+			return {"error": "invalid Number Card name"}
+		if not frappe.has_permission("Number Card", "read", doc=card_name):
+			return {"error": "no read permission on Number Card"}
+		try:
+			card = frappe.get_doc("Number Card", card_name)
+			ctype = (card.get("type") or "Document Type") if hasattr(card, "get") else "Document Type"
+			if ctype != "Document Type" or not card.get("document_type"):
+				return {
+					"error": f"Number Card type '{ctype}' is not supported (only 'Document Type' cards have a server-side value endpoint)",
+					"card_type": ctype,
+				}
+			from frappe.desk.doctype.number_card.number_card import get_result
+
+			card_filters = []
+			fj = card.get("filters_json")
+			if fj:
+				try:
+					card_filters = json.loads(fj)
+				except Exception:
+					card_filters = []
+			value = get_result(card.as_dict(), card_filters)
+			return {"ok": True, "name": card_name, "value": value, "label": card.label}
+		except Exception as e:
+			return {"error": str(e)}
+
+	return {"error": f"unknown tool {name}"}
+
+
+def commit_prepared(token):
+	"""Execute a previously staged action. Called by /commit slash command, NOT by the LLM."""
+	obj = _retrieve_action(token)
+	if not obj:
+		return {"ok": False, "error": "Token not found, expired, or not yours"}
+	action = obj["action"]
+	payload = obj["payload"]
+	sp_name = "lazychat_commit"
+	try:
+		frappe.db.savepoint(sp_name)
+		if action == "create":
+			doc = frappe.get_doc({"doctype": payload["doctype"], **(payload["values"] or {})})
+			if not frappe.has_permission(payload["doctype"], "create"):
+				return {"ok": False, "error": "no create permission at commit time"}
+			doc.insert()
+		elif action == "update":
+			if not frappe.has_permission(payload["doctype"], "write", doc=payload["name"]):
+				return {"ok": False, "error": "no write permission at commit time"}
+			doc = frappe.get_doc(payload["doctype"], payload["name"])
+			for f, v in (payload["patch"] or {}).items():
+				doc.set(f, v)
+			doc.save()
+		elif action == "submit":
+			if not frappe.has_permission(payload["doctype"], "submit", doc=payload["name"]):
+				return {"ok": False, "error": "no submit permission at commit time"}
+			doc = frappe.get_doc(payload["doctype"], payload["name"])
+			doc.submit()
+		elif action == "workflow_action":
+			if not frappe.has_permission(payload["doctype"], "write", doc=payload["name"]):
+				return {"ok": False, "error": "no write permission at commit time"}
+			from frappe.model.workflow import apply_workflow
+
+			doc = frappe.get_doc(payload["doctype"], payload["name"])
+			apply_workflow(doc, payload["action"])
+		elif action == "add_comment":
+			if not frappe.has_permission(payload["doctype"], "read", doc=payload["name"]):
+				return {"ok": False, "error": "no read permission at commit time"}
+			doc = frappe.get_doc(payload["doctype"], payload["name"])
+			doc.add_comment("Comment", payload["text"])
+		elif action == "assign_to":
+			if not frappe.has_permission(payload["doctype"], "read", doc=payload["name"]):
+				return {"ok": False, "error": "no read permission at commit time"}
+			from frappe.desk.form.assign_to import add as assign_add
+
+			assign_add(
+				{
+					"assign_to": [payload["user"]],
+					"doctype": payload["doctype"],
+					"name": payload["name"],
+					"description": payload.get("description") or "",
+				}
+			)
+			doc = frappe.get_doc(payload["doctype"], payload["name"])
+		elif action == "send_email":
+			if not frappe.get_site_config().get("lazychat_allow_email"):
+				return {"ok": False, "error": "Email disabled at commit time (lazychat_allow_email=false)"}
+			frappe.sendmail(
+				recipients=payload["recipients"],
+				subject=payload["subject"],
+				message=payload["content"],
+				reference_doctype=payload.get("doctype"),
+				reference_name=payload.get("name"),
+				delayed=False,
+			)
+			# fabricate a "doc" so the return shape matches
+			class _R:
+				doctype = "Email"
+				name = ", ".join(payload["recipients"][:3])
+			doc = _R()
+		elif action == "run_sql":
+			# Re-check guard at commit time (site flag may have changed; user role may have changed)
+			ok2, err2 = _dangerous_tools_enabled()
+			if not ok2:
+				return {"ok": False, "error": err2}
+			query = payload["query"]
+			validation_error = _validate_select_sql(query)
+			if validation_error:
+				return {"ok": False, "error": validation_error}
+			limit = int(payload.get("limit") or 200)
+			# Run; cap rows by re-querying with explicit limit
+			rows = frappe.db.sql(query, as_dict=True)
+			if isinstance(rows, list) and len(rows) > limit:
+				rows = rows[:limit]
+				truncated = True
+			else:
+				truncated = False
+			_consume_action(token)
+			return {
+				"ok": True,
+				"action": "run_sql",
+				"row_count": len(rows) if isinstance(rows, list) else 0,
+				"truncated": truncated,
+				"rows": rows,
+				"name": "(sql)",
+				"doctype": "SQL",
+				"link": None,
+			}
+		elif action == "run_python":
+			ok2, err2 = _dangerous_tools_enabled()
+			if not ok2:
+				return {"ok": False, "error": err2}
+			code = payload["code"]
+			# timeout = payload.get("timeout") or 30  # SIGALRM-based timeout would need signal handling; keep simple
+			# Try optional pandas/numpy imports — best effort
+			ns = {"frappe": frappe, "json": json, "_result": None}
+			try:
+				import datetime as _dt
+				ns["datetime"] = _dt
+			except Exception:
+				pass
+			for libname in ("pandas", "numpy"):
+				try:
+					ns[libname] = __import__(libname)
+				except Exception:
+					pass
+			# Capture stdout
+			buf = io.StringIO()
+			import contextlib
+			try:
+				with contextlib.redirect_stdout(buf):
+					try:
+						# Try as expression first (so "1+1" returns 2)
+						value = eval(compile(code, "<lazychat>", "eval"), ns, ns)
+						ns["_result"] = value
+					except SyntaxError:
+						# Fallback: execute as statements; user code can set _result
+						exec(compile(code, "<lazychat>", "exec"), ns, ns)
+			except Exception as e:
+				return {
+					"ok": False,
+					"action": "run_python",
+					"error": f"{type(e).__name__}: {e}",
+					"stdout": buf.getvalue()[:8000],
+				}
+			result = ns.get("_result")
+			# Coerce non-JSON-serializable to string
+			try:
+				json.dumps(result, default=str)
+			except Exception:
+				result = str(result)
+			_consume_action(token)
+			return {
+				"ok": True,
+				"action": "run_python",
+				"result": result,
+				"stdout": buf.getvalue()[:8000],
+				"name": "(python)",
+				"doctype": "Python",
+				"link": None,
+			}
+		elif action == "delete":
+			if not frappe.has_permission(payload["doctype"], "delete", doc=payload["name"]):
+				return {"ok": False, "error": "no delete permission at commit time"}
+			doctype = payload["doctype"]
+			docname = payload["name"]
+			try:
+				frappe.delete_doc(doctype, docname)
+			except frappe.LinkExistsError as e:
+				return {"ok": False, "error": f"cannot delete — other docs link to it: {e}"}
+			class _R:
+				pass
+			doc = _R()
+			doc.doctype = doctype
+			doc.name = docname
+		elif action == "share_doc":
+			if not frappe.has_permission(payload["doctype"], "share", doc=payload["name"]):
+				return {"ok": False, "error": "no share permission at commit time"}
+			from frappe.share import add as share_add
+
+			share_add(
+				doctype=payload["doctype"],
+				name=payload["name"],
+				user=payload["user"],
+				read=1 if payload.get("read") else 0,
+				write=1 if payload.get("write") else 0,
+				notify=1,
+			)
+			doc = frappe.get_doc(payload["doctype"], payload["name"])
+		else:
+			return {"ok": False, "error": f"Unknown action: {action}"}
+		frappe.db.commit()
+		_consume_action(token)
+		return {
+			"ok": True,
+			"action": action,
+			"name": doc.name,
+			"doctype": doc.doctype,
+			"link": f"/app/{frappe.scrub(doc.doctype)}/{doc.name}",
+		}
+	except Exception as e:
+		try:
+			frappe.db.rollback(save_point=sp_name)
+		except Exception:
+			pass
+		frappe.log_error(frappe.get_traceback(), f"lazychat commit_prepared {action}")
+		return {"ok": False, "error": str(e), "action": action}

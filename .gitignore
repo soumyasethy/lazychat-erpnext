@@ -1,0 +1,22 @@
+scripts/deploy.env
+scripts/bench-root.local
+
+# Built artifact: chat-ui dist gets bundled in via scripts/build-lazychat-dist.sh.
+# Run the build before deploying to a fresh bench; the deploy script rsyncs it in.
+lazychat_mcp_erpnext/lazychat_mcp_erpnext/public/lazychat_dist/
+
+# Python build artifacts
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# Smoke test runner is copied into the bench at runtime, not committed
+lazychat_mcp_erpnext/lazychat_mcp_erpnext/_smoke.py
+

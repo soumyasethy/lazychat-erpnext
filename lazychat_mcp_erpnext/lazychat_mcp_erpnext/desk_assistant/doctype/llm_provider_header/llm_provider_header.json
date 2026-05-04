@@ -1,0 +1,40 @@
+{
+ "actions": [],
+ "creation": "2026-05-01 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "header_key",
+  "header_value"
+ ],
+ "fields": [
+  {
+   "columns": 2,
+   "fieldname": "header_key",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Header name",
+   "reqd": 1
+  },
+  {
+   "columns": 4,
+   "fieldname": "header_value",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Value"
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-05-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Desk Assistant",
+ "name": "LLM Provider Header",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

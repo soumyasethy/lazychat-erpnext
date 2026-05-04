@@ -1,0 +1,2271 @@
+/*
+ * Desk assistant — scoped under #claude-assistant-dock.
+ * Default: unified light theme (panel, thread, composer). Full dark: data-cad-theme="dark".
+ */
+html {
+	--cad-panel-width: 400px;
+	/* Align dock with Frappe Desk navbar + main work area */
+	--cad-desk-navbar: 48px;
+}
+
+body.cad-dock-shift .main-section {
+	padding-right: var(--cad-panel-width);
+	box-sizing: border-box;
+	transition: padding-right 0.18s ease;
+}
+
+/*
+ * Full-width desk navbar while the assistant dock reserves space:
+ * .main-section padding shrinks all descendants including the sticky header — pull the bar
+ * back to viewport width so it aligns edge-to-edge (dock sits below this row).
+ */
+body.cad-dock-shift .main-section > .sticky-top {
+	width: calc(100% + var(--cad-panel-width));
+	max-width: none;
+	margin-right: calc(-1 * var(--cad-panel-width));
+	box-sizing: border-box;
+}
+
+body.cad-dock-shift .main-section > .sticky-top header.navbar.navbar-expand,
+body.cad-dock-shift .main-section > .sticky-top .navbar.navbar-expand {
+	width: 100%;
+	max-width: none;
+}
+
+body.cad-dock-shift .main-section > .sticky-top .navbar .container,
+body.cad-dock-shift .main-section > .sticky-top .navbar .container-fluid {
+	max-width: none;
+	width: 100%;
+	box-sizing: border-box;
+}
+
+#claude-assistant-dock {
+	/* —— Light theme (default): single coherent surface system —— */
+	--cad-bg-app: #f4f4f5;
+	--cad-bg-panel: #ffffff;
+	--cad-bg-secondary: #f4f4f5;
+	--cad-border: #e4e4e7;
+	--cad-text-primary: #18181b;
+	--cad-text-secondary: #52525b;
+	--cad-text-muted: #71717a;
+	--cad-accent: #2563eb;
+	--cad-accent-hover: #1d4ed8;
+	--cad-hover-lift: #ececef;
+	--cad-badge-radius: 4px;
+	--cad-mono-size: 13px;
+	--cad-mono-line-height: 20px;
+	--cad-diff-add-bg: #dcfce7;
+	--cad-diff-add-text: #14532d;
+	--cad-diff-del-bg: #fee2e2;
+	--cad-diff-del-text: #991b1b;
+	--cad-diff-ctx-text: #3f3f46;
+
+	--base-color-brand-red: var(--cad-accent);
+	--base-color-brand-red-hover: var(--cad-accent-hover);
+	--base-color-text-plum: var(--cad-text-primary);
+	--base-color-text-black: var(--cad-text-primary);
+	--base-color-text-olive: var(--cad-text-secondary);
+	--base-color-text-silver: var(--cad-text-muted);
+	--base-color-surface-white: var(--cad-bg-panel);
+	--base-color-surface-fog: var(--cad-bg-app);
+	--base-color-surface-sand: var(--cad-bg-secondary);
+	--base-color-surface-warm-light: var(--cad-hover-lift);
+	--base-color-border-silver: var(--cad-border);
+	--base-color-border-disabled: var(--cad-border);
+	--base-color-hover-grayscale-150: #d4d4d8;
+	--base-color-focus-blue: var(--cad-accent);
+	--base-color-wash-badge: rgba(228, 228, 231, 0.9);
+	--base-color-error: #dc2626;
+	--base-color-green-700: #15803d;
+	--cad-send-bg: var(--cad-accent);
+	--cad-send-bg-hover: var(--cad-accent-hover);
+	--cad-composer-surface: #ffffff;
+	--cad-composer-border: rgba(0, 0, 0, 0.08);
+	--cad-composer-radius: 28px;
+	--cad-composer-actions-divider: rgba(0, 0, 0, 0.06);
+	--cad-send-round-bg: #e4e4e7;
+	--cad-send-round-bg-hover: #d4d4d8;
+	--cad-send-round-fg: #18181b;
+	--cad-composer-placeholder: #71717a;
+
+	--cad-figma-hairline: rgba(0, 0, 0, 0.08);
+	--cad-figma-ink: #fafafa;
+	--cad-figma-on-dark-pill: #18181b;
+	--cad-figma-slab-lilac: rgba(99, 102, 241, 0.1);
+	--cad-figma-slab-lime: rgba(34, 197, 94, 0.1);
+	--cad-figma-slab-mint: rgba(16, 185, 129, 0.08);
+	--cad-figma-outline-border: rgba(0, 0, 0, 0.14);
+	--cad-figma-outline-border-hover: rgba(0, 0, 0, 0.22);
+	--cad-figma-radius-card: 24px;
+	--cad-figma-radius-card-compact: 16px;
+	--cad-figma-radius-pill: 9999px;
+
+	--cad-composer-status-warn: #4f46e5;
+	--cad-msgs-min-bg: rgba(255, 255, 255, 0.94);
+	--cad-msgs-min-bg-hover: #ffffff;
+	--cad-msgs-min-border: rgba(0, 0, 0, 0.1);
+	--cad-msgs-min-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+	--cad-resize-hover: rgba(0, 0, 0, 0.06);
+
+	--cad-gpt-surface: #ffffff;
+	--cad-gpt-ink: #18181b;
+	--cad-gpt-muted: #71717a;
+	--cad-gpt-border: rgba(0, 0, 0, 0.08);
+	--cad-gpt-toolbar-bg: transparent;
+	--cad-gpt-plus-bg: #f4f4f5;
+	--cad-gpt-plus-hover: #e4e4e7;
+	--cad-gpt-chip-bg: #ececec;
+	--cad-gpt-chip-fg: #18181b;
+	--cad-gpt-send-bg: #18181b;
+	--cad-gpt-send-fg: #ffffff;
+	--cad-gpt-send-hover: #27272a;
+	--cad-gpt-send-disabled-bg: #e4e4e7;
+	--cad-gpt-send-disabled-fg: #a1a1aa;
+	--cad-gpt-attach-strip: #f4f4f5;
+	--cad-gpt-chip-border: transparent;
+	--cad-gpt-shadow: 0 2px 12px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.04);
+	--cad-gpt-focus-ring: rgba(37, 99, 235, 0.28);
+	--cad-gpt-setup-slab-bg: linear-gradient(180deg, #fafafa 0%, #f4f4f5 100%);
+	--cad-gpt-setup-icon-bg: #ffffff;
+	--cad-gpt-setup-muted: #52525b;
+	--cad-gpt-setup-title: #18181b;
+	--cad-gpt-needs-setup-border: rgba(217, 119, 6, 0.45);
+	--cad-gpt-needs-setup-ring: rgba(251, 191, 36, 0.45);
+
+	--sema-color-border-default: var(--cad-border);
+	--sema-color-border-subtle: var(--cad-border);
+	--sema-color-border-focus: var(--cad-accent);
+	--sema-color-text-primary: var(--cad-text-primary);
+	--sema-color-text-secondary: var(--cad-text-secondary);
+	--sema-color-text-muted: var(--cad-text-muted);
+	--sema-color-surface-canvas: var(--cad-bg-panel);
+	--sema-color-surface-raised: var(--cad-bg-secondary);
+
+	--comp-font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+	--cad-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+	--comp-radius-button: 0;
+	--comp-radius-card: 0;
+	--comp-radius-section: 0;
+	--comp-radius-small: 0;
+	--comp-space-1: 4px;
+	--comp-space-2: 8px;
+	--comp-space-3: 12px;
+	--comp-space-4: 12px;
+	--comp-font-ui: 14px;
+	--comp-font-body: 14px;
+	--comp-font-caption: 12px;
+	--comp-line-body: 1.45;
+	--comp-line-caption: 1.45;
+
+	position: relative;
+	z-index: 2147483000;
+	isolation: isolate;
+	pointer-events: auto;
+	font-family: var(--comp-font-family);
+	font-size: var(--comp-font-ui);
+	font-weight: 400;
+	line-height: var(--comp-line-caption);
+	color: var(--cad-text-primary);
+	text-align: left;
+	color-scheme: light;
+	-webkit-font-smoothing: antialiased;
+}
+
+/* Full dark theme — same tokens, no mixed surfaces */
+#claude-assistant-dock[data-cad-theme="dark"] {
+	--cad-bg-app: #0f1117;
+	--cad-bg-panel: #151922;
+	--cad-bg-secondary: #1b2130;
+	--cad-border: #2a3142;
+	--cad-text-primary: #e6edf3;
+	--cad-text-secondary: #9aa4b2;
+	--cad-text-muted: #8b949e;
+	--cad-accent: #3b82f6;
+	--cad-accent-hover: #2563eb;
+	--cad-hover-lift: #1e2535;
+	--cad-diff-add-bg: #1f3d2b;
+	--cad-diff-add-text: #a7f3d0;
+	--cad-diff-del-bg: #3d1f24;
+	--cad-diff-del-text: #fca5a5;
+	--cad-diff-ctx-text: #cbd5e1;
+
+	--base-color-hover-grayscale-150: #3d475c;
+	--base-color-wash-badge: rgba(43, 52, 64, 0.65);
+	--base-color-error: #f87171;
+	--base-color-green-700: #a7f3d0;
+
+	--cad-composer-surface: #1e1e20;
+	--cad-composer-border: rgba(255, 255, 255, 0.1);
+	--cad-composer-radius: 28px;
+	--cad-composer-actions-divider: rgba(255, 255, 255, 0.08);
+	--cad-send-round-bg: #d4d4d8;
+	--cad-send-round-bg-hover: #e4e4e7;
+	--cad-send-round-fg: #18181b;
+	--cad-composer-placeholder: #9aa4b2;
+
+	--cad-figma-hairline: rgba(230, 230, 230, 0.14);
+	--cad-figma-ink: #0a0a0a;
+	--cad-figma-on-dark-pill: #f7f7f5;
+	--cad-figma-slab-lilac: rgba(197, 176, 244, 0.16);
+	--cad-figma-slab-lime: rgba(220, 238, 177, 0.12);
+	--cad-figma-slab-mint: rgba(200, 230, 205, 0.12);
+	--cad-figma-outline-border: rgba(255, 255, 255, 0.22);
+	--cad-figma-outline-border-hover: rgba(255, 255, 255, 0.32);
+
+	--cad-composer-status-warn: rgba(210, 200, 245, 0.92);
+	--cad-msgs-min-bg: rgba(21, 25, 34, 0.92);
+	--cad-msgs-min-bg-hover: rgba(30, 37, 53, 0.96);
+	--cad-msgs-min-border: rgba(255, 255, 255, 0.1);
+	--cad-msgs-min-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
+	--cad-resize-hover: rgba(230, 237, 243, 0.08);
+
+	--cad-gpt-surface: #1c1d21;
+	--cad-gpt-ink: #ececec;
+	--cad-gpt-muted: #9ca3af;
+	--cad-gpt-border: rgba(255, 255, 255, 0.12);
+	--cad-gpt-toolbar-bg: transparent;
+	--cad-gpt-plus-bg: #2a2d36;
+	--cad-gpt-plus-hover: #363b47;
+	--cad-gpt-chip-bg: rgba(255, 255, 255, 0.1);
+	--cad-gpt-chip-fg: #e6edf3;
+	--cad-gpt-send-bg: #e4e4e7;
+	--cad-gpt-send-fg: #18181b;
+	--cad-gpt-send-hover: #d4d4d8;
+	--cad-gpt-send-disabled-bg: #3d475c;
+	--cad-gpt-send-disabled-fg: #9ca3af;
+	--cad-gpt-attach-strip: rgba(0, 0, 0, 0.25);
+	--cad-gpt-chip-border: rgba(255, 255, 255, 0.08);
+	--cad-gpt-shadow: 0 2px 14px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+	--cad-gpt-focus-ring: rgba(59, 130, 246, 0.35);
+	--cad-gpt-setup-slab-bg: linear-gradient(180deg, #23252c 0%, #1b2130 100%);
+	--cad-gpt-setup-icon-bg: #1b2130;
+	--cad-gpt-setup-muted: #9aa4b2;
+	--cad-gpt-setup-title: #e6edf3;
+	--cad-gpt-needs-setup-border: rgba(251, 191, 36, 0.35);
+	--cad-gpt-needs-setup-ring: rgba(251, 191, 36, 0.28);
+
+	color-scheme: dark;
+}
+
+#claude-assistant-dock .cad-svg {
+	display: block;
+	flex-shrink: 0;
+}
+
+#claude-assistant-dock .cad-svg--sm {
+	width: 14px;
+	height: 14px;
+}
+
+#claude-assistant-dock .cad-svg--muted {
+	opacity: 0.72;
+}
+
+/*
+ * Isolate dock from Frappe Desk globals — themed subtree.
+ */
+#claude-assistant-dock .cad-wrap,
+#claude-assistant-dock .cad-wrap * {
+	box-sizing: border-box;
+}
+
+#claude-assistant-dock .cad-wrap {
+	position: fixed;
+	top: var(--cad-desk-navbar);
+	right: 0;
+	height: calc(100vh - var(--cad-desk-navbar));
+	height: calc(100dvh - var(--cad-desk-navbar));
+	width: var(--cad-panel-width);
+	max-width: min(100vw, 92vw);
+	z-index: 2147483000;
+	display: flex;
+	flex-direction: row-reverse;
+	align-items: stretch;
+	gap: 0;
+	padding: 0 0 env(safe-area-inset-bottom, 0px) 0;
+	pointer-events: auto;
+	contain: layout;
+	font-family: var(--comp-font-family) !important;
+	font-size: var(--comp-font-ui);
+	font-weight: 400;
+	line-height: var(--comp-line-caption);
+	color: var(--cad-text-primary) !important;
+	background: transparent !important;
+	-webkit-font-smoothing: antialiased;
+}
+
+#claude-assistant-dock .visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+#claude-assistant-dock .cad-wrap.cad-narrow {
+	width: 0;
+	min-width: 0;
+	max-width: 0;
+	overflow: visible;
+	padding: 0;
+	gap: 0;
+	contain: none;
+	pointer-events: none;
+	transition: width 0.2s ease, max-width 0.2s ease;
+}
+
+#claude-assistant-dock .cad-wrap.cad-narrow .cad-panel,
+#claude-assistant-dock .cad-wrap.cad-narrow .cad-resize {
+	display: none;
+}
+
+/* Side strip hidden when panel open — full width for chat; reopen via top bar close only */
+#claude-assistant-dock .cad-wrap:not(.cad-narrow) .cad-tab {
+	display: none !important;
+}
+
+/* Collapsed: compact fixed control below Desk navbar (no extra column width) */
+#claude-assistant-dock .cad-wrap.cad-narrow .cad-tab {
+	display: flex !important;
+	position: fixed;
+	top: var(--cad-desk-navbar);
+	right: 0;
+	width: 36px;
+	height: 48px;
+	min-height: 48px;
+	align-self: auto;
+	margin-top: 0;
+	padding: 0;
+	writing-mode: horizontal-tb;
+	text-orientation: mixed;
+	letter-spacing: 0.02em;
+	font-size: 11px;
+	font-weight: 600;
+	align-items: center;
+	justify-content: center;
+	z-index: 2147483001;
+	pointer-events: auto;
+	border-width: 1px 0 1px 1px;
+	box-sizing: border-box;
+}
+
+#claude-assistant-dock .cad-resize {
+	position: absolute;
+	left: 0;
+	top: 0;
+	bottom: 0;
+	width: 6px;
+	cursor: col-resize;
+	z-index: 3;
+	background: transparent;
+}
+
+#claude-assistant-dock .cad-resize:hover {
+	background: var(--cad-resize-hover);
+}
+
+#claude-assistant-dock .cad-tab {
+	width: 32px;
+	min-height: 40px;
+	align-self: stretch;
+	margin-top: env(safe-area-inset-top, 0px);
+	font-family: var(--comp-font-family) !important;
+	background: var(--cad-bg-panel) !important;
+	color: var(--cad-text-secondary) !important;
+	border: solid var(--cad-border);
+	border-width: 1px 0 1px 1px;
+	border-radius: 0;
+	padding: var(--comp-space-3) 6px;
+	cursor: pointer;
+	writing-mode: vertical-rl;
+	text-orientation: mixed;
+	letter-spacing: 0.14em;
+	font-size: var(--comp-font-caption);
+	font-weight: 600;
+	box-shadow: none;
+	transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+#claude-assistant-dock .cad-tab-inner {
+	display: inline-block;
+}
+
+#claude-assistant-dock .cad-tab:focus-visible {
+	outline: 2px solid var(--sema-color-border-focus);
+	outline-offset: 2px;
+}
+
+#claude-assistant-dock .cad-tab:hover {
+	background: var(--cad-hover-lift) !important;
+	border-color: var(--cad-border);
+	color: var(--cad-text-primary) !important;
+}
+
+#claude-assistant-dock .cad-panel {
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	font-family: var(--comp-font-family) !important;
+	color: var(--cad-text-primary) !important;
+	background: var(--cad-bg-panel) !important;
+	border-radius: 0;
+	border: solid var(--cad-border);
+	border-width: 1px 0 1px 0;
+	box-shadow: none;
+	overflow: hidden;
+}
+
+/* Main Desk layout must never appear inside the assistant card (leaked or mis-nested nodes). */
+#claude-assistant-dock .cad-panel > .sticky-top,
+#claude-assistant-dock .cad-panel > header.navbar,
+#claude-assistant-dock .cad-panel .navbar.navbar-expand {
+	display: none !important;
+}
+
+/* —— top bar — Cursor-style strip —— */
+#claude-assistant-dock .cad-topbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--comp-space-2);
+	min-height: 48px;
+	height: 48px;
+	padding: 0 12px;
+	box-sizing: border-box;
+	background: var(--cad-bg-secondary) !important;
+	color: var(--cad-text-primary) !important;
+	border-bottom: 1px solid var(--cad-border);
+	flex-shrink: 0;
+	font-weight: 500;
+	font-size: 14px;
+}
+
+#claude-assistant-dock .cad-tabs {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+#claude-assistant-dock .cad-tab-pill {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	width: 100%;
+	max-width: 100%;
+	padding: 4px 8px 4px 10px;
+	min-height: 0;
+	background: transparent !important;
+	border: none;
+	border-radius: 0;
+	font-size: 14px;
+	font-weight: 500;
+	color: var(--cad-text-primary) !important;
+	letter-spacing: -0.01em;
+}
+
+#claude-assistant-dock .cad-tab-title {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	flex: 1;
+	min-width: 0;
+	font-size: 14px;
+	font-weight: 500;
+	line-height: 1.25;
+	letter-spacing: -0.02em;
+	color: var(--cad-text-primary) !important;
+}
+
+#claude-assistant-dock .cad-tab-close {
+	flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 36px;
+	height: 36px;
+	min-width: 36px;
+	min-height: 36px;
+	padding: 0;
+	margin: 0;
+	font-family: var(--comp-font-family) !important;
+	border: none;
+	border-radius: 0;
+	background: transparent !important;
+	color: var(--cad-text-secondary) !important;
+	cursor: pointer;
+	opacity: 0.9;
+}
+
+#claude-assistant-dock .cad-tab-close:hover {
+	background: var(--cad-hover-lift) !important;
+	color: var(--cad-text-primary) !important;
+	opacity: 1;
+}
+
+#claude-assistant-dock .cad-top-actions {
+	display: flex;
+	align-items: center;
+	gap: var(--comp-space-1);
+	flex-shrink: 0;
+}
+
+#claude-assistant-dock .cad-icon-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 36px;
+	height: 36px;
+	min-width: 36px;
+	min-height: 36px;
+	padding: 0;
+	font-family: var(--comp-font-family) !important;
+	border: none;
+	border-radius: 0;
+	background: transparent !important;
+	color: var(--cad-text-secondary) !important;
+	cursor: pointer;
+	transition: background 0.12s ease, color 0.12s ease, opacity 0.12s ease;
+}
+
+#claude-assistant-dock .cad-icon-btn:focus-visible {
+	outline: 2px solid var(--cad-accent);
+	outline-offset: 0;
+}
+
+#claude-assistant-dock .cad-icon-btn:hover {
+	background: var(--cad-hover-lift) !important;
+	color: var(--cad-text-primary) !important;
+}
+
+/* Messages region: floating minimize + scrollable log */
+#claude-assistant-dock .cad-msgs-region {
+	position: relative;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	background: var(--cad-bg-app) !important;
+}
+
+/* Floating minimize — icon-forward ghost control (matches topbar density, clear glyph) */
+#claude-assistant-dock .cad-msgs-min-btn.cad-msgs-min--float {
+	position: absolute;
+	top: 8px;
+	right: 8px;
+	z-index: 4;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 34px;
+	height: 34px;
+	min-width: 34px;
+	min-height: 34px;
+	padding: 0;
+	margin: 0;
+	border: 1px solid var(--cad-msgs-min-border);
+	border-radius: 999px;
+	background: var(--cad-msgs-min-bg) !important;
+	color: var(--cad-text-secondary) !important;
+	cursor: pointer;
+	box-shadow: var(--cad-msgs-min-shadow);
+	backdrop-filter: blur(10px);
+	-webkit-backdrop-filter: blur(10px);
+	transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease,
+		transform 0.15s ease;
+}
+
+#claude-assistant-dock .cad-msgs-min-btn.cad-msgs-min--float .cad-svg--msgs-min,
+#claude-assistant-dock .cad-msgs-min-btn.cad-msgs-min--float .cad-svg {
+	display: block;
+	flex-shrink: 0;
+	pointer-events: none;
+}
+
+#claude-assistant-dock .cad-msgs-min-btn.cad-msgs-min--float:hover {
+	background: var(--cad-msgs-min-bg-hover) !important;
+	color: var(--cad-text-primary) !important;
+	border-color: var(--cad-msgs-min-border);
+	box-shadow: var(--cad-msgs-min-shadow);
+	transform: translateY(-0.5px);
+}
+
+#claude-assistant-dock .cad-msgs-min-btn.cad-msgs-min--float:active {
+	transform: translateY(0);
+	box-shadow: var(--cad-msgs-min-shadow);
+}
+
+#claude-assistant-dock .cad-msgs-min-btn.cad-msgs-min--float:focus-visible {
+	outline: 2px solid var(--cad-accent);
+	outline-offset: 2px;
+}
+
+/* Scroll region — extra right padding so text clears floating control */
+#claude-assistant-dock .cad-msgs {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	overflow-x: hidden;
+	padding: 8px 46px 8px 10px;
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	gap: 8px;
+	background: var(--cad-bg-app) !important;
+	color: var(--cad-text-primary) !important;
+	scrollbar-width: thin;
+	scrollbar-color: var(--cad-border) transparent;
+}
+
+/* Welcome card: inset clears minimize control; tightened for compact dock */
+#claude-assistant-dock .cad-msgs:has(.cad-empty) {
+	padding: 10px 44px 12px 12px;
+	gap: 0;
+}
+
+#claude-assistant-dock .cad-empty--gpt-thread .cad-empty-gpt-hero {
+	box-sizing: border-box;
+	margin: 0 auto 10px;
+	max-width: min(100%, 40rem);
+	padding: 4px 10px 0;
+	text-align: center;
+	width: 100%;
+}
+
+#claude-assistant-dock .cad-empty-gpt-headline {
+	margin: 0;
+	font-size: 1.2rem;
+	font-weight: 400;
+	letter-spacing: 0.02em;
+	line-height: 1.35;
+	color: var(--cad-text-primary) !important;
+}
+
+/* —— Empty / onboarding (DESIGN-figma-2 — compact slab, mono eyebrow, pill CTAs) —— */
+#claude-assistant-dock .cad-empty--figma {
+	display: flex;
+	flex-direction: column;
+	gap: 0;
+	align-self: stretch;
+	width: 100%;
+	max-width: 100%;
+	margin: 0;
+	padding: 0;
+	background: transparent !important;
+	border: none;
+	box-shadow: none;
+}
+
+#claude-assistant-dock .cad-empty-slab {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding: 10px 12px 12px;
+	border-radius: var(--cad-figma-radius-card-compact);
+	border: 1px solid var(--cad-figma-hairline);
+	box-sizing: border-box;
+	box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+}
+
+#claude-assistant-dock .cad-empty-header {
+	margin: 0;
+	padding: 0;
+}
+
+#claude-assistant-dock .cad-empty-checklist {
+	margin: 0;
+	padding: 10px 0 0;
+	border-top: 1px solid var(--cad-figma-hairline);
+}
+
+#claude-assistant-dock .cad-empty-checklist-kicker {
+	margin: 0 0 8px;
+	font-family: var(--cad-font-mono);
+	font-size: 10px;
+	font-weight: 500;
+	line-height: 1.25;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	color: var(--cad-text-muted) !important;
+}
+
+#claude-assistant-dock .cad-empty-slab--lilac {
+	background: linear-gradient(
+			145deg,
+			var(--cad-figma-slab-lilac) 0%,
+			rgba(197, 176, 244, 0.06) 48%,
+			var(--cad-bg-secondary) 100%
+		)
+		!important;
+}
+
+#claude-assistant-dock .cad-empty-eyebrow {
+	margin: 0 0 6px;
+	font-family: var(--cad-font-mono);
+	font-size: 10px;
+	font-weight: 500;
+	line-height: 1.25;
+	letter-spacing: 0.16em;
+	text-transform: uppercase;
+	color: var(--cad-text-muted) !important;
+}
+
+#claude-assistant-dock .cad-empty-title {
+	margin: 0;
+	font-size: 16px;
+	font-weight: 600;
+	line-height: 1.35;
+	letter-spacing: -0.02em;
+	color: var(--cad-text-primary) !important;
+}
+
+#claude-assistant-dock .cad-empty-body {
+	margin: 0;
+	font-size: 12px;
+	font-weight: 400;
+	line-height: 1.45;
+	color: var(--cad-text-secondary) !important;
+	max-width: min(100%, 38rem);
+}
+
+#claude-assistant-dock .cad-empty-body strong {
+	color: var(--cad-text-primary) !important;
+	font-weight: 600;
+}
+
+#claude-assistant-dock .cad-empty-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 0;
+	align-items: stretch;
+}
+
+#claude-assistant-dock .cad-empty-actions .cad-btn {
+	flex: 1 1 calc(50% - 6px);
+	min-width: min(100%, 9.5rem);
+	justify-content: center;
+	text-align: center;
+}
+
+#claude-assistant-dock .cad-empty-steps {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+#claude-assistant-dock .cad-empty-steps li {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	margin: 0;
+	font-size: 12px;
+	line-height: 1.45;
+	color: var(--cad-text-secondary) !important;
+}
+
+#claude-assistant-dock .cad-empty-step-num {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 22px;
+	min-height: 22px;
+	margin-top: 1px;
+	border-radius: var(--cad-figma-radius-pill);
+	background: var(--cad-bg-secondary);
+	border: 1px solid var(--cad-border);
+	font-family: var(--cad-font-mono);
+	font-size: 10px;
+	font-weight: 600;
+	color: var(--cad-text-muted) !important;
+	flex-shrink: 0;
+}
+
+#claude-assistant-dock .cad-empty-actions .cad-btn--figma-primary,
+#claude-assistant-dock .cad-empty-actions .cad-btn--figma-outline {
+	min-height: 36px;
+	padding: 8px 12px;
+	font-size: 12px;
+}
+
+@media (max-width: 340px) {
+	#claude-assistant-dock .cad-empty-actions {
+		flex-direction: column;
+	}
+
+	#claude-assistant-dock .cad-empty-actions .cad-btn {
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+}
+
+#claude-assistant-dock .cad-msgs::-webkit-scrollbar {
+	width: 8px;
+}
+
+#claude-assistant-dock .cad-msgs::-webkit-scrollbar-thumb {
+	background: var(--cad-border);
+	border-radius: 0;
+}
+
+#claude-assistant-dock .cad-bubble {
+	border-radius: 0;
+	padding: 8px var(--comp-space-3);
+	max-width: 100%;
+	text-align: left;
+	line-height: var(--comp-line-body);
+	word-break: break-word;
+	font-size: var(--comp-font-body);
+	font-weight: 400;
+	box-shadow: none !important;
+	font-family: var(--comp-font-family) !important;
+	border: 1px solid var(--cad-border);
+}
+
+#claude-assistant-dock .cad-bubble code,
+#claude-assistant-dock .cad-bubble .cad-code {
+	font-family: var(--cad-font-mono);
+	font-size: var(--cad-mono-size);
+	line-height: var(--cad-mono-line-height);
+	padding: 2px 6px;
+	border-radius: var(--cad-badge-radius);
+	background: var(--cad-border);
+	color: var(--cad-text-primary);
+}
+
+#claude-assistant-dock .cad-bubble.cad-user {
+	align-self: flex-end;
+	background: var(--cad-bg-secondary) !important;
+	color: var(--cad-text-primary) !important;
+	border: 1px solid var(--cad-border);
+}
+
+#claude-assistant-dock .cad-bubble.cad-ai {
+	align-self: flex-start;
+	background: var(--cad-bg-panel) !important;
+	color: var(--cad-text-primary) !important;
+	border: 1px solid var(--cad-border);
+	border-radius: 0;
+}
+
+#claude-assistant-dock .cad-bubble.cad-tool {
+	align-self: stretch;
+	font-size: var(--comp-font-caption);
+	font-weight: 500;
+	background: var(--cad-bg-secondary) !important;
+	border: 1px solid var(--cad-border);
+	color: var(--cad-text-secondary) !important;
+}
+
+/* —— composer — ChatGPT-style light pill on dark dock (thread-bottom / composer-surface parity) —— */
+#claude-assistant-dock .cad-composer {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	flex-shrink: 0;
+	padding: 10px 14px 12px;
+	border-top: 1px solid var(--cad-border);
+	background: var(--cad-bg-panel) !important;
+	color: var(--cad-text-primary) !important;
+}
+
+/* Hidden native model `<select>` — UI is the Claude pill model chip + menus */
+#claude-assistant-dock select.cad-model-picker--hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+	opacity: 0;
+	pointer-events: none;
+}
+
+/* Attachment chips inside Claude pill */
+#claude-assistant-dock .cad-claude-pill .cad-claude-pill-attachments {
+	margin: 0 0 10px;
+	padding: 8px 8px 4px;
+	border-radius: 12px;
+	border: 1px solid rgba(0, 0, 0, 0.06);
+	background: #f7f7f8 !important;
+}
+
+#claude-assistant-dock .cad-claude-float-layer--needs-setup .cad-claude-pill {
+	border-color: rgba(251, 191, 36, 0.45);
+}
+
+#claude-assistant-dock .cad-composer-inner {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	width: 100%;
+	min-width: 0;
+	box-sizing: border-box;
+}
+
+/* Footer status — visually hidden; keeps role=status + aria-live for SR only (no vertical space) */
+#claude-assistant-dock .cad-composer-status {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+/* Light superellipse shell (~28px) — matches chat.openai thread composer surface */
+#claude-assistant-dock .cad-composer-box.cad-composer-box--gpt {
+	--cad-gpt-ink: #0d0d0d;
+	--cad-gpt-muted: #737373;
+	--cad-gpt-border: rgba(0, 0, 0, 0.08);
+	--cad-gpt-surface: #ffffff;
+	--cad-gpt-toolbar-bg: transparent;
+	display: flex;
+	flex-direction: column;
+	border: 1px solid var(--cad-gpt-border);
+	border-radius: 28px;
+	background: var(--cad-gpt-surface) !important;
+	overflow: clip;
+	box-sizing: border-box;
+	box-shadow:
+		0 2px 12px rgba(0, 0, 0, 0.06),
+		0 0 0 1px rgba(0, 0, 0, 0.04);
+	padding: 10px;
+	position: relative;
+	transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+#claude-assistant-dock .cad-composer-box.cad-composer-box--gpt:focus-within {
+	border-color: rgba(0, 0, 0, 0.12);
+	box-shadow:
+		0 2px 16px rgba(0, 0, 0, 0.08),
+		0 0 0 1px rgba(59, 130, 246, 0.22);
+}
+
+#claude-assistant-dock .cad-composer-box.cad-composer-box--gpt.cad-composer-box--needs-setup {
+	border-color: rgba(217, 119, 6, 0.35);
+	box-shadow:
+		0 2px 12px rgba(0, 0, 0, 0.06),
+		0 0 0 1px rgba(251, 191, 36, 0.35);
+}
+
+#claude-assistant-dock .cad-composer-gpt-body {
+	display: flex;
+	flex-direction: column;
+	gap: 0;
+	min-width: 0;
+	width: 100%;
+	box-sizing: border-box;
+}
+
+#claude-assistant-dock .cad-composer-gpt-primary {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	width: 100%;
+	box-sizing: border-box;
+}
+
+#claude-assistant-dock .cad-composer-gpt-toolbar {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	min-height: 40px;
+	padding: 8px 2px 0;
+	margin-top: 4px;
+	box-sizing: border-box;
+	border-top: none;
+	background: var(--cad-gpt-toolbar-bg);
+}
+
+#claude-assistant-dock .cad-composer-gpt-leading {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-shrink: 0;
+}
+
+#claude-assistant-dock .cad-composer-gpt-trailing {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 6px;
+	flex: 0 1 auto;
+	min-width: 0;
+	margin-left: auto;
+}
+
+#claude-assistant-dock .cad-composer-plus-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 40px;
+	height: 40px;
+	min-width: 40px;
+	min-height: 40px;
+	padding: 0;
+	border: none;
+	border-radius: 10px;
+	background: #f3f3f3 !important;
+	color: var(--cad-gpt-ink) !important;
+	cursor: pointer;
+	transition: background 0.12s ease, transform 0.12s ease;
+}
+
+#claude-assistant-dock .cad-composer-plus-btn:hover {
+	background: #ebebeb !important;
+}
+
+#claude-assistant-dock .cad-composer-plus-btn:focus-visible {
+	outline: 2px solid var(--cad-accent);
+	outline-offset: 2px;
+}
+
+#claude-assistant-dock .cad-composer-plus-btn .cad-svg {
+	width: 18px;
+	height: 18px;
+}
+
+#claude-assistant-dock .cad-composer-box.cad-composer-box--gpt:has(.cad-composer-setup:not([hidden])) .cad-composer-gpt-body {
+	margin-top: 8px;
+}
+
+#claude-assistant-dock .cad-composer-box.cad-composer-box--gpt .cad-composer-setup-slab {
+	border-color: rgba(0, 0, 0, 0.08);
+	background: linear-gradient(180deg, #fafafa 0%, #f3f3f3 100%) !important;
+}
+
+#claude-assistant-dock .cad-composer-box.cad-composer-box--gpt .cad-composer-setup-icon {
+	background: #fff !important;
+	border-color: rgba(0, 0, 0, 0.08);
+	color: var(--cad-gpt-ink);
+}
+
+#claude-assistant-dock .cad-composer-box.cad-composer-box--gpt .cad-composer-setup-title,
+#claude-assistant-dock .cad-composer-box.cad-composer-box--gpt .cad-composer-setup-desc,
+#claude-assistant-dock .cad-composer-box.cad-composer-box--gpt .cad-composer-setup-kicker {
+	color: #525252 !important;
+}
+
+#claude-assistant-dock .cad-composer-box.cad-composer-box--gpt .cad-composer-setup-title {
+	color: #111 !important;
+}
+
+
+#claude-assistant-dock .cad-composer-setup-slab {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 10px 12px;
+	border-radius: var(--cad-figma-radius-card-compact);
+	border: 1px solid var(--cad-figma-hairline);
+	background: linear-gradient(
+			160deg,
+			var(--cad-figma-slab-lime) 0%,
+			rgba(220, 238, 177, 0.05) 45%,
+			var(--cad-bg-secondary) 100%
+		)
+		!important;
+}
+
+#claude-assistant-dock .cad-composer-setup-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+}
+
+#claude-assistant-dock .cad-composer-setup[hidden] {
+	display: none !important;
+}
+
+#claude-assistant-dock .cad-composer-setup-icon {
+	flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 40px;
+	height: 40px;
+	min-width: 40px;
+	min-height: 40px;
+	border-radius: var(--cad-figma-radius-pill);
+	background: var(--cad-bg-app);
+	border: 1px solid var(--cad-figma-hairline);
+	color: var(--cad-text-primary);
+	box-shadow: none;
+}
+
+#claude-assistant-dock .cad-composer-setup-icon .cad-svg {
+	width: 20px;
+	height: 20px;
+}
+
+#claude-assistant-dock .cad-composer-setup-copy {
+	flex: 1;
+	min-width: 0;
+}
+
+#claude-assistant-dock .cad-composer-setup-kicker {
+	margin: 0 0 4px;
+	font-family: var(--cad-font-mono);
+	font-size: 10px;
+	font-weight: 500;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--cad-text-muted) !important;
+	line-height: 1.3;
+}
+
+#claude-assistant-dock .cad-composer-setup-title {
+	margin: 0 0 6px;
+	font-size: 15px;
+	font-weight: 600;
+	line-height: 1.3;
+	letter-spacing: -0.02em;
+	color: var(--cad-text-primary) !important;
+}
+
+#claude-assistant-dock .cad-composer-setup-desc {
+	margin: 0;
+	font-size: var(--comp-font-caption);
+	font-weight: 400;
+	line-height: var(--comp-line-caption);
+	color: var(--cad-text-secondary) !important;
+	max-width: 46ch;
+}
+
+#claude-assistant-dock .cad-composer-setup-cta {
+	align-self: stretch;
+	width: 100%;
+	min-height: 38px;
+	margin-top: 0;
+	padding: 8px 14px !important;
+	font-size: 12px !important;
+	font-weight: 600 !important;
+}
+
+@media (max-width: 420px) {
+	#claude-assistant-dock .cad-composer-setup-row {
+		flex-direction: column;
+		align-items: stretch;
+	}
+
+	#claude-assistant-dock .cad-composer-setup-icon {
+		align-self: flex-start;
+	}
+}
+
+/* Textarea: taller default area, still auto-grows */
+#claude-assistant-dock .cad-inp {
+	width: 100%;
+	box-sizing: border-box;
+	min-height: 76px;
+	max-height: 220px;
+	resize: none;
+	border-radius: 0;
+	padding: 10px 12px;
+	background: transparent !important;
+	color: var(--cad-text-primary) !important;
+	font-size: var(--comp-font-body);
+	font-family: var(--comp-font-family) !important;
+	font-weight: 400;
+	line-height: 1.5;
+	outline: none;
+	box-shadow: none;
+	transition: box-shadow 0.15s ease;
+	border: none !important;
+}
+
+#claude-assistant-dock .cad-inp::placeholder {
+	color: var(--cad-composer-placeholder);
+	opacity: 1;
+}
+
+#claude-assistant-dock .cad-inp--gpt {
+	min-height: 52px;
+	max-height: 220px;
+	padding: 8px 10px;
+	color: var(--cad-gpt-ink, #0d0d0d) !important;
+	font-size: 16px;
+	line-height: 1.5;
+}
+
+#claude-assistant-dock .cad-composer-box.cad-composer-box--gpt .cad-inp--gpt::placeholder {
+	color: var(--cad-gpt-muted, #737373);
+	opacity: 1;
+}
+
+#claude-assistant-dock .cad-composer-file-input {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+	opacity: 0;
+}
+
+#claude-assistant-dock .cad-composer-box.cad-composer-box--gpt .cad-composer-attachments {
+	padding: 8px 8px 4px;
+	border-top: 1px solid rgba(0, 0, 0, 0.06);
+	background: #f7f7f8 !important;
+}
+
+#claude-assistant-dock .cad-composer-box.cad-composer-box--gpt .cad-attach-chip {
+	border-color: rgba(0, 0, 0, 0.1);
+	background: #fff !important;
+	color: #374151 !important;
+}
+
+#claude-assistant-dock .cad-composer-box.cad-composer-box--gpt .cad-attach-chip-remove {
+	color: #6b7280 !important;
+}
+
+#claude-assistant-dock .cad-composer-attachments {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 10px 4px;
+	border-top: 1px solid var(--cad-composer-actions-divider);
+	box-sizing: border-box;
+	background: rgba(0, 0, 0, 0.08) !important;
+	min-height: 0;
+}
+
+#claude-assistant-dock .cad-composer-attachments[hidden] {
+	display: none !important;
+}
+
+#claude-assistant-dock .cad-attach-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	max-width: 100%;
+	padding: 4px 6px 4px 8px;
+	border-radius: 6px;
+	border: 1px solid var(--cad-border);
+	background: rgba(255, 255, 255, 0.04) !important;
+	font-size: var(--comp-font-caption);
+	line-height: 1.3;
+	color: var(--cad-text-secondary) !important;
+}
+
+#claude-assistant-dock .cad-attach-chip-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	max-width: 160px;
+}
+
+#claude-assistant-dock .cad-attach-chip-remove {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 28px;
+	min-height: 28px;
+	padding: 0 4px;
+	margin: 0;
+	border: none;
+	border-radius: 4px;
+	background: transparent !important;
+	color: var(--cad-text-secondary) !important;
+	cursor: pointer;
+	font-size: 16px;
+	line-height: 1;
+	transition: background 0.12s ease, color 0.12s ease;
+}
+
+#claude-assistant-dock .cad-attach-chip-remove:hover {
+	background: rgba(255, 255, 255, 0.08) !important;
+	color: var(--cad-text-primary) !important;
+}
+
+#claude-assistant-dock .cad-attach-chip-remove:focus-visible {
+	outline: 2px solid var(--cad-accent);
+	outline-offset: 2px;
+}
+
+#claude-assistant-dock .cad-user-attachments {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-top: 4px;
+	align-items: center;
+}
+
+#claude-assistant-dock .cad-user-file-chip {
+	display: inline-block;
+	padding: 2px 8px;
+	border-radius: 6px;
+	border: 1px solid var(--cad-border);
+	background: rgba(255, 255, 255, 0.06) !important;
+	font-size: var(--comp-font-caption);
+	color: var(--cad-text-secondary) !important;
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 40px;
+	height: 40px;
+	min-width: 40px;
+	min-height: 40px;
+	padding: 0;
+	border: none;
+	border-radius: 10px;
+	background: transparent !important;
+	color: var(--cad-text-secondary) !important;
+	cursor: pointer;
+	transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+
+#claude-assistant-dock .cad-composer-icon-btn:hover {
+	background: rgba(255, 255, 255, 0.06) !important;
+	color: var(--cad-text-primary) !important;
+}
+
+#claude-assistant-dock .cad-composer-icon-btn:focus-visible {
+	outline: 2px solid var(--cad-accent);
+	outline-offset: 2px;
+}
+
+#claude-assistant-dock .cad-agent-compact {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 2px;
+	padding: 5px 11px;
+	min-height: 36px;
+	min-width: 36px;
+	border: 1px solid var(--cad-composer-border);
+	border-radius: 9999px;
+	background: rgba(0, 0, 0, 0.22) !important;
+	color: var(--cad-text-primary) !important;
+	cursor: pointer;
+	font-family: var(--comp-font-family) !important;
+	font-size: var(--comp-font-caption);
+	font-weight: 500;
+	box-shadow: none !important;
+	transition: background 0.12s ease;
+	flex-shrink: 0;
+}
+
+#claude-assistant-dock .cad-agent-compact:hover {
+	background: rgba(255, 255, 255, 0.09) !important;
+}
+
+#claude-assistant-dock .cad-agent-compact:focus-visible {
+	outline: 2px solid var(--cad-accent);
+	outline-offset: 2px;
+}
+
+#claude-assistant-dock .cad-agent-compact-lead {
+	display: inline-flex;
+	line-height: 0;
+	opacity: 0.95;
+}
+
+#claude-assistant-dock .cad-agent-compact-chev {
+	display: inline-flex;
+	line-height: 0;
+	opacity: 0.45;
+}
+
+#claude-assistant-dock .cad-agent-compact-chev .cad-chevron-svg {
+	display: block;
+}
+
+#claude-assistant-dock .cad-model-inline {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	gap: 4px;
+	padding: 5px 11px;
+	min-height: 36px;
+	border-radius: 9999px;
+	background: rgba(0, 0, 0, 0.22) !important;
+	border: 1px solid var(--cad-composer-border);
+}
+
+#claude-assistant-dock .cad-model-inline:focus-within {
+	border-color: rgba(59, 130, 246, 0.5);
+	box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.2);
+}
+
+#claude-assistant-dock .cad-model-picker {
+	flex: 1;
+	min-width: 0;
+	width: auto;
+	max-width: none;
+	font-family: var(--comp-font-family) !important;
+	background: transparent !important;
+	color: var(--cad-text-secondary) !important;
+	border: none !important;
+	box-shadow: none !important;
+	font-size: 12px;
+	font-weight: 500;
+	line-height: 1.35;
+	cursor: pointer;
+	outline: none;
+	appearance: none;
+	-webkit-appearance: none;
+	padding: 3px 4px 3px 0;
+	text-overflow: ellipsis;
+}
+
+#claude-assistant-dock .cad-model-inline-chev {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	opacity: 0.45;
+	line-height: 0;
+	pointer-events: none;
+}
+
+#claude-assistant-dock .cad-model-inline-chev .cad-chevron-svg {
+	display: block;
+}
+
+/* ChatGPT-style trailing cluster — soft gray model chip + square dark send */
+#claude-assistant-dock .cad-model-inline.cad-model-inline--gpt {
+	flex: 0 1 auto;
+	max-width: min(240px, 58%);
+	padding: 5px 12px;
+	min-height: 36px;
+	background: #ececec !important;
+	border: 1px solid transparent;
+	border-radius: 9999px;
+}
+
+#claude-assistant-dock .cad-model-inline--gpt .cad-model-picker {
+	color: #111 !important;
+	font-size: 13px;
+	font-weight: 500;
+}
+
+#claude-assistant-dock .cad-model-inline--gpt .cad-model-inline-chev {
+	opacity: 0.55;
+}
+
+#claude-assistant-dock .cad-send-inset.cad-send-inset--gpt {
+	width: 36px;
+	height: 36px;
+	min-width: 36px;
+	min-height: 36px;
+	border-radius: 10px;
+	background: #0d0d0d !important;
+	color: #fff !important;
+}
+
+#claude-assistant-dock .cad-send-inset.cad-send-inset--gpt:hover {
+	background: #262626 !important;
+}
+
+#claude-assistant-dock .cad-send-inset.cad-send-inset--gpt:disabled {
+	cursor: not-allowed;
+	opacity: 1;
+	background: #e8e8e8 !important;
+	color: #a3a3a3 !important;
+}
+
+/* Send — neutral circular chip (aligned with attach hit area) */
+#claude-assistant-dock .cad-send-inset {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 40px;
+	height: 40px;
+	min-width: 40px;
+	min-height: 40px;
+	padding: 0;
+	border: none;
+	border-radius: 9999px;
+	background: var(--cad-send-round-bg) !important;
+	color: var(--cad-send-round-fg) !important;
+	cursor: pointer;
+	flex-shrink: 0;
+	box-shadow: none !important;
+	transition: background 0.12s ease, opacity 0.12s ease;
+}
+
+#claude-assistant-dock .cad-send-inset:hover {
+	background: var(--cad-send-round-bg-hover) !important;
+}
+
+#claude-assistant-dock .cad-send-inset:focus-visible {
+	outline: 2px solid var(--cad-accent);
+	outline-offset: 2px;
+}
+
+#claude-assistant-dock .cad-send-inset:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+	background: var(--cad-send-round-bg) !important;
+}
+
+/* Secondary actions — Review-style flat buttons */
+#claude-assistant-dock .cad-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border: 1px solid var(--cad-border) !important;
+	font-family: var(--comp-font-family) !important;
+	font-size: var(--comp-font-caption);
+	font-weight: 500;
+	line-height: normal;
+	cursor: pointer;
+	box-shadow: none !important;
+	text-shadow: none !important;
+	transition: background 0.12s ease;
+}
+
+#claude-assistant-dock .cad-btn--secondary {
+	min-height: 36px;
+	padding: 6px 12px;
+	border-radius: 0;
+	background: var(--cad-bg-secondary) !important;
+	color: var(--cad-text-primary) !important;
+}
+
+#claude-assistant-dock .cad-btn--secondary:hover {
+	background: var(--cad-hover-lift) !important;
+}
+
+#claude-assistant-dock .cad-btn--secondary:focus-visible {
+	outline: 2px solid var(--cad-accent);
+	outline-offset: 0;
+}
+
+/* Figma-style pills (primary = light surface on dark; meets contrast for UI) */
+#claude-assistant-dock .cad-btn--figma-primary {
+	min-height: 40px;
+	padding: 10px 18px;
+	border: none !important;
+	border-radius: var(--cad-figma-radius-pill) !important;
+	background: var(--cad-figma-on-dark-pill) !important;
+	color: var(--cad-figma-ink) !important;
+	font-size: 13px;
+	font-weight: 600;
+	letter-spacing: -0.01em;
+}
+
+#claude-assistant-dock .cad-btn--figma-primary:hover {
+	filter: brightness(1.05);
+}
+
+#claude-assistant-dock .cad-btn--figma-primary:focus-visible {
+	outline: 2px solid var(--cad-accent);
+	outline-offset: 2px;
+}
+
+#claude-assistant-dock .cad-btn--figma-outline {
+	min-height: 40px;
+	padding: 9px 16px;
+	border: 1px solid rgba(255, 255, 255, 0.22) !important;
+	border-radius: var(--cad-figma-radius-pill) !important;
+	background: transparent !important;
+	color: var(--cad-text-primary) !important;
+	font-size: 13px;
+	font-weight: 500;
+}
+
+#claude-assistant-dock .cad-btn--figma-outline:hover {
+	background: var(--cad-hover-lift) !important;
+	border-color: rgba(255, 255, 255, 0.3) !important;
+}
+
+#claude-assistant-dock .cad-btn--figma-outline:focus-visible {
+	outline: 2px solid var(--cad-accent);
+	outline-offset: 2px;
+}
+
+#claude-assistant-dock pre.cad-raw {
+	white-space: pre-wrap;
+	font-size: var(--cad-mono-size);
+	line-height: var(--cad-mono-line-height);
+	margin: 6px 0 0;
+	color: var(--cad-text-secondary);
+	font-family: var(--cad-font-mono);
+}
+
+/* Optional PR-style diff viewer — use inside bubbles/tools */
+#claude-assistant-dock .cad-diff {
+	border: 1px solid var(--cad-border);
+	background: var(--cad-bg-panel);
+	font-family: var(--cad-font-mono);
+	font-size: var(--cad-mono-size);
+	line-height: var(--cad-mono-line-height);
+	overflow-x: auto;
+	margin: var(--comp-space-2) 0 0;
+	text-align: left;
+}
+
+#claude-assistant-dock .cad-diff-header {
+	display: flex;
+	align-items: center;
+	gap: var(--comp-space-2);
+	padding: 8px var(--comp-space-3);
+	background: var(--cad-bg-secondary);
+	border-bottom: 1px solid var(--cad-border);
+	font-family: var(--comp-font-family);
+	font-size: var(--comp-font-caption);
+	font-weight: 500;
+	color: var(--cad-text-secondary);
+}
+
+#claude-assistant-dock .cad-diff-body {
+	padding: 0;
+	margin: 0;
+}
+
+#claude-assistant-dock .cad-diff-line {
+	display: block;
+	padding: 4px var(--comp-space-3);
+	margin: 0;
+	white-space: pre;
+	overflow-x: auto;
+	color: var(--cad-diff-ctx-text);
+}
+
+#claude-assistant-dock .cad-diff-line--add {
+	background: var(--cad-diff-add-bg);
+	color: var(--cad-diff-add-text);
+}
+
+#claude-assistant-dock .cad-diff-line--del {
+	background: var(--cad-diff-del-bg);
+	color: var(--cad-diff-del-text);
+}
+
+#claude-assistant-dock .cad-diff-meta {
+	font-variant-numeric: tabular-nums;
+	color: var(--cad-text-muted);
+	margin-right: 8px;
+	user-select: none;
+}
+
+/* Readable inputs on small viewports; avoids iOS zoom on focus — ui-ux-pro-max */
+@media (max-width: 520px) {
+	#claude-assistant-dock .cad-inp,
+	#claude-assistant-dock .cad-model-picker {
+		font-size: 16px;
+	}
+}
+
+/* Coarse pointers: 44×44 minimum targets — ui-ux-pro-max */
+@media (pointer: coarse) {
+	#claude-assistant-dock .cad-msgs-min-btn.cad-msgs-min--float {
+		width: 44px;
+		height: 44px;
+		min-width: 44px;
+		min-height: 44px;
+		border-radius: 999px;
+	}
+
+	#claude-assistant-dock .cad-msgs {
+		padding-right: 58px;
+	}
+
+	#claude-assistant-dock .cad-composer-icon-btn,
+	#claude-assistant-dock .cad-send-inset:not(.cad-send-inset--gpt),
+	#claude-assistant-dock .cad-composer-plus-btn,
+	#claude-assistant-dock .cad-send-inset--gpt {
+		width: 44px;
+		height: 44px;
+		min-width: 44px;
+		min-height: 44px;
+	}
+
+	#claude-assistant-dock .cad-send-inset--gpt {
+		border-radius: 12px;
+	}
+
+	#claude-assistant-dock .cad-agent-compact {
+		min-height: 44px;
+		min-width: 44px;
+		padding: 8px 14px;
+	}
+
+	#claude-assistant-dock .cad-model-inline {
+		min-height: 44px;
+	}
+
+	#claude-assistant-dock .cad-composer-gpt-toolbar {
+		min-height: 48px;
+		padding-top: 10px;
+	}
+}
+
+/* —— Claude pill composer (embedded in dock footer; legacy fixed overlay styles below for class parity) —— */
+.cad-sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+#claude-assistant-dock .cad-claude-float-layer.cad-claude-float-layer--dock {
+	position: relative;
+	inset: auto;
+	z-index: 4;
+	display: block;
+	width: 100%;
+	max-width: 100%;
+	min-width: 0;
+	padding: 0;
+	margin: 0;
+	pointer-events: auto;
+	flex-shrink: 0;
+	align-items: stretch;
+	justify-content: flex-start;
+}
+
+#claude-assistant-dock .cad-claude-float-layer--dock .cad-claude-float-anchor {
+	width: 100%;
+	max-width: 100%;
+	margin: 0;
+}
+
+.cad-claude-float-layer {
+	position: fixed;
+	inset: 0;
+	z-index: 100049;
+	display: flex;
+	align-items: flex-end;
+	justify-content: flex-end;
+	padding: 0;
+	padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+	padding-right: calc(24px + env(safe-area-inset-right, 0px));
+	pointer-events: none;
+}
+
+body.cad-dock-shift .cad-claude-float-layer:not(.cad-claude-float-layer--dock) {
+	padding-right: calc(16px + var(--cad-panel-width, 400px) + env(safe-area-inset-right, 0px));
+}
+
+.cad-claude-float-layer:not(.cad-claude-float-layer--dock)[hidden] {
+	display: none !important;
+}
+
+.cad-claude-float-layer:not(.cad-claude-float-layer--dock):not([hidden]) {
+	pointer-events: auto;
+}
+
+.cad-claude-float-backdrop {
+	position: absolute;
+	inset: 0;
+	background: rgba(15, 23, 42, 0.35);
+	backdrop-filter: blur(2px);
+	-webkit-backdrop-filter: blur(2px);
+	pointer-events: auto;
+}
+
+.cad-claude-float-anchor {
+	position: relative;
+	z-index: 1;
+	width: min(560px, calc(100vw - 32px));
+	max-width: 560px;
+	pointer-events: auto;
+	margin-bottom: 0;
+}
+
+@media (max-width: 520px) {
+	.cad-claude-float-anchor {
+		width: calc(100vw - 20px);
+	}
+}
+
+.cad-claude-pill {
+	background: #fff;
+	border: 1px solid #e5e7eb;
+	border-radius: 28px;
+	box-shadow:
+		0 12px 40px rgba(15, 23, 42, 0.12),
+		0 4px 12px rgba(15, 23, 42, 0.06);
+	padding: 16px 18px 14px;
+	box-sizing: border-box;
+}
+
+.cad-claude-float-ta {
+	display: block;
+	width: 100%;
+	min-height: 52px;
+	max-height: 220px;
+	margin: 0 0 12px;
+	padding: 4px 2px;
+	border: none;
+	resize: none;
+	font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, Roboto, sans-serif;
+	font-size: 15px;
+	line-height: 1.45;
+	color: #111827;
+	background: transparent;
+	outline: none;
+	box-sizing: border-box;
+}
+
+.cad-claude-float-ta::placeholder {
+	color: #9ca3af;
+}
+
+.cad-claude-pill-toolbar {
+	display: flex;
+	align-items: flex-end;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.cad-claude-pill-toolbar-left {
+	position: relative;
+	display: flex;
+	align-items: center;
+	flex-shrink: 0;
+}
+
+.cad-claude-btn-plus {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 36px;
+	height: 36px;
+	min-width: 36px;
+	min-height: 36px;
+	padding: 0;
+	border: none;
+	border-radius: 8px;
+	background: transparent;
+	color: #111827;
+	cursor: pointer;
+	transition: background 0.12s ease;
+}
+
+.cad-claude-btn-plus:hover {
+	background: #f3f4f6;
+}
+
+.cad-claude-btn-plus:focus-visible {
+	outline: 2px solid #3b82f6;
+	outline-offset: 1px;
+}
+
+.cad-claude-plus-menu {
+	position: absolute;
+	bottom: calc(100% + 10px);
+	left: 0;
+	min-width: 260px;
+	max-width: min(320px, calc(100vw - 40px));
+	padding: 8px 0;
+	background: #fff;
+	border: 1px solid #e5e7eb;
+	border-radius: 14px;
+	box-shadow:
+		0 16px 48px rgba(15, 23, 42, 0.14),
+		0 4px 12px rgba(15, 23, 42, 0.06);
+	z-index: 5;
+}
+
+.cad-claude-menu-section {
+	display: flex;
+	flex-direction: column;
+	padding: 0 4px;
+}
+
+.cad-claude-menu-divider {
+	height: 1px;
+	margin: 6px 12px;
+	background: #e5e7eb;
+	border: none;
+}
+
+.cad-claude-menu-item {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	width: 100%;
+	padding: 10px 14px;
+	margin: 0;
+	border: none;
+	border-radius: 8px;
+	background: transparent;
+	font-size: 14px;
+	line-height: 1.35;
+	color: #111827;
+	text-align: left;
+	cursor: pointer;
+	transition: background 0.12s ease;
+}
+
+.cad-claude-menu-item:hover {
+	background: #f3f4f6;
+}
+
+.cad-claude-menu-item--active {
+	color: #2563eb;
+}
+
+.cad-claude-menu-item--active .cad-claude-menu-ico {
+	color: #2563eb;
+}
+
+.cad-claude-menu-ico {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	width: 22px;
+	color: #374151;
+}
+
+.cad-claude-menu-txt {
+	flex: 1;
+	min-width: 0;
+}
+
+.cad-claude-menu-chev-r,
+.cad-claude-menu-check {
+	flex-shrink: 0;
+	color: #9ca3af;
+}
+
+.cad-claude-menu-item--active .cad-claude-menu-check {
+	color: #2563eb;
+}
+
+.cad-claude-pill-toolbar-right {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	flex: 1;
+	min-width: 0;
+	justify-content: flex-end;
+	position: relative;
+}
+
+.cad-claude-model-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	max-width: min(240px, 46vw);
+	padding: 8px 10px 8px 12px;
+	border: 1px solid #e5e7eb;
+	border-radius: 999px;
+	background: #f9fafb;
+	font-size: 13px;
+	line-height: 1.2;
+	color: #111827;
+	cursor: pointer;
+	transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.cad-claude-model-chip:hover {
+	border-color: #d1d5db;
+	background: #f3f4f6;
+}
+
+.cad-claude-model-chip-main {
+	font-weight: 600;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.cad-claude-model-chip-main--muted {
+	font-weight: 500;
+	color: #9ca3af;
+}
+
+.cad-claude-model-chip-sub {
+	font-weight: 400;
+	color: #6b7280;
+	white-space: nowrap;
+}
+
+.cad-claude-model-chip-chev {
+	display: flex;
+	flex-shrink: 0;
+	color: #9ca3af;
+	margin-left: 2px;
+}
+
+.cad-claude-model-menu {
+	position: absolute;
+	bottom: calc(100% + 10px);
+	right: 0;
+	width: min(300px, calc(100vw - 48px));
+	max-height: min(70vh, 420px);
+	overflow-y: auto;
+	padding: 8px 0;
+	background: #fff;
+	border: 1px solid #e5e7eb;
+	border-radius: 14px;
+	box-shadow:
+		0 16px 48px rgba(15, 23, 42, 0.14),
+		0 4px 12px rgba(15, 23, 42, 0.06);
+	z-index: 6;
+	overscroll-behavior: contain;
+}
+
+.cad-claude-model-opt {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 10px;
+	padding: 10px 14px;
+	font-size: 13px;
+	color: #111827;
+}
+
+.cad-claude-model-opt--head {
+	cursor: default;
+	display: grid;
+	grid-template-columns: 1fr auto;
+	grid-template-rows: auto auto;
+	column-gap: 10px;
+	row-gap: 2px;
+	align-items: start;
+}
+
+.cad-claude-model-opt--head .cad-claude-model-opt-title {
+	grid-column: 1;
+	grid-row: 1;
+}
+
+.cad-claude-model-opt--head .cad-claude-model-opt-desc {
+	grid-column: 1;
+	grid-row: 2;
+}
+
+.cad-claude-model-opt--head .cad-claude-model-opt-check {
+	grid-column: 2;
+	grid-row: 1 / span 2;
+	align-self: center;
+}
+
+.cad-claude-model-opt-title {
+	display: block;
+	font-weight: 700;
+	font-size: 14px;
+	line-height: 1.25;
+}
+
+.cad-claude-model-opt-desc {
+	display: block;
+	font-size: 12px;
+	font-weight: 400;
+	color: #6b7280;
+	line-height: 1.35;
+	margin-top: 2px;
+}
+
+.cad-claude-model-opt--toggle {
+	align-items: center;
+	background: #f3f4f6;
+	border-radius: 10px;
+	margin: 0 8px;
+	padding: 10px 12px;
+}
+
+.cad-claude-model-opt--toggle > div:first-child {
+	flex: 1;
+	min-width: 0;
+}
+
+.cad-claude-model-opt--toggle strong {
+	display: block;
+	font-size: 13px;
+}
+
+.cad-claude-toggle {
+	position: relative;
+	width: 44px;
+	height: 26px;
+	min-width: 44px;
+	padding: 0;
+	border: none;
+	border-radius: 999px;
+	background: #3b82f6;
+	cursor: pointer;
+	flex-shrink: 0;
+	transition: background 0.15s ease;
+}
+
+.cad-claude-toggle--off {
+	background: #d1d5db;
+}
+
+.cad-claude-toggle-knob {
+	position: absolute;
+	top: 3px;
+	left: 22px;
+	width: 20px;
+	height: 20px;
+	border-radius: 50%;
+	background: #fff;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+	transition: transform 0.15s ease;
+}
+
+.cad-claude-toggle--off .cad-claude-toggle-knob {
+	transform: translateX(-18px);
+}
+
+.cad-claude-model-more {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	width: calc(100% - 16px);
+	margin: 4px 8px;
+	padding: 10px 12px;
+	border: none;
+	border-radius: 8px;
+	background: transparent;
+	font-size: 14px;
+	color: #111827;
+	cursor: pointer;
+}
+
+.cad-claude-model-more:hover {
+	background: #f3f4f6;
+}
+
+.cad-claude-chev-right {
+	color: #9ca3af;
+	font-size: 18px;
+	line-height: 1;
+}
+
+.cad-claude-model-list-ul {
+	list-style: none;
+	margin: 0;
+	padding: 4px 8px 8px;
+	max-height: 180px;
+	overflow-y: auto;
+}
+
+.cad-claude-model-li-btn {
+	display: block;
+	width: 100%;
+	padding: 9px 10px;
+	margin: 2px 0;
+	border: none;
+	border-radius: 8px;
+	background: transparent;
+	font-size: 12px;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+	color: #374151;
+	text-align: left;
+	cursor: pointer;
+	word-break: break-all;
+}
+
+.cad-claude-model-li-btn:hover {
+	background: #f3f4f6;
+}
+
+.cad-claude-model-li-btn[aria-selected="true"] {
+	background: #eff6ff;
+	color: #1d4ed8;
+	font-weight: 600;
+}
+
+.cad-claude-send-terra {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 44px;
+	height: 44px;
+	min-width: 44px;
+	min-height: 44px;
+	padding: 0;
+	border: none;
+	border-radius: 10px;
+	background: #c05a3e;
+	color: #fff;
+	cursor: pointer;
+	box-shadow: 0 2px 6px rgba(192, 90, 62, 0.35);
+	transition:
+		background 0.15s ease,
+		transform 0.1s ease,
+		opacity 0.15s ease;
+	flex-shrink: 0;
+}
+
+.cad-claude-send-terra:hover:not(:disabled) {
+	background: #a74b33;
+}
+
+.cad-claude-send-terra:active:not(:disabled) {
+	transform: scale(0.96);
+}
+
+.cad-claude-send-terra:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+	box-shadow: none;
+}
+
+.cad-claude-send-terra svg {
+	stroke: #fff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	body.cad-dock-shift .main-section {
+		transition: none;
+	}
+
+	#claude-assistant-dock .cad-wrap.cad-narrow {
+		transition: none;
+	}
+
+	#claude-assistant-dock .cad-tab,
+	#claude-assistant-dock .cad-icon-btn,
+	#claude-assistant-dock .cad-btn,
+	#claude-assistant-dock .cad-inp,
+	#claude-assistant-dock .cad-send-inset,
+	#claude-assistant-dock .cad-composer-icon-btn,
+	#claude-assistant-dock .cad-composer-plus-btn,
+	#claude-assistant-dock .cad-msgs-min-btn.cad-msgs-min--float,
+	#claude-assistant-dock .cad-composer-setup,
+	#claude-assistant-dock .cad-diff,
+	#claude-assistant-dock .cad-empty-slab,
+	#claude-assistant-dock .cad-composer-setup-slab,
+	#claude-assistant-dock .cad-composer-box.cad-composer-box--gpt {
+		transition: none;
+	}
+}

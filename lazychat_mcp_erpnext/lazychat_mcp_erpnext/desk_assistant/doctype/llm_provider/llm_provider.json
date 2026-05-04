@@ -1,0 +1,151 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:provider_name",
+ "creation": "2026-05-01 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "provider_name",
+  "provider_type",
+  "provider_setup_hero",
+  "connection_section",
+  "base_url",
+  "api_key",
+  "headers_section",
+  "headers_intro",
+  "http_headers",
+  "advanced_section",
+  "extra_headers",
+  "staging_model_id",
+  "enabled"
+ ],
+ "fields": [
+  {
+   "fieldname": "provider_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Provider Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "provider_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Provider Type",
+   "options": "anthropic\nopenai_compatible",
+   "reqd": 1
+  },
+  {
+   "fieldname": "provider_setup_hero",
+   "fieldtype": "HTML",
+   "options": "<div class=\"llm-provider-hero\" role=\"region\" aria-label=\"Provider setup\"><span class=\"llm-hero-badge\">API connection</span><div class=\"llm-model-hero-title\">LLM provider</div><p class=\"llm-model-hero-text\">Set <strong>Base URL</strong> and <strong>API key</strong>; add gateway or vendor headers in the grid. Use <strong>Tools → Import from cURL</strong> to paste a full request and pre-fill fields.</p><ol class=\"llm-hero-steps\" role=\"list\"><li><span class=\"llm-hero-step-num\" aria-hidden=\"true\">1</span><span>Paste cURL or type the API root manually.</span></li><li><span class=\"llm-hero-step-num\" aria-hidden=\"true\">2</span><span>Review headers; Bearer maps to API key when possible.</span></li><li><span class=\"llm-hero-step-num\" aria-hidden=\"true\">3</span><span>Save — headers sync to JSON for the runtime bridge.</span></li></ol></div>"
+  },
+  {
+   "collapsible": 0,
+   "fieldname": "connection_section",
+   "fieldtype": "Section Break",
+   "label": "Connection"
+  },
+  {
+   "description": "API root used by the desk assistant. OpenAI-compatible APIs usually end with /v1 (e.g. https://api.openai.com/v1, https://integrate.api.nvidia.com/v1, http://127.0.0.1:1234/v1).",
+   "fieldname": "base_url",
+   "fieldtype": "Data",
+   "label": "Base URL",
+   "reqd": 1
+  },
+  {
+   "description": "Stored encrypted. For OpenAI-compatible APIs this is sent as Bearer. Anthropic uses this as x-api-key.",
+   "fieldname": "api_key",
+   "fieldtype": "Password",
+   "label": "API Key"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "headers_section",
+   "fieldtype": "Section Break",
+   "label": "HTTP headers"
+  },
+  {
+   "fieldname": "headers_intro",
+   "fieldtype": "HTML",
+   "options": "<div class=\"llm-setup-callout\" role=\"note\">Add custom headers (OpenRouter <code>HTTP-Referer</code>, gateway keys, tracing ids). <strong>Tools → Import from cURL</strong> parses <code>-H</code> lines into this grid; <strong>Add OpenRouter headers</strong> inserts referer and title.</div>"
+  },
+  {
+   "description": "Merged with default auth headers at request time. Authorization from cURL is mapped to API Key when possible.",
+   "fieldname": "http_headers",
+   "fieldtype": "Table",
+   "label": "Headers",
+   "options": "LLM Provider Header"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "advanced_section",
+   "fieldtype": "Section Break",
+   "label": "Advanced"
+  },
+  {
+   "fieldname": "extra_headers",
+   "fieldtype": "Code",
+   "hidden": 1,
+   "label": "Extra Headers (JSON)",
+   "options": "JSON",
+   "read_only": 1
+  },
+  {
+   "description": "Optional scratch field: last model id from the desk picker (From API / Or type Model ID). Saved with Save — use Add LLM Model to register a full desk model row.",
+   "fieldname": "staging_model_id",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Staging model ID"
+  },
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Enabled"
+  }
+ ],
+ "links": [],
+ "modified": "2026-05-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Desk Assistant",
+ "name": "LLM Provider",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "All"
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Website Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

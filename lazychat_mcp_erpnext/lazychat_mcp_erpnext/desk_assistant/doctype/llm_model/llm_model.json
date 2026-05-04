@@ -1,0 +1,138 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:model_label",
+ "creation": "2026-05-01 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "setup_intro",
+  "model_section",
+  "model_label",
+  "provider",
+  "model_id",
+  "supports_tools",
+  "max_output_tokens",
+  "context_window",
+  "input_price_per_mtok",
+  "output_price_per_mtok",
+  "is_default",
+  "enabled"
+ ],
+ "fields": [
+  {
+   "fieldname": "setup_intro",
+   "fieldtype": "HTML",
+   "options": "<div class=\"llm-model-hero\" role=\"region\" aria-label=\"Model setup\"><span class=\"llm-hero-badge\">Desk assistant</span><div class=\"llm-model-hero-title\">Connect a model</div><p class=\"llm-model-hero-text\">Choose an <strong>LLM Provider</strong> (base URL, API key, custom headers), then set the vendor <strong>Model ID</strong>. On the provider, use <strong>Tools → Import from cURL</strong> to paste a working request.</p><ol class=\"llm-hero-steps\" role=\"list\"><li><span class=\"llm-hero-step-num\" aria-hidden=\"true\">1</span><span>Create or pick a provider with the right base URL.</span></li><li><span class=\"llm-hero-step-num\" aria-hidden=\"true\">2</span><span>Map headers and API key; save the provider.</span></li><li><span class=\"llm-hero-step-num\" aria-hidden=\"true\">3</span><span>Enter the model id here and enable the row.</span></li></ol></div>"
+  },
+  {
+   "fieldname": "model_section",
+   "fieldtype": "Section Break",
+   "label": "Model"
+  },
+  {
+   "fieldname": "model_label",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Model Label",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "provider",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Provider",
+   "options": "LLM Provider",
+   "reqd": 1
+  },
+  {
+   "description": "Vendor model id (e.g. gpt-4o, claude-sonnet-4-20250514).",
+   "fieldname": "model_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Model ID",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "supports_tools",
+   "fieldtype": "Check",
+   "label": "Supports Tools"
+  },
+  {
+   "default": "4096",
+   "fieldname": "max_output_tokens",
+   "fieldtype": "Int",
+   "label": "Max Output Tokens"
+  },
+  {
+   "fieldname": "context_window",
+   "fieldtype": "Int",
+   "label": "Context Window"
+  },
+  {
+   "fieldname": "input_price_per_mtok",
+   "fieldtype": "Float",
+   "label": "Input $/M tokens"
+  },
+  {
+   "fieldname": "output_price_per_mtok",
+   "fieldtype": "Float",
+   "label": "Output $/M tokens"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_default",
+   "fieldtype": "Check",
+   "label": "Is Default"
+  },
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Enabled"
+  }
+ ],
+ "links": [],
+ "modified": "2026-05-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Desk Assistant",
+ "name": "LLM Model",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "All"
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Website Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

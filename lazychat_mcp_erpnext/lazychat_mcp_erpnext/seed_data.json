@@ -1,0 +1,9 @@
+[
+  {"doctype": "LLM Provider", "provider_name": "Anthropic", "provider_type": "anthropic", "base_url": "https://api.anthropic.com/v1", "enabled": 1},
+  {"doctype": "LLM Provider", "provider_name": "OpenAI", "provider_type": "openai_compatible", "base_url": "https://api.openai.com/v1", "enabled": 0},
+  {"doctype": "LLM Provider", "provider_name": "OpenRouter", "provider_type": "openai_compatible", "base_url": "https://openrouter.ai/api/v1", "enabled": 0},
+  {"doctype": "LLM Provider", "provider_name": "NVIDIA", "provider_type": "openai_compatible", "base_url": "https://integrate.api.nvidia.com/v1", "enabled": 0},
+  {"doctype": "LLM Provider", "provider_name": "Vercel AI Gateway", "provider_type": "openai_compatible", "base_url": "https://ai-gateway.vercel.sh/v1", "enabled": 0},
+  {"doctype": "LLM Provider", "provider_name": "LM Studio (local)", "provider_type": "openai_compatible", "base_url": "http://localhost:1234/v1", "enabled": 0},
+  {"doctype": "LLM Model", "model_label": "Claude (configure API key)", "provider": "Anthropic", "model_id": "claude-sonnet-4-20250514", "supports_tools": 1, "max_output_tokens": 4096, "context_window": 200000, "is_default": 1, "enabled": 1}
+]
