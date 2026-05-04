@@ -83,6 +83,31 @@ def get_lazychat_settings():
 	return out
 
 
+def _deploy_version():
+	"""Build a cache-bust token: app version + mtime of the bundled dist's index.html.
+
+	Changes whenever the lazychat dist is rebuilt + redeployed, so the shim's iframe
+	URL gets a new ?v= parameter and the browser bypasses the 12h asset cache.
+	"""
+	import os
+
+	try:
+		import frappe as _f
+
+		app_path = _f.get_app_path("lazychat_mcp_erpnext")
+		index_html = os.path.join(app_path, "public", "lazychat_dist", "index.html")
+		mt = int(os.path.getmtime(index_html)) if os.path.exists(index_html) else 0
+	except Exception:
+		mt = 0
+	# Ship version too — even when dist mtime is 0 (e.g. dist not built yet on this bench)
+	# we still get a fresh token if the app version bumps.
+	try:
+		from lazychat_mcp_erpnext import __version__ as _v
+	except Exception:
+		_v = "0"
+	return f"{_v}.{mt}"
+
+
 def boot_session(bootinfo):
 	"""Expose lazychat panel config to the Desk JS.
 
@@ -95,6 +120,8 @@ def boot_session(bootinfo):
 	at /assets/lazychat_mcp_erpnext/lazychat_dist/index.html (same-origin).
 	"""
 	settings = get_lazychat_settings()
+	# Inject deploy_version so the shim can cache-bust the iframe URL when the dist changes.
+	settings["deploy_version"] = _deploy_version()
 	bootinfo["lazychat_settings"] = settings
 
 	# Backward-compat: the old top-level keys are still read by older versions of the

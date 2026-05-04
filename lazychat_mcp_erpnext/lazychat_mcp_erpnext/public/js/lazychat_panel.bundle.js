@@ -147,12 +147,21 @@
 		const legacyIframeSrc = boot.lazychat_iframe_src || null;
 		const baseUrl = settings.iframe_base_url || "/assets/lazychat_mcp_erpnext/lazychat_dist/index.html";
 		const queryParams = settings.iframe_query_params || "?frame=sidebar";
+		// Cache-bust the iframe URL when the bundled chat-ui changes. Frappe serves the dist
+		// with Cache-Control: max-age=43200 (12h), so without this the browser keeps loading
+		// the OLD index.html — which references the OLD hashed asset bundle. Append a version
+		// derived from the Frappe app version + a deploy mtime hint surfaced via boot.
+		const cacheBust = boot.versions && boot.versions.lazychat_mcp_erpnext
+			? boot.versions.lazychat_mcp_erpnext
+			: (settings.deploy_version || "");
+		const sep = queryParams.includes("?") ? "&" : "?";
+		const finalQuery = cacheBust ? queryParams + sep + "v=" + encodeURIComponent(cacheBust) : queryParams;
 		return {
 			enabled: settings.enabled !== undefined ? !!settings.enabled : (boot.lazychat_panel_enabled !== false),
 			legacyWidget: !!(settings.legacy_widget_enabled || boot.lazychat_legacy_widget_enabled),
 			chatPath: settings.chat_path || "auto",
 			mcpEndpoint: settings.mcp_endpoint || "/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle",
-			iframeSrc: legacyIframeSrc || (baseUrl + queryParams),
+			iframeSrc: legacyIframeSrc || (baseUrl + finalQuery),
 		};
 	}
 
