@@ -24,8 +24,49 @@ TOOLLESS_PROMPT_SUFFIX = (
 )
 
 
+def _route_context_summary(context):
+	"""Pull the most useful bits out of desk_context into a one-paragraph briefing for the LLM."""
+	if not isinstance(context, dict):
+		return ""
+	view = context.get("view")
+	dt = context.get("doctype")
+	dn = context.get("docname")
+	cur = context.get("current_doc") or {}
+	selected = context.get("selected_rows") or []
+	if view == "Form" and dt and dn:
+		bits = [f"The user is currently viewing **{dt} / {dn}**"]
+		if cur.get("title"):
+			bits.append(f"(title: {cur['title']!r})")
+		extra = []
+		if cur.get("workflow_state"):
+			extra.append(f"workflow_state={cur['workflow_state']}")
+		elif cur.get("status"):
+			extra.append(f"status={cur['status']}")
+		if cur.get("dirty"):
+			extra.append("UNSAVED CHANGES")
+		if extra:
+			bits.append("[" + ", ".join(extra) + "]")
+		return (
+			" ".join(bits) + ".\n"
+			f"When the user says 'this', 'this doc', 'summarize', 'what is it about', 'what's wrong' — "
+			f"they mean {dt}/{dn}. Call get_doc('{dt}', '{dn}') FIRST to ground your answer in the real document.\n\n"
+		)
+	if view == "List" and dt:
+		s = f"The user is on the **{dt} list view**"
+		if selected:
+			preview = ", ".join(selected[:5]) + ("..." if len(selected) > 5 else "")
+			s += f" with {len(selected)} row(s) selected: {preview}.\n"
+			s += "When they say 'these' or 'the selected ones', use these names.\n\n"
+		else:
+			s += ".\n\n"
+		return s
+	if view == "Report" and dt:
+		return f"The user is on the **{dt} report view**.\n\n"
+	return ""
+
+
 def _system_prompt(context, supports_tools):
-	base = """You are an ERPNext / Frappe desk assistant. Be concise and accurate.
+	base = _route_context_summary(context) + """You are an ERPNext / Frappe desk assistant. Be concise and accurate.
 Use tools to fetch real data instead of guessing.
 
 READ tools (no confirmation needed):

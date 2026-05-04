@@ -30,12 +30,46 @@
 
 	function deskRoute() {
 		const r = (window.frappe && frappe.get_route && frappe.get_route()) || [];
-		return {
+		const view = r[0] || null; // "Form" | "List" | "Workspaces" | "Tree" | "Report" | ...
+		const doctype = (view === "Form" || view === "List" || view === "Tree" || view === "Report") ? r[1] : null;
+		const docname = view === "Form" ? r[2] : null;
+		const ctx = {
 			route: r,
+			view: view,
 			user: deskUser(),
-			doctype: r[0] === "Form" ? r[1] : null,
-			docname: r[0] === "Form" ? r[2] : null,
+			doctype: doctype,
+			docname: docname,
 		};
+		// On a Form view, surface the in-memory doc so the LLM can answer "summarize this"
+		// without needing to call get_doc first. cur_frm is set by Frappe's form controller.
+		if (view === "Form" && window.cur_frm && window.cur_frm.doc) {
+			const d = window.cur_frm.doc;
+			ctx.current_doc = {
+				name: d.name,
+				doctype: d.doctype,
+				owner: d.owner,
+				modified: d.modified,
+				docstatus: d.docstatus,
+				workflow_state: d.workflow_state || null,
+				status: d.status || null,
+				dirty: !!window.cur_frm.is_dirty && window.cur_frm.is_dirty(),
+			};
+			// Title field varies by doctype; Frappe stashes the resolved title on the form
+			if (window.cur_frm.meta && window.cur_frm.meta.title_field) {
+				ctx.current_doc.title_field = window.cur_frm.meta.title_field;
+				ctx.current_doc.title = d[window.cur_frm.meta.title_field];
+			}
+		}
+		// On a List view, surface selected rows (list view tracks via cur_list)
+		if (view === "List" && window.cur_list) {
+			try {
+				const selected = (window.cur_list.get_checked_items && window.cur_list.get_checked_items()) || [];
+				if (selected.length) {
+					ctx.selected_rows = selected.map((r) => r.name).slice(0, 50);
+				}
+			} catch (_e) { /* ignore */ }
+		}
+		return ctx;
 	}
 
 	function resolveIframeSrc() {

@@ -444,6 +444,30 @@ def run():
 	finally:
 		frappe.get_site_config = original_get_config
 
+	# T48–T51: route-context briefing renders correctly into the system prompt
+	from lazychat_mcp_erpnext.desk_assistant.claude_bridge import _route_context_summary
+
+	form_ctx = {
+		"view": "Form",
+		"doctype": "Sales Invoice",
+		"docname": "SI-2024-001",
+		"current_doc": {"name": "SI-2024-001", "doctype": "Sales Invoice", "title": "Acme Corp", "workflow_state": "Pending Approval"},
+	}
+	s = _route_context_summary(form_ctx)
+	record(_ok("T48 form-view briefing names the doc + asks for get_doc", "Sales Invoice / SI-2024-001" in s and "get_doc" in s))
+	record(_ok("T48b form-view briefing includes workflow_state", "Pending Approval" in s))
+
+	dirty_ctx = dict(form_ctx)
+	dirty_ctx["current_doc"] = dict(form_ctx["current_doc"], dirty=True)
+	s = _route_context_summary(dirty_ctx)
+	record(_ok("T49 form-view briefing flags unsaved changes", "UNSAVED CHANGES" in s))
+
+	list_ctx = {"view": "List", "doctype": "Customer", "selected_rows": ["CUST-1", "CUST-2", "CUST-3"]}
+	s = _route_context_summary(list_ctx)
+	record(_ok("T50 list-view briefing names selected rows", "Customer list view" in s and "CUST-1" in s and "3 row(s) selected" in s))
+
+	record(_ok("T51 empty/None context = empty briefing (no spurious noise)", _route_context_summary(None) == "" and _route_context_summary({}) == ""))
+
 	# Cleanup
 	cleaned = []
 	if created_note:
