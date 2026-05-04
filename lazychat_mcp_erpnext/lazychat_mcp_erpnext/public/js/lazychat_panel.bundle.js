@@ -28,6 +28,72 @@
 		return p === "/app" || p.startsWith("/app/");
 	}
 
+	/* ------------------------------------------------------------------
+	 * Theme sync — read Frappe's resolved theme + key CSS vars and push
+	 * them into the iframe so chat-ui follows Desk's look (light/dark + brand color).
+	 * ------------------------------------------------------------------ */
+	function frappeThemeMode() {
+		const root = document.documentElement;
+		const dsRoot = root.dataset && root.dataset.theme;
+		const dsBody = document.body && document.body.getAttribute("data-theme");
+		const ds = dsRoot || dsBody;
+		if (ds === "dark" || ds === "light") return ds;
+		const dt = (window.frappe && frappe.boot && frappe.boot.user && frappe.boot.user.desk_theme) || "";
+		if (dt === "Dark") return "dark";
+		if (dt === "Light") return "light";
+		// "Automatic" or unset → follow OS
+		return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+	}
+
+	function readFrappeColors() {
+		const cs = getComputedStyle(document.documentElement);
+		const v = (n) => (cs.getPropertyValue(n) || "").trim();
+		return {
+			primary: v("--primary-color") || v("--primary") || v("--brand-color"),
+			bg: v("--bg-color") || v("--neutral"),
+			fg: v("--text-color") || v("--gray-900"),
+			border: v("--border-color") || v("--gray-300"),
+			muted: v("--text-muted") || v("--gray-600"),
+			elevated: v("--card-bg") || v("--fg-color"),
+			input: v("--control-bg") || v("--input-bg"),
+		};
+	}
+
+	function pushTheme(bridge) {
+		const mode = frappeThemeMode();
+		bridge.send("setTheme", { theme: mode });
+		const c = readFrappeColors();
+		const tokens = {};
+		if (c.primary) tokens["--color-primary"] = c.primary;
+		if (c.bg) tokens["--bg-app"] = c.bg;
+		if (c.fg) tokens["--fg-primary"] = c.fg;
+		if (c.border) tokens["--border"] = c.border;
+		if (c.muted) tokens["--fg-muted"] = c.muted;
+		if (c.elevated) tokens["--bg-elevated"] = c.elevated;
+		if (c.input) tokens["--bg-input"] = c.input;
+		if (Object.keys(tokens).length) {
+			bridge.send("setThemeTokens", { tokens: tokens, persist: false });
+		}
+	}
+
+	function watchThemeChanges(bridge) {
+		// Frappe toggles theme by mutating data-theme on <html>. Re-push on every change.
+		try {
+			const obs = new MutationObserver(() => pushTheme(bridge));
+			obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+			if (document.body) {
+				obs.observe(document.body, { attributes: true, attributeFilter: ["data-theme"] });
+			}
+		} catch (_e) { /* MutationObserver always exists in modern browsers, but guard anyway */ }
+		// Also follow OS-level change when Desk theme is "Automatic"
+		try {
+			const mq = window.matchMedia("(prefers-color-scheme: dark)");
+			if (mq && mq.addEventListener) {
+				mq.addEventListener("change", () => pushTheme(bridge));
+			}
+		} catch (_e) { /* ignore */ }
+	}
+
 	function deskRoute() {
 		const r = (window.frappe && frappe.get_route && frappe.get_route()) || [];
 		const view = r[0] || null; // "Form" | "List" | "Workspaces" | "Tree" | "Report" | ...
@@ -454,6 +520,9 @@
 
 		bridge.on("ready", () => {
 			console.info("[lazychat] iframe ready");
+			// Push current Frappe theme + accent color, then keep them in sync.
+			pushTheme(bridge);
+			watchThemeChanges(bridge);
 		});
 
 		bridge.on("agentRequest", (payload) => {
