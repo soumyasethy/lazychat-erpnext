@@ -212,6 +212,53 @@ When adding a new tool: add a corresponding T## case in `scripts/smoke-test-tool
 - Vite dev server pinned to port 5173 with `strictPort: true` (no silent port-jump)
 - For HMR while editing chat-ui: set `lazychat_iframe_src: "http://127.0.0.1:5173/?frame=sidebar"` in site_config + run `pnpm --filter chat-ui dev`
 
+## Browser-LLM proxy: CSRF, cache-bust + diagnostic playbook (added 2026-05-04)
+
+Two failure modes the same screenshot pattern (`HTTP 400 from <NVIDIA URL>: <Frappe Server Error HTML>`) can hide. Always start by running both checks below.
+
+**1. Stale-bundle / iframe cache trap.** Frappe serves the bundled chat-ui dist with `Cache-Control: max-age=43200` (12h). The shim cache-busts the iframe URL via `?v=<token>`, but the token MUST be the dist's mtime, not the static app version — otherwise a redeploy never invalidates the browser cache and the user keeps replaying broken bundles. The token comes from `boot.py:_deploy_version()` (= `<__version__>.<index.html mtime>`) → injected onto `boot.lazychat_settings.deploy_version` → read by [`lazychat_panel.bundle.js`](lazychat_mcp_erpnext/lazychat_mcp_erpnext/public/js/lazychat_panel.bundle.js#L154-L158). The shim now prefers `settings.deploy_version` first, falls back to `boot.versions.lazychat_mcp_erpnext`. Earlier code had the order reversed — symptom: the iframe URL `?v=` stayed at the app version (e.g. `0.2.3`) across deploys and the browser never re-fetched.
+
+**2. CSRF on the same-origin LLM proxy.** The shim's `init` payload carries `mcpAuth: { csrf: frappe.csrf_token }`. chat-ui's `agent.ts:resolveFetchTarget()` and `mcp-client.ts:bP()` both attach it as `X-Frappe-CSRF-Token`. If either path forgets it, Frappe rejects the POST with `CSRFTokenError` (HTTP 400, HTML body — `<meta name="title" content="Server Error">`). The proxy itself strips `x-frappe-csrf-token` from `_DENY_HEADERS` before forwarding, so attaching it is always safe.
+
+### Diagnostic SQL (run via `bench --site <site> mariadb`)
+
+```sql
+-- Did the proxy handler actually run? (entry-level diagnostic in llm_proxy.py:186)
+SELECT name, LEFT(error, 600), creation FROM `tabError Log`
+ WHERE error LIKE '%lazychat llm_proxy: entry%' ORDER BY creation DESC LIMIT 5\G
+
+-- Browser hitting the dev fallback path? (means stale bundle / lost llmProxyUrl)
+SELECT name, LEFT(error, 400), creation FROM `tabError Log`
+ WHERE error LIKE '%legacy /llm-proxy hit%' ORDER BY creation DESC LIMIT 5\G
+
+-- Pre-auth trace from before_request hook (fires before CSRF/auth, captures rejected POSTs too)
+SELECT name, LEFT(error, 800), creation FROM `tabError Log`
+ WHERE error LIKE '%lazychat llm_proxy:%' ORDER BY creation DESC LIMIT 10\G
+```
+
+If the **entry diagnostic fires but request still 4xx**: read the body from chat-ui — the proxy returns plain text for `Missing x-target-url` / `Target host '...' not in allowlist` / `Target URL must be http(s)`. Fix at the source (chat-ui model picker or Lazychat Settings → llm_proxy_allowed_hosts).
+
+If the **entry diagnostic does NOT fire but the pre-auth trace shows the path was hit with `has_x_frappe_csrf_token=False`**: chat-ui isn't sending the CSRF header. Either bundle is stale (mode 1 above) or the in-iframe code lost it.
+
+If **neither fires but the user sees the 400+HTML**: chat-ui is hitting the wrong path entirely — usually `/llm-proxy` (relative dev fallback) instead of `/api/method/...handle`. Means the `init` postMessage's `llmProxyUrl` didn't reach `useEmbedConfig` — check the iframe load order and look for `[lazychat-diag] resolveFetchTarget` in the iframe console.
+
+### Quick verify after a chat-ui change + deploy
+
+```bash
+# bundle should contain the CSRF assignment
+grep -c "X-Frappe-CSRF-Token" .../public/lazychat_dist/assets/index-*.js
+# expect: 2 (one from mcp-client.ts, one from agent.ts:resolveFetchTarget)
+
+# iframe HTML returns the new content-hash
+curl -s "http://localhost:8000/assets/lazychat_mcp_erpnext/lazychat_dist/index.html" \
+  | grep -oE "index-[A-Za-z0-9_-]+\.js"
+
+# direct probe of the proxy (anonymous): expect 403 Not Permitted (route works, allow_guest=False)
+curl -i -X POST "http://localhost:8000/api/method/lazychat_mcp_erpnext.desk_assistant.llm_proxy.handle" \
+  -H "x-target-url: https://integrate.api.nvidia.com/v1/chat/completions" \
+  -d '{}' 2>&1 | head -3
+```
+
 ## Where to go next
 
 When user opens a new task in this repo:
