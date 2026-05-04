@@ -12,6 +12,8 @@
   "section_path",
   "chat_path",
   "mcp_endpoint",
+  "section_proxy",
+  "llm_proxy_allowed_hosts",
   "section_legacy",
   "legacy_widget_enabled",
   "section_security",
@@ -68,6 +70,20 @@
    "label": "MCP Endpoint",
    "read_only": 1,
    "description": "URL the chat-ui calls to fetch tool defs and execute tools (Browser-LLM path). Read-only; rely on the default."
+  },
+  {
+   "fieldname": "section_proxy",
+   "fieldtype": "Section Break",
+   "label": "LLM Proxy (Browser-LLM Path)",
+   "description": "When chat-ui calls cross-origin LLM endpoints (e.g. NVIDIA, OpenAI), the request is forwarded through the Frappe proxy at /api/method/lazychat_mcp_erpnext.desk_assistant.llm_proxy.handle. The allowlist below prevents using the proxy as an open relay."
+  },
+  {
+   "default": "[\"api.anthropic.com\", \"api.openai.com\", \"integrate.api.nvidia.com\", \"openrouter.ai\", \"ai-gateway.vercel.sh\", \"api.together.xyz\", \"api.groq.com\", \"api.fireworks.ai\", \"generativelanguage.googleapis.com\", \"api.deepseek.com\", \"api.mistral.ai\", \"api.cohere.com\", \"api.x.ai\"]",
+   "fieldname": "llm_proxy_allowed_hosts",
+   "fieldtype": "Code",
+   "label": "Allowed Upstream Hosts (JSON array)",
+   "options": "JSON",
+   "description": "JSON list of hostnames allowed as targets for the LLM proxy. Subdomain matching: 'openrouter.ai' covers 'abc.openrouter.ai'. Add internal LLM gateways here; remove providers you don't want exposed."
   },
   {
    "fieldname": "section_legacy",

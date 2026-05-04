@@ -539,6 +539,9 @@
 			mcpEndpoint: settings.mcpEndpoint,
 			mcpAuth: { csrf: csrf },
 			saveEndpoint: "/api/method/lazychat_mcp_erpnext.desk_assistant.api.save_conversation",
+			// Server-side LLM proxy for cross-origin custom-model calls (NVIDIA, OpenAI, etc).
+			// chat-ui's resolveFetchTarget routes here instead of the dev-only /llm-proxy.
+			llmProxyUrl: "/api/method/lazychat_mcp_erpnext.desk_assistant.llm_proxy.handle",
 		};
 		iframe.addEventListener("load", () => {
 			bridge.send("init", initPayload);

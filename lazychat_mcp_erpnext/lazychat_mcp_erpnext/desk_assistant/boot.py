@@ -3,6 +3,22 @@ import frappe
 
 # Defaults mirror the Lazychat Settings doctype defaults; used when the doctype
 # row hasn't been created yet (e.g. mid-install or in tests that mock frappe).
+_DEFAULT_LLM_PROXY_HOSTS = [
+	"api.anthropic.com",
+	"api.openai.com",
+	"integrate.api.nvidia.com",
+	"openrouter.ai",
+	"ai-gateway.vercel.sh",
+	"api.together.xyz",
+	"api.groq.com",
+	"api.fireworks.ai",
+	"generativelanguage.googleapis.com",
+	"api.deepseek.com",
+	"api.mistral.ai",
+	"api.cohere.com",
+	"api.x.ai",
+]
+
 _SETTINGS_DEFAULTS = {
 	"enabled": True,
 	"iframe_base_url": "/assets/lazychat_mcp_erpnext/lazychat_dist/index.html",
@@ -12,6 +28,7 @@ _SETTINGS_DEFAULTS = {
 	"legacy_widget_enabled": False,
 	"allow_email": False,
 	"allow_dangerous_tools": False,
+	"llm_proxy_allowed_hosts": list(_DEFAULT_LLM_PROXY_HOSTS),
 }
 
 

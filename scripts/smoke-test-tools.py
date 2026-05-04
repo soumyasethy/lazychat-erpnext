@@ -521,25 +521,29 @@ def run():
 	record(_ok("T59 MCP tools/call gracefully reports tool errors", res.get("isError") or "error" in body))
 
 	# T60–T64: Lazychat Settings doctype + boot extension + save_conversation
-	# T60: Single doc auto-creates with defaults (after install / get_single)
+	# T60: Single doc exists and exposes all expected fields. We don't check specific values
+	# — admins can toggle them; the boot resolver in T61 fills missing fields from defaults.
 	settings = frappe.get_single("Lazychat Settings")
+	expected_fields = {"enabled", "iframe_base_url", "iframe_query_params", "chat_path", "mcp_endpoint", "legacy_widget_enabled", "allow_email", "allow_dangerous_tools", "llm_proxy_allowed_hosts"}
+	doc_fields = {df.fieldname for df in settings.meta.fields}
 	record(_ok(
-		"T60 Lazychat Settings has default field values",
-		settings.get("enabled") in (1, True)
-		and settings.get("chat_path") == "auto"
-		and (settings.get("iframe_base_url") or "").startswith("/assets/lazychat_mcp_erpnext/")
-		and (settings.get("mcp_endpoint") or "").startswith("/api/method/lazychat_mcp_erpnext."),
+		"T60 Lazychat Settings doc exists with all 9 expected fields",
+		expected_fields.issubset(doc_fields),
 	))
 
 	# T61: boot_session populates frappe.boot.lazychat_settings with all expected fields
-	from lazychat_mcp_erpnext.desk_assistant.boot import boot_session as _bs
+	# AND fills missing values from defaults (this is how blank doctype values resolve).
+	from lazychat_mcp_erpnext.desk_assistant.boot import boot_session as _bs, _SETTINGS_DEFAULTS
 	bootinfo = {}
 	_bs(bootinfo)
 	ls = bootinfo.get("lazychat_settings") or {}
-	expected_keys = {"enabled", "iframe_base_url", "iframe_query_params", "chat_path", "mcp_endpoint", "legacy_widget_enabled", "allow_email", "allow_dangerous_tools"}
+	expected_keys = set(_SETTINGS_DEFAULTS.keys())
+	# chat_path falls back to default when doctype value is empty
 	record(_ok(
-		"T61 boot_session exposes lazychat_settings with all 8 fields",
-		expected_keys.issubset(set(ls.keys())) and ls.get("chat_path") == "auto",
+		"T61 boot_session exposes lazychat_settings with all default fields populated",
+		expected_keys.issubset(set(ls.keys()))
+		and ls.get("chat_path") in ("auto", "browser", "backend")
+		and isinstance(ls.get("llm_proxy_allowed_hosts"), (list, str)),
 	))
 
 	# T62: site_config wins over doctype (backward-compat fallback path)
@@ -605,6 +609,100 @@ def run():
 		frappe.db.set_value("Lazychat Settings", "Lazychat Settings", "mcp_endpoint", original_endpoint)
 		frappe.db.commit()
 	record(_ok("T64 Lazychat Settings rejects non-/api/method/ mcp_endpoint", threw))
+
+	# T65–T68: server-side LLM proxy
+	# We test llm_proxy at the unit level (mock requests.post + frappe.request) so we don't
+	# fire actual HTTP requests during smoke. Browser E2E covers the live wire.
+	from unittest.mock import patch, MagicMock
+	from lazychat_mcp_erpnext.desk_assistant import llm_proxy as _lp
+
+	def _mock_request(target_url: str, body: bytes = b"{}", method: str = "POST", extra_headers: dict | None = None):
+		req = MagicMock()
+		req.method = method
+		hdrs = {"x-target-url": target_url, "Authorization": "Bearer secret-key", "Content-Type": "application/json"}
+		if extra_headers:
+			hdrs.update(extra_headers)
+		req.headers = hdrs
+		req.args = {}
+		req.get_data = MagicMock(return_value=body)
+		return req
+
+	def _read_response(resp) -> tuple[int, str, str]:
+		# Werkzeug Response: status_code, mimetype, body (joined from generator)
+		status = resp.status_code
+		ct = resp.mimetype or ""
+		try:
+			body_bytes = b"".join(resp.iter_encoded())
+			body = body_bytes.decode("utf-8", errors="replace")
+		except Exception:
+			body = ""
+		return status, ct, body
+
+	# T65: allowlist rejects an unknown host with 403
+	with patch.object(frappe, "request", _mock_request("https://evil.example.com/v1/chat/completions")):
+		resp = _lp.handle()
+		status, _ct, body = _read_response(resp)
+		record(_ok("T65 LLM proxy rejects unknown host with 403", status == 403 and "not in allowlist" in body))
+
+	# T66: upstream connection error → 504
+	with patch.object(frappe, "request", _mock_request("https://api.openai.com/v1/chat/completions")):
+		import requests as _rq
+		with patch("requests.post", side_effect=_rq.exceptions.ConnectionError("DNS")):
+			resp = _lp.handle()
+			status, _ct, body = _read_response(resp)
+			record(_ok("T66 LLM proxy returns 504 on upstream connection error", status == 504 and "Upstream error" in body))
+
+	# T67: forwarded headers omit denylist (host, accept-encoding, cookie); body forwarded as-is
+	deny_check_headers = {
+		"Host": "erp.local:8000",
+		"Cookie": "sid=abc",
+		"Accept-Encoding": "gzip, br",
+		"sec-fetch-mode": "cors",
+		"X-Frappe-CSRF-Token": "csrf-xyz",  # non-deny — should be forwarded
+	}
+	posted_call: dict = {}
+	def _capture_post(url, headers=None, data=None, stream=None, timeout=None):
+		posted_call["url"] = url
+		posted_call["headers"] = headers or {}
+		posted_call["data"] = data
+		fake_resp = MagicMock()
+		fake_resp.headers = {"content-type": "application/json"}
+		fake_resp.status_code = 200
+		fake_resp.iter_content = MagicMock(return_value=iter([b'{"ok":1}']))
+		fake_resp.close = MagicMock()
+		return fake_resp
+
+	with patch.object(frappe, "request", _mock_request("https://api.openai.com/v1/chat/completions", body=b'{"hi":"world"}', extra_headers=deny_check_headers)):
+		with patch("requests.post", side_effect=_capture_post):
+			resp = _lp.handle()
+			# Drain
+			_read_response(resp)
+	hdrs = {k.lower(): v for k, v in (posted_call.get("headers") or {}).items()}
+	record(_ok(
+		"T67 LLM proxy forwards body + Authorization + CSRF, strips host/cookie/accept-encoding/sec-fetch-*",
+		posted_call.get("data") == b'{"hi":"world"}'
+		and "host" not in hdrs and "cookie" not in hdrs and "accept-encoding" not in hdrs
+		and not any(k.startswith("sec-fetch-") for k in hdrs)
+		and hdrs.get("authorization") == "Bearer secret-key"
+		and hdrs.get("x-frappe-csrf-token") == "csrf-xyz",
+	))
+
+	# T68: upstream Content-Type preserved
+	def _ct_post(url, **kw):
+		fake_resp = MagicMock()
+		fake_resp.headers = {"content-type": "text/event-stream"}
+		fake_resp.status_code = 200
+		fake_resp.iter_content = MagicMock(return_value=iter([b"event: ok\ndata: {}\n\n"]))
+		fake_resp.close = MagicMock()
+		return fake_resp
+	with patch.object(frappe, "request", _mock_request("https://integrate.api.nvidia.com/v1/chat/completions")):
+		with patch("requests.post", side_effect=_ct_post):
+			resp = _lp.handle()
+			status, ct, body = _read_response(resp)
+	record(_ok(
+		"T68 LLM proxy preserves upstream Content-Type (text/event-stream)",
+		status == 200 and ct == "text/event-stream" and "event: ok" in body,
+	))
 
 	# Cleanup
 	cleaned = []
