@@ -35,7 +35,7 @@ def lazychat_setup_check():
 			"\n[lazychat_mcp_erpnext] WARNING: bundled chat-ui dist NOT found at\n"
 			f"    {index_html}\n"
 			"  The lazychat panel will fail to load until you build it.\n"
-			"  From your agentic_chat repo:\n"
+			"  From your lazychat-mcp-erpnext repo:\n"
 			"    ./scripts/build-lazychat-dist.sh\n"
 			"    ./scripts/deploy-local.sh\n"
 			"  Or set 'lazychat_iframe_src' in site_config.json to a running chat-ui URL.\n"

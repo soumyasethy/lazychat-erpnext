@@ -65,7 +65,7 @@ The shim auto-detects SSE; falls back to batch event-replay on 404.
 The chat-ui dist is **not committed** — build it locally before deploying:
 
 ```bash
-cd /path/to/agentic_chat
+cd /path/to/lazychat-mcp-erpnext
 ./scripts/build-lazychat-dist.sh
 # auto-discovers ../lazychat.ai; override with LAZYCHAT_REPO=/abs/path
 ```
@@ -79,7 +79,7 @@ This runs `pnpm --filter chat-ui build` and rsyncs the output into `lazychat_mcp
 BENCH_ROOT=/path/to/that/bench DEPLOY_SITE=site.example ./scripts/deploy-local.sh
 # Or, for a fresh bench that doesn't have the app yet:
 cd /path/to/that/bench
-bench get-app file:///path/to/agentic_chat
+bench get-app file:///path/to/lazychat-mcp-erpnext
 bench --site site.example install-app lazychat_mcp_erpnext
 bench --site site.example clear-cache
 ```
