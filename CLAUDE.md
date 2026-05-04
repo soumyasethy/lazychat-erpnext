@@ -110,24 +110,48 @@ bench --site site.example install-app lazychat_mcp_erpnext
 
 **Email gating**: `prepare_send_email` requires `"lazychat_allow_email": true` in site_config.
 
-## site_config.json flags (all optional, all default safe)
+## Configuration: Lazychat Settings doctype (primary) + site_config (advanced override)
 
-| Flag | Default | What it does |
+**Primary admin surface: `/app/lazychat-settings`** (System Manager edit). Fields:
+
+| Field | Default | What it does |
 |---|---|---|
-| `lazychat_panel_enabled` | `true` | Mount the slide-out at all |
-| `lazychat_legacy_widget_enabled` | `false` | Show the OLD widget (off when lazychat is on) |
-| `lazychat_iframe_src` | (bundled dist path) | Override iframe src — set to `http://127.0.0.1:5173/?frame=sidebar` for chat-ui HMR dev |
-| `lazychat_allow_email` | `false` | Enable `prepare_send_email` |
-| `lazychat_allow_dangerous_tools` | `false` | Enable `prepare_run_sql` + `prepare_run_python` (still gated by System Manager role + /commit) |
+| `enabled` | `true` | Mount the panel at all (master switch) |
+| `iframe_base_url` | `/assets/lazychat_mcp_erpnext/lazychat_dist/index.html` | Where chat-ui loads from — override for remote chat-ui or HMR dev (`http://127.0.0.1:5173`) |
+| `iframe_query_params` | `?frame=sidebar` | Appended to base_url |
+| `chat_path` | `auto` | `auto` / `browser` / `backend` — see "Two chat paths" above |
+| `mcp_endpoint` | `/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle` | Read-only; browser-LLM path uses this |
+| `legacy_widget_enabled` | `false` | Mount the OLD vanilla-JS widget INSTEAD of the iframe (mutually exclusive) |
+| `allow_email` | `false` | Enable `prepare_send_email` |
+| `allow_dangerous_tools` | `false` | Enable `prepare_run_sql` + `prepare_run_python` (still gated by System Manager role + `/commit`) |
+
+**Advanced overrides via `site_config.json`** (these win over the doctype values — backward compat for installs that set them before the doctype existed):
+
+```json
+{
+  "lazychat_iframe_src": "...",
+  "lazychat_panel_enabled": true,
+  "lazychat_legacy_widget_enabled": false,
+  "lazychat_allow_email": false,
+  "lazychat_allow_dangerous_tools": false
+}
+```
+
+`boot.py:get_lazychat_settings()` is the single resolver — reads doctype, then layers site_config overrides, then exposes under `frappe.boot.lazychat_settings` for the panel shim and under the same dict for `tools.py` gates. **Use this helper anywhere on the server side** that needs settings; do NOT call `frappe.get_site_config()` directly for these flags.
 
 ## API surface (whitelisted methods)
 
+**Backend-LLM path (existing):**
 - `lazychat_mcp_erpnext.desk_assistant.api.send_message` — batch JSON `{conversation_id, events, usage}`
 - `lazychat_mcp_erpnext.desk_assistant.api.send_message_stream` — SSE: `event: text_delta|tool_use|tool_result|usage|done|error`
 - `lazychat_mcp_erpnext.desk_assistant.api.commit_prepared_action` — apply a staged action by token (NOT exposed to the LLM tool loop)
 - `lazychat_mcp_erpnext.desk_assistant.api.list_models` — model picker data
 - `lazychat_mcp_erpnext.desk_assistant.api.discover_remote_models` — fetch /models from a provider
 - `lazychat_mcp_erpnext.desk_assistant.api.test_llm_provider_connection` — connection probe
+
+**Browser-LLM path:**
+- `lazychat_mcp_erpnext.desk_assistant.api.save_conversation` — push browser-orchestrated turns into Claude Conversation
+- `lazychat_mcp_erpnext.desk_assistant.mcp.handle` — JSONRPC MCP transport (initialize / ping / tools/list / tools/call). Same auth as any whitelisted method (cookie session OR Frappe API key+secret). Used by both chat-ui's browser path AND external MCP clients (Claude Desktop, etc).
 
 ## Doctypes
 
@@ -145,7 +169,7 @@ cd <bench>
 bench --site <site> execute lazychat_mcp_erpnext._smoke.run
 ```
 
-Currently asserts **66 cases** across all 38 tools + theme/route-context briefings + MCP wire transport against real ERPNext data:
+Currently asserts **72 cases** across all 38 tools + theme/route-context briefings + MCP wire transport + Lazychat Settings doctype + save_conversation against real ERPNext data:
 - Reads (T1–T4, T19–T31, T34–T39): exercise every read tool against actual rows
 - Mutations (T5–T8, T10–T13, T33, T40–T41): create + update + comment + assign + share + delete (each with cleanup)
 - Workflow + analytics (T9, T14–T16): real Workflow Action / Dashboard Chart / Number Card
@@ -153,6 +177,8 @@ Currently asserts **66 cases** across all 38 tools + theme/route-context briefin
 - Power tools (T42–T47): rejection when flag off, execution when flag on (monkey-patched in test)
 - Route-context briefings (T48–T51): form view names doc + asks for get_doc grounding, dirty flag, list-view selected rows, empty-context noise check
 - MCP wire transport (T52–T59): initialize handshake, ping, tools/list (38 tools, MCP-shaped inputSchema), tools/call dispatches to execute_tool, error paths (-32601 unknown tool, -32602 missing name, -32601 unknown method, isError on tool failure)
+- Lazychat Settings (T60–T62): doctype defaults + boot-extension shape + site_config fallback override
+- save_conversation + validation (T63–T64): browser-LLM path conversation persist + mcp_endpoint URL validation
 - Cleanup at end removes all created Comments / ToDos / Notes
 
 When adding a new tool: add a corresponding T## case in `scripts/smoke-test-tools.py`, sync to bench (`cp`), re-run. Target = always 100% pass.
@@ -203,12 +229,30 @@ When user opens a new task in this repo:
 
 | # | Sub-project | Status |
 |---|---|---|
-| MCP wire | JSONRPC-over-HTTP MCP transport at `/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle` (initialize / ping / tools/list / tools/call) — Claude Desktop and other MCP clients can connect via Frappe API key+secret. See [desk_assistant/mcp.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/mcp.py). Smoke covered T52–T59. | **DONE** |
+| MCP wire | JSONRPC-over-HTTP MCP transport at `/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle` (initialize / ping / tools/list / tools/call) — Claude Desktop and other MCP clients can connect via Frappe API key+secret; chat-ui's browser-LLM path also calls it. See [desk_assistant/mcp.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/mcp.py). Smoke covered T52–T59. | **DONE** |
 | Theme sync | `pushTheme()` reads Frappe CSS vars (`--primary-color`, `--bg-color`, `--text-color`, `--border-color`, `--text-muted`) + resolved theme mode and posts `setTheme` + `setThemeTokens`. `MutationObserver` on `<html data-theme>` re-pushes on Frappe theme toggle. | **DONE** |
 | Route context | `deskRoute()` reads `cur_frm.doc` (name/doctype/title/workflow_state/status/dirty) on Form view + `cur_list.get_checked_items()` on List view. `_route_context_summary()` in `claude_bridge.py` prepends a briefing to the system prompt so the LLM auto-grounds "this doc" / "summarize" queries. Smoke covered T48–T51. | **DONE** |
+| Lazychat Settings doctype | Single doctype at `/app/lazychat-settings` (System Manager edit) — 8 fields: enabled, iframe_base_url, iframe_query_params, chat_path (auto/browser/backend), mcp_endpoint, legacy_widget_enabled, allow_email, allow_dangerous_tools. Replaces site_config flag scattering; site_config still wins as advanced override. boot.py `get_lazychat_settings()` is the unified resolver. T60–T64 cover defaults, boot-extension shape, fallback behavior, validation, save_conversation. | **DONE** (commit 55b432f) |
+| Browser-LLM path with tools | chat-ui (lazychat.ai repo) gained a JSONRPC MCP client — `mcp-client.ts` fetches tool defs from our wire endpoint and `agent.ts:runChatWithMcp` runs a non-streaming tool-use loop with the user's BYO LLM. agentRunner does 3-way routing based on `chatPath` setting AND active model. See [lazychat.ai/CLAUDE.md](../lazychat.ai/CLAUDE.md) for the chat-ui side. | **DONE** (lazychat.ai db300ce; chat-ui dist bundled here) |
+| save_conversation endpoint | `/api/method/lazychat_mcp_erpnext.desk_assistant.api.save_conversation` — chat-ui pushes turns from the browser-LLM path to `Claude Conversation` so admins have one unified history regardless of who orchestrated the LLM. T63 covers it. | **DONE** |
 | Analytics extras | `analyze_business_data` (pandas-based) heavy analytics | deferred |
 | Visualization mutations | `create_dashboard`, `create_dashboard_chart` specialized creators (vs the generic `prepare_create_doc`) | deferred |
 | Streamable-HTTP MCP upgrade | SSE upgrade + `Mcp-Session-Id` header support for server-initiated notifications + progress | deferred (current sync JSONRPC is sufficient for tool-call clients) |
+
+## Two chat paths (architecture)
+
+Both paths are operational and admin-selectable via `Lazychat Settings → Chat Path`:
+
+| Path | LLM owned by | Tools dispatched by | Use when |
+|---|---|---|---|
+| **Backend-LLM** | Frappe (LLM Provider doctype) | `run_agentic_turn` calls `execute_tool` in-process | Org deployments, shared keys, central audit |
+| **Browser-LLM** | chat-ui (BYO key in browser localStorage) | chat-ui calls `mcp.handle` JSONRPC for each tool_use | Single-user / power-user, key never touches server |
+
+`chat_path = auto` (default): chat-ui inspects active model — custom model in picker → browser path; built-in model → backend path. Effortless for end users.
+
+**Both paths share `tools.py` (38 tools, 1 implementation, 0 drift)**, both run with `frappe.session.user`'s permissions, both write to `Claude Conversation` (backend in `run_agentic_turn`; browser via `save_conversation`).
+
+**Nothing is deprecated.** `LLM Provider`, `LLM Model`, `send_message_stream`, `run_agentic_turn`, `claude_bridge.py`, `providers/`, the legacy widget JS — all serve the backend path. Removing them would lose a real production deployment shape (org with shared keys).
 
 ## Commit conventions
 

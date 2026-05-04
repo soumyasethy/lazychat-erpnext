@@ -17,11 +17,13 @@ A **Frappe app** that drops a rich, multi-provider AI chat panel into the right 
 
 - **Real ERPNext data** — every tool runs as `frappe.session.user`, so `frappe.get_list`/`frappe.has_permission` enforce role-based filters automatically. No god-mode bypass.
 - **38 tools** across reads, mutations, workflow, analytics, reports, ERPNext domain (stock, accounts, outstanding, sales summary, item price), file extraction, and gated power tools (raw SQL / Python).
+- **Two chat paths, admin-selectable** — Browser-LLM (key in browser, chat-ui orchestrates LLM, calls our MCP wire endpoint for tools) OR Backend-LLM (key in `LLM Provider` doctype, server orchestrates LLM, executes tools in-process). Both share the same 38 tools and per-user permission scoping.
 - **Two-phase mutations** — the LLM stages `prepare_*`, you type `/commit TOKEN` to apply. The commit method is NOT in the tool registry, so the LLM is physically incapable of self-committing.
-- **Multi-provider LLM** — Anthropic (native), plus any OpenAI-compatible API (OpenAI, OpenRouter, NVIDIA, Vercel AI Gateway, LM Studio, Groq, Together). Configure via the `LLM Provider` doctype.
-- **SSE streaming** — token-level streaming via `send_message_stream`; falls back to batch if SSE is blocked by your reverse proxy.
-- **Persistent chat** — conversations stored in the `Claude Conversation` doctype, survive page reloads.
+- **Multi-provider LLM** — Anthropic (native), plus any OpenAI-compatible API (OpenAI, OpenRouter, NVIDIA, Vercel AI Gateway, LM Studio, Groq, Together). For backend path: configure via `LLM Provider` doctype. For browser path: configure in chat-ui's BYO model picker (key in browser localStorage, never touches server).
+- **SSE streaming** — token-level streaming via `send_message_stream` (backend path); non-streaming with tool-call status messages (browser path with tools).
+- **Persistent chat** — conversations stored in the `Claude Conversation` doctype, survive page reloads. Both paths write to the same audit log.
 - **Same-origin** — chat-ui dist is bundled inside the app and served from `/assets/lazychat_mcp_erpnext/lazychat_dist/`. No CORS, no port hardcoding, no separate dev server needed in production.
+- **Single admin surface** — `Desk → Lazychat Settings`: enable/disable, iframe URL, chat path, security gates. Site_config flags still work as advanced overrides.
 
 ## Install
 
@@ -50,29 +52,48 @@ bench --site your.site install-app lazychat_mcp_erpnext
 
 The `after_install` hook auto-seeds default LLM Provider/Model rows, prints a welcome banner with next steps, and verifies the bundled dist is in place.
 
-### Configure your LLM
+### Configure (pick a chat path)
 
-1. `Desk → LLM Provider → Anthropic → set API Key → Save`
-2. (Optional) Enable other providers and create their `LLM Model` rows.
-3. Reload the desk. Click the chat-bubble bottom-right.
+Open `Desk → Lazychat Settings` (or `/app/lazychat-settings`). Set **Chat Path**:
 
-## Optional `site_config.json` flags
+**Option A: Browser-LLM (single-user / power-user — key in browser)**
+1. `Lazychat Settings → Chat Path = browser → Save`
+2. Reload Desk → open the chat panel → model picker → "Add custom model"
+3. Fill the endpoint (Anthropic, NVIDIA, OpenAI, OpenRouter, local LM Studio…) + paste API key
+4. Send a message — chat-ui calls the LLM directly with your key and dispatches tool_use blocks back to ERPNext via MCP. Key never reaches the server.
 
-All defaults work out of the box. Override only if needed:
+**Option B: Backend-LLM (org / shared key)**
+1. `Lazychat Settings → Chat Path = backend → Save`
+2. `Desk → LLM Provider → Anthropic → set API Key → Save`
+3. (Optional) `Desk → LLM Model` to add NVIDIA/OpenAI/OpenRouter rows; mark one `is_default = 1`
+4. Reload Desk → chat panel uses the default model via `send_message_stream` → `run_agentic_turn`. Audit lives in `Claude Conversation`.
+
+**Option C: Auto (default)**
+Leave `chat_path = auto`. chat-ui inspects active model: custom model → browser path; built-in → backend path. Users can switch per-conversation.
+
+## Configuration
+
+**Primary admin surface: `Desk → Lazychat Settings`** (System Manager edit). 8 fields covering the panel, chat path, legacy widget, and security gates. Help text in the form explains each.
+
+**Advanced overrides via `site_config.json`** (these win over the doctype values, kept for backward compat):
 
 ```json
 {
   "lazychat_iframe_src": "http://127.0.0.1:5173/?frame=sidebar",
+  "lazychat_panel_enabled": true,
+  "lazychat_legacy_widget_enabled": false,
   "lazychat_allow_email": true,
   "lazychat_allow_dangerous_tools": true
 }
 ```
 
-| Flag | What it does |
-|---|---|
-| `lazychat_iframe_src` | Override the iframe src — point at a running chat-ui dev server for HMR while editing the React UI |
-| `lazychat_allow_email` | Enable `prepare_send_email` tool (off by default to prevent accidental mass-mail) |
-| `lazychat_allow_dangerous_tools` | Enable `prepare_run_sql` + `prepare_run_python` (still gated by System Manager role + `/commit` confirmation) |
+| Setting | Default | Effect |
+|---|---|---|
+| `enabled` | `true` | Master switch |
+| `iframe_base_url` | bundled dist path | Override for remote chat-ui or HMR dev (`http://127.0.0.1:5173`) |
+| `chat_path` | `auto` | `auto` / `browser` / `backend` |
+| `allow_email` | `false` | Enable `prepare_send_email` |
+| `allow_dangerous_tools` | `false` | Enable `prepare_run_sql` + `prepare_run_python` (still gated by System Manager role + `/commit`) |
 
 ## Tool catalog (38 tools)
 
@@ -162,23 +183,41 @@ Expected: `=== 53 pass, 0 fail, 0 skip ===` (with cleanup of any test docs creat
 ## Architecture
 
 ```
+                      ┌─── Lazychat Settings (Single doctype) ───┐
+                      │ enabled, iframe_base_url, chat_path,     │
+                      │ allow_email, allow_dangerous_tools, ...  │
+                      └────────┬─────────────────────────────────┘
+                               │ via boot.py → frappe.boot
+                               ▼
 ERPNext Desk @ <site>/app
 ├── lazychat_panel.bundle.js  (loaded via app_include_js on every Desk page)
 │   ├── mounts iframe + slide-out chrome (FAB, resize handle, theme-aware CSS)
-│   ├── postMessage envelope per lazychat protocol
-│   └── intercepts /commit <token>  →  POST commit_prepared_action
+│   └── on init postMessage sends: chatPath, mcpEndpoint, mcpAuth, saveEndpoint
 │
-├── iframe @ /assets/lazychat_mcp_erpnext/lazychat_dist/index.html?frame=sidebar
-│   └── lazychat React UI (multi-tab, markdown, mutation previews, theme tokens)
-│
-└── On user send → agentRequest postMessage:
-       shim → POST /api/method/lazychat_mcp_erpnext.desk_assistant.api.send_message_stream
-                 → run_agentic_turn (Anthropic Messages API streaming)
-                     → on tool_use: tools.py.execute_tool (with frappe.set_user)
-                         → frappe.get_list / get_doc / etc — REAL ERPNext data
-                     → SSE events back: text_delta / tool_use / tool_result / done
-                 → shim re-emits as agentChunk → chat-ui streams in
+└── iframe → chat-ui (lazychat React UI)
+    │
+    ├── ╭─── BROWSER-LLM PATH ─────────────────────────────────╮
+    │   │ chat-ui owns the LLM call:                            │
+    │   │ 1. agent.ts:runChatWithMcp uses BYO endpoint+key     │
+    │   │ 2. fetches tool defs once via mcp.handle (5min cache)│
+    │   │ 3. attaches tools to LLM payload (OpenAI/Anthropic)  │
+    │   │ 4. on tool_use → mcp.handle tools/call → tool_result │
+    │   │ 5. loop max 8 turns                                   │
+    │   │ 6. POST save_conversation for audit                   │
+    │   ╰────────────────────────────────────────────────────╯
+    │
+    └── ╭─── BACKEND-LLM PATH (existing, unchanged) ───────────╮
+        │ Backend owns the LLM call:                            │
+        │ 1. agentRunner emits agentRequest postMessage         │
+        │ 2. shim → POST send_message_stream                    │
+        │ 3. run_agentic_turn resolves LLM Model doctype        │
+        │ 4. providers/{anthropic,openai_compat}.py call LLM    │
+        │ 5. on tool_use → execute_tool in-process              │
+        │ 6. SSE events back → shim → agentChunk postMessage    │
+        ╰─────────────────────────────────────────────────────╯
 ```
+
+**Both paths share** `tools.py` (38 tools, 1 implementation), `frappe.has_permission` (per-user scoping), and `Claude Conversation` doctype (one audit log).
 
 For deeper architecture + conventions, see [CLAUDE.md](CLAUDE.md).
 
