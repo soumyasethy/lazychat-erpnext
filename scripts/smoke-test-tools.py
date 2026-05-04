@@ -468,6 +468,58 @@ def run():
 
 	record(_ok("T51 empty/None context = empty briefing (no spurious noise)", _route_context_summary(None) == "" and _route_context_summary({}) == ""))
 
+	# T52–T57: MCP wire-protocol dispatcher (initialize, tools/list, tools/call, errors)
+	from lazychat_mcp_erpnext.desk_assistant.mcp import dispatch as mcp_dispatch
+	# T52: initialize handshake
+	r = mcp_dispatch("initialize", {}, req_id=1)
+	res = r.get("result") or {}
+	record(_ok(
+		"T52 MCP initialize returns capabilities + serverInfo",
+		r.get("jsonrpc") == "2.0" and r.get("id") == 1
+		and "tools" in (res.get("capabilities") or {})
+		and (res.get("serverInfo") or {}).get("name") == "lazychat-mcp-erpnext",
+	))
+	# T53: ping
+	r = mcp_dispatch("ping", {}, req_id=2)
+	record(_ok("T53 MCP ping", r.get("result") == {} and "error" not in r))
+	# T54: tools/list returns all 38 tools with MCP-shaped inputSchema
+	r = mcp_dispatch("tools/list", {}, req_id=3)
+	tools = (r.get("result") or {}).get("tools") or []
+	first = tools[0] if tools else {}
+	record(_ok(
+		"T54 MCP tools/list returns 38 tools with inputSchema",
+		len(tools) == 38 and "inputSchema" in first and "name" in first,
+	))
+	# T55: tools/call dispatches to execute_tool — get_list against Customer
+	r = mcp_dispatch("tools/call", {"name": "get_list", "arguments": {"doctype": "Customer", "limit": 2}}, req_id=4)
+	res = r.get("result") or {}
+	content = res.get("content") or []
+	import json as _j
+	body = _j.loads(content[0]["text"]) if content else {}
+	record(_ok(
+		"T55 MCP tools/call get_list returns rows wrapped in MCP content",
+		not res.get("isError") and body.get("ok") is True and "rows" in body,
+	))
+	# T56: tools/call with unknown tool → JSONRPC error -32601
+	r = mcp_dispatch("tools/call", {"name": "this_tool_does_not_exist", "arguments": {}}, req_id=5)
+	err = r.get("error") or {}
+	record(_ok("T56 MCP tools/call unknown tool → JSONRPC -32601", err.get("code") == -32601))
+	# T57: tools/call with missing 'name' → JSONRPC error -32602
+	r = mcp_dispatch("tools/call", {"arguments": {}}, req_id=6)
+	err = r.get("error") or {}
+	record(_ok("T57 MCP tools/call missing name → JSONRPC -32602", err.get("code") == -32602))
+	# T58: unknown method → JSONRPC -32601
+	r = mcp_dispatch("totally/unknown", {}, req_id=7)
+	err = r.get("error") or {}
+	record(_ok("T58 MCP unknown method → JSONRPC -32601", err.get("code") == -32601))
+	# T59: tools/call with permission-failing tool returns isError=True (not an exception)
+	# get_doc on a non-existent customer — graceful error
+	r = mcp_dispatch("tools/call", {"name": "get_doc", "arguments": {"doctype": "Customer", "name": "NOPE-NONEXISTENT"}}, req_id=8)
+	res = r.get("result") or {}
+	body = _j.loads((res.get("content") or [{}])[0].get("text", "{}")) if res.get("content") else {}
+	# Either ok=False with error, or isError flag set
+	record(_ok("T59 MCP tools/call gracefully reports tool errors", res.get("isError") or "error" in body))
+
 	# Cleanup
 	cleaned = []
 	if created_note:

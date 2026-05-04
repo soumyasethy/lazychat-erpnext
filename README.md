@@ -88,6 +88,65 @@ All defaults work out of the box. Override only if needed:
 | **Mutations / Comms** (two-phase via `/commit`) | prepare_create_doc, prepare_update_doc, prepare_submit_doc, prepare_delete_doc, prepare_workflow_action, prepare_add_comment, prepare_assign_to, prepare_send_email, prepare_share_doc |
 | **Power tools** (gated + two-phase) | prepare_run_sql, prepare_run_python |
 
+## External MCP clients (Claude Desktop, agent SDKs, custom integrations)
+
+The same 38 tools are exposed over the **Model Context Protocol (JSONRPC over HTTP)** at:
+
+```
+POST /api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle
+Authorization: token <API_KEY>:<API_SECRET>
+Content-Type: application/json
+```
+
+Generate the API key/secret per user in `Desk → User → <user> → API Access`. Each call runs as that user — `frappe.has_permission` filters apply, no god-mode bypass.
+
+**Methods supported:** `initialize`, `ping`, `tools/list`, `tools/call`. Notifications (no `id`) are accepted.
+
+### Quick check from your terminal
+
+```bash
+SITE=https://your-site.example
+KEY=...
+SECRET=...
+
+# 1. Handshake
+curl -s "$SITE/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle" \
+  -H "Authorization: token $KEY:$SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize"}' | jq
+
+# 2. List tools (expect 38)
+curl -s "$SITE/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle" \
+  -H "Authorization: token $KEY:$SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | jq '.result.tools | length'
+
+# 3. Call a tool
+curl -s "$SITE/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle" \
+  -H "Authorization: token $KEY:$SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_list","arguments":{"doctype":"Customer","limit":3}}}' | jq
+```
+
+### Claude Desktop / Cursor / etc
+
+Point your MCP client config at the URL with the API key as a header:
+
+```json
+{
+  "mcpServers": {
+    "erpnext": {
+      "url": "https://your-site.example/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle",
+      "headers": {
+        "Authorization": "token YOUR_KEY:YOUR_SECRET"
+      }
+    }
+  }
+}
+```
+
+(Exact config field names vary by client. The endpoint is plain JSONRPC-over-HTTP — no SSE upgrade or session-id header required for this minimal transport.)
+
 ## Smoke test
 
 Verify all 38 tools work against your live data:
