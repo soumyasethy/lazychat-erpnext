@@ -149,11 +149,12 @@
 		const queryParams = settings.iframe_query_params || "?frame=sidebar";
 		// Cache-bust the iframe URL when the bundled chat-ui changes. Frappe serves the dist
 		// with Cache-Control: max-age=43200 (12h), so without this the browser keeps loading
-		// the OLD index.html — which references the OLD hashed asset bundle. Append a version
-		// derived from the Frappe app version + a deploy mtime hint surfaced via boot.
-		const cacheBust = boot.versions && boot.versions.lazychat_mcp_erpnext
-			? boot.versions.lazychat_mcp_erpnext
-			: (settings.deploy_version || "");
+		// the OLD index.html — which references the OLD hashed asset bundle.
+		// Prefer settings.deploy_version (boot.py composes "<app_version>.<dist mtime>" — flips
+		// on every rebuild). Fall back to the static app version, then empty.
+		const cacheBust = (settings.deploy_version
+			|| (boot.versions && boot.versions.lazychat_mcp_erpnext)
+			|| "");
 		const sep = queryParams.includes("?") ? "&" : "?";
 		const finalQuery = cacheBust ? queryParams + sep + "v=" + encodeURIComponent(cacheBust) : queryParams;
 		return {
