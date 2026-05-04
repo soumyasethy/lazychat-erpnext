@@ -125,6 +125,35 @@ def _make_response(generator, *, status: int = 200, mimetype: str | None = None,
 	return resp
 
 
+def trace_legacy_proxy_hit():
+	"""before_request hook: log when the browser hits /llm-proxy on Frappe.
+
+	If this fires, chat-ui is using the dev-only fallback URL — meaning either
+	the embedded llmProxyUrl never reached chat-ui's useEmbedConfig, OR chat-ui
+	is loading a stale bundle that doesn't have the fix. Either way, this log
+	tells us EXACTLY which scenario is happening so we can stop guessing.
+	"""
+	try:
+		req = frappe.request
+		path = (req.path or "").rstrip("/")
+		if path == "/llm-proxy" or path.endswith("/llm-proxy"):
+			target_url = req.headers.get("x-target-url", "(missing)")[:120]
+			frappe.log_error(
+				message=(
+					f"BROWSER HIT LEGACY /llm-proxy (not /api/method/...llm_proxy.handle)\n"
+					f"path={path}\n"
+					f"method={req.method}\n"
+					f"target_url={target_url}\n"
+					f"user_agent={req.headers.get('user-agent', '?')[:120]}\n"
+					f"referer={req.headers.get('referer', '(none)')[:200]}\n"
+					f"This means chat-ui is on a stale bundle OR llmProxyUrl wasn't propagated."
+				),
+				title="lazychat llm_proxy: legacy /llm-proxy hit",
+			)
+	except Exception:
+		pass
+
+
 @frappe.whitelist(methods=["POST", "OPTIONS"], allow_guest=False)
 def handle():
 	"""Forward an arbitrary POST to the LLM URL declared in `x-target-url`.
@@ -135,6 +164,29 @@ def handle():
 	import requests
 
 	req = frappe.request
+
+	# Diagnostic: log every entry so we can see what the browser is sending.
+	# Writes to Error Log so it's visible at /app/error-log.
+	try:
+		hdr_keys = sorted({k.lower() for k in req.headers.keys()})
+		has_auth = "authorization" in hdr_keys
+		has_target_auth = "x-target-authorization" in hdr_keys
+		has_target_url = "x-target-url" in hdr_keys
+		target_url_preview = req.headers.get("x-target-url", "(missing)")[:120]
+		body_size = len(req.get_data(cache=True, as_text=False) or b"")
+		frappe.log_error(
+			message=(
+				f"method={req.method}\n"
+				f"target_url={target_url_preview}\n"
+				f"has_authorization={has_auth} has_x_target_authorization={has_target_auth} has_x_target_url={has_target_url}\n"
+				f"body_bytes={body_size}\n"
+				f"all_header_keys={hdr_keys}\n"
+				f"user={getattr(frappe.session, 'user', '?')}"
+			),
+			title="lazychat llm_proxy: entry",
+		)
+	except Exception:
+		pass
 
 	# OPTIONS preflight — only relevant when chat-ui is on a different origin
 	if req.method == "OPTIONS":

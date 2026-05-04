@@ -36,6 +36,11 @@ app_include_css = [
 
 extend_bootinfo = "lazychat_mcp_erpnext.desk_assistant.boot.boot_session"
 
+# Diagnostic: log when the browser hits /llm-proxy (the dev-only fallback path).
+# If this fires in production, chat-ui is on a stale bundle OR didn't get llmProxyUrl
+# from the init postMessage. The Error Log entry tells us which.
+before_request = ["lazychat_mcp_erpnext.desk_assistant.llm_proxy.trace_legacy_proxy_hit"]
+
 # Bundled brand SVGs (avoid missing File attachments at /files/agilitas*.svg)
 app_logo_url = "/assets/lazychat_mcp_erpnext/images/agilitas-txt-logo.svg"
 
