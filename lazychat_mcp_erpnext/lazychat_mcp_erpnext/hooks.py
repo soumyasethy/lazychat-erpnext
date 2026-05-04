@@ -17,9 +17,9 @@ def _asset_qs(*parts: str) -> str:
 
 app_name = "lazychat_mcp_erpnext"
 app_title = "Lazychat MCP ERPNext"
-app_publisher = "Agentic Chat"
+app_publisher = "Soumya Sethy"
 app_description = "Multi-provider LLM assistant docked on the ERPNext desk"
-app_email = "support@example.com"
+app_email = "sethy.soumyaranjan@gmail.com"
 app_license = "MIT"
 app_version = _v
 
