@@ -520,6 +520,92 @@ def run():
 	# Either ok=False with error, or isError flag set
 	record(_ok("T59 MCP tools/call gracefully reports tool errors", res.get("isError") or "error" in body))
 
+	# T60–T64: Lazychat Settings doctype + boot extension + save_conversation
+	# T60: Single doc auto-creates with defaults (after install / get_single)
+	settings = frappe.get_single("Lazychat Settings")
+	record(_ok(
+		"T60 Lazychat Settings has default field values",
+		settings.get("enabled") in (1, True)
+		and settings.get("chat_path") == "auto"
+		and (settings.get("iframe_base_url") or "").startswith("/assets/lazychat_mcp_erpnext/")
+		and (settings.get("mcp_endpoint") or "").startswith("/api/method/lazychat_mcp_erpnext."),
+	))
+
+	# T61: boot_session populates frappe.boot.lazychat_settings with all expected fields
+	from lazychat_mcp_erpnext.desk_assistant.boot import boot_session as _bs
+	bootinfo = {}
+	_bs(bootinfo)
+	ls = bootinfo.get("lazychat_settings") or {}
+	expected_keys = {"enabled", "iframe_base_url", "iframe_query_params", "chat_path", "mcp_endpoint", "legacy_widget_enabled", "allow_email", "allow_dangerous_tools"}
+	record(_ok(
+		"T61 boot_session exposes lazychat_settings with all 8 fields",
+		expected_keys.issubset(set(ls.keys())) and ls.get("chat_path") == "auto",
+	))
+
+	# T62: site_config wins over doctype (backward-compat fallback path)
+	# Set doctype False, mock site_config with True, get_lazychat_settings should return True.
+	from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings as _gls
+	original_get_config = frappe.get_site_config
+
+	def patched_config_t62(*a, **kw):
+		c = dict(original_get_config(*a, **kw) or {})
+		c["lazychat_allow_dangerous_tools"] = True
+		c["lazychat_allow_email"] = True
+		return c
+	frappe.get_site_config = patched_config_t62
+	try:
+		eff = _gls()
+		record(_ok(
+			"T62 site_config 'lazychat_allow_dangerous_tools=True' overrides doctype False",
+			eff.get("allow_dangerous_tools") is True and eff.get("allow_email") is True,
+		))
+	finally:
+		frappe.get_site_config = original_get_config
+
+	# T63: save_conversation creates a Claude Conversation row scoped to current user
+	from lazychat_mcp_erpnext.desk_assistant.api import save_conversation
+	r = save_conversation(
+		conversation_id=None,
+		messages=[{"role": "user", "content": "smoke test"}, {"role": "assistant", "content": "hi"}],
+		title="Smoke Conv",
+		model_label="bytedance/seed-oss-36b-instruct",
+		usage={"input_tokens": 10, "output_tokens": 5},
+	)
+	convo_name = r.get("conversation_id")
+	record(_ok("T63 save_conversation returns conversation_id + persists row", bool(convo_name) and frappe.db.exists("Claude Conversation", convo_name)))
+	if convo_name:
+		convo = frappe.get_doc("Claude Conversation", convo_name)
+		record(_ok(
+			"T63b saved conversation has user, history, last_model, usage",
+			convo.user == frappe.session.user
+			and "smoke test" in (convo.history or "")
+			and convo.last_model == "bytedance/seed-oss-36b-instruct"
+			and (convo.total_input_tokens or 0) >= 10
+			and (convo.total_output_tokens or 0) >= 5,
+		))
+		# Cleanup test conversation
+		try:
+			frappe.delete_doc("Claude Conversation", convo_name, force=1, ignore_missing=True)
+		except Exception:
+			pass
+
+	# T64: validation — mcp_endpoint must start with /api/method/
+	settings_doc = frappe.get_single("Lazychat Settings")
+	original_endpoint = settings_doc.mcp_endpoint
+	threw = False
+	try:
+		settings_doc.mcp_endpoint = "https://elsewhere.example.com/mcp"
+		settings_doc.save()
+	except frappe.exceptions.ValidationError:
+		threw = True
+	except Exception:
+		threw = True
+	finally:
+		# Restore via frappe.db to avoid second validation
+		frappe.db.set_value("Lazychat Settings", "Lazychat Settings", "mcp_endpoint", original_endpoint)
+		frappe.db.commit()
+	record(_ok("T64 Lazychat Settings rejects non-/api/method/ mcp_endpoint", threw))
+
 	# Cleanup
 	cleaned = []
 	if created_note:

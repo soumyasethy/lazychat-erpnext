@@ -227,6 +227,42 @@ def ping():
 
 
 @frappe.whitelist(methods=["POST"])
+def save_conversation(conversation_id=None, messages=None, title=None, model_label=None, usage=None):
+	"""Persist a conversation turn into Claude Conversation (Browser-LLM path entry).
+
+	Mirrors what send_message_stream does after run_agentic_turn finishes — gives
+	chat-ui a way to push the same shape of history when chat-ui owns the LLM call.
+	Both paths produce the same audit log.
+	"""
+	if isinstance(messages, str):
+		try:
+			messages = json.loads(messages)
+		except json.JSONDecodeError:
+			frappe.throw(_("messages must be a JSON list"))
+	if not isinstance(messages, list):
+		messages = []
+	if isinstance(usage, str):
+		try:
+			usage = json.loads(usage)
+		except json.JSONDecodeError:
+			usage = {}
+	usage = usage or {}
+
+	convo = _get_or_create_conversation(conversation_id)
+	if title and not convo.title:
+		convo.title = str(title)[:140]
+	convo.history = json.dumps(messages, default=str)
+	if model_label:
+		convo.last_model = str(model_label)
+	if isinstance(usage, dict):
+		convo.total_input_tokens = (convo.total_input_tokens or 0) + int(usage.get("input_tokens", 0) or 0)
+		convo.total_output_tokens = (convo.total_output_tokens or 0) + int(usage.get("output_tokens", 0) or 0)
+	convo.save(ignore_permissions=True)
+	frappe.db.commit()
+	return {"ok": True, "conversation_id": convo.name}
+
+
+@frappe.whitelist(methods=["POST"])
 def commit_prepared_action(token):
 	"""Apply a previously staged action (returned by prepare_*) by token. Called by /commit slash command."""
 	from lazychat_mcp_erpnext.desk_assistant.tools import commit_prepared

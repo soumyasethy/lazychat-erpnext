@@ -21,8 +21,16 @@ SQL_ALLOWED_PATTERN = re.compile(r"^\s*(WITH|SELECT|\()", re.IGNORECASE)
 
 
 def _dangerous_tools_enabled():
-	if not frappe.get_site_config().get("lazychat_allow_dangerous_tools"):
-		return False, "dangerous tools disabled (set 'lazychat_allow_dangerous_tools': true in site_config.json)"
+	# Defer import to avoid circular imports during install (boot.py imports nothing here,
+	# but execute_tool can be called very early from MCP wire / smoke tests).
+	from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+
+	if not get_lazychat_settings().get("allow_dangerous_tools"):
+		return False, (
+			"dangerous tools disabled (enable in Desk → Lazychat Settings → "
+			"'Allow prepare_run_sql + prepare_run_python Tools', or set "
+			"'lazychat_allow_dangerous_tools': true in site_config.json)"
+		)
 	if "System Manager" not in frappe.get_roles():
 		return False, "requires System Manager role"
 	return True, None
@@ -685,10 +693,17 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			return {"error": str(e)}
 
 	if name == "prepare_send_email":
-		# Gated by site_config flag — opt-in to prevent accidental mass-mail.
-		if not frappe.get_site_config().get("lazychat_allow_email"):
+		# Gated to prevent accidental mass-mail. Reads Lazychat Settings doctype first,
+		# then site_config (advanced override).
+		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings as _gls
+
+		if not _gls().get("allow_email"):
 			return {
-				"error": "Email sending disabled. Set 'lazychat_allow_email': true in site_config.json to enable.",
+				"error": (
+					"Email sending disabled. Enable in Desk → Lazychat Settings → "
+					"'Allow prepare_send_email Tool', or set "
+					"'lazychat_allow_email': true in site_config.json."
+				),
 			}
 		recipients = args.get("recipients") or []
 		if isinstance(recipients, str):
@@ -1087,8 +1102,10 @@ def commit_prepared(token):
 			)
 			doc = frappe.get_doc(payload["doctype"], payload["name"])
 		elif action == "send_email":
-			if not frappe.get_site_config().get("lazychat_allow_email"):
-				return {"ok": False, "error": "Email disabled at commit time (lazychat_allow_email=false)"}
+			from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings as _gls
+
+			if not _gls().get("allow_email"):
+				return {"ok": False, "error": "Email disabled at commit time (Lazychat Settings → Allow Email is unchecked)"}
 			frappe.sendmail(
 				recipients=payload["recipients"],
 				subject=payload["subject"],

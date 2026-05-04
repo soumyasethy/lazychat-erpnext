@@ -9,6 +9,7 @@ _ASSET_ICON = "/assets/lazychat_mcp_erpnext/images/agilitas.icon.svg"
 
 def run_after_migrate():
 	seed_llm_defaults()
+	seed_lazychat_settings()
 	patch_agilitas_branding()
 	lazychat_setup_check()
 
@@ -16,14 +17,31 @@ def run_after_migrate():
 def after_install():
 	"""Called once when bench --site <site> install-app lazychat_mcp_erpnext succeeds.
 
-	Defaults are designed to work without any site_config edits:
-	  - lazychat_panel_enabled = True
-	  - lazychat_legacy_widget_enabled = False
-	  - lazychat_iframe_src = /assets/lazychat_mcp_erpnext/lazychat_dist/index.html?frame=sidebar
+	Defaults work without any admin action:
+	  - Lazychat Settings doctype auto-created with chat_path=auto, enabled=true
+	  - Iframe loads bundled chat-ui dist (same-origin, port-free)
+	  - Both browser-LLM and backend-LLM paths available; auto picks based on chat-ui's active model
 	"""
 	seed_llm_defaults()
+	seed_lazychat_settings()
 	lazychat_setup_check()
 	_print_welcome_banner()
+
+
+def seed_lazychat_settings():
+	"""Insert the Lazychat Settings Single row if it doesn't exist yet.
+
+	Frappe auto-creates Single doctype rows on first access, but seeding here ensures
+	the row's there immediately so the welcome-banner instructions point at a real form.
+	"""
+	try:
+		if not frappe.db.exists("DocType", "Lazychat Settings"):
+			return  # doctype JSON not migrated yet (would happen on next bench migrate)
+		# get_single creates the row with default field values if absent
+		frappe.get_single("Lazychat Settings")
+		frappe.db.commit()
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), "lazychat_mcp_erpnext.seed_lazychat_settings")
 
 
 def lazychat_setup_check():
@@ -62,19 +80,28 @@ def _print_welcome_banner():
 		" Tools:    38 registered (reads, mutations, workflow, analytics,\n"
 		"           reports, ERPNext domain, communications, power tools)\n"
 		"\n"
-		" Next steps:\n"
-		"   1. Open Desk -> 'LLM Provider' -> Anthropic -> set API Key\n"
-		"   2. (Optional) configure additional providers (NVIDIA, OpenAI, ...)\n"
-		"   3. Reload Desk; click the chat-bubble bottom-right to start.\n"
+		" PRIMARY admin surface:\n"
+		f"   Open http://localhost:8000/app/lazychat-settings\n"
+		"   - 'Enabled' toggle, iframe URL, chat path (auto/browser/backend),\n"
+		"     and security gates all live here.\n"
 		"\n"
-		" Optional site_config flags:\n"
+		" Pick your chat path (Lazychat Settings → Chat Path):\n"
+		"   * auto (default) — chat-ui auto-routes:\n"
+		"       custom model in chat-ui  -> Browser-LLM (key in browser)\n"
+		"       built-in 'Default' model -> Backend-LLM (key in LLM Provider)\n"
+		"   * browser — always Browser-LLM. Configure a custom model in chat-ui's\n"
+		"       model picker (its existing ModelEditor with BYO key/endpoint).\n"
+		"   * backend — always Backend-LLM. Open Desk → 'LLM Provider' →\n"
+		"       Anthropic (or NVIDIA, OpenAI, ...) → set API Key.\n"
+		"\n"
+		" Site_config advanced overrides (optional):\n"
 		"   {\n"
 		'     "lazychat_iframe_src": "http://127.0.0.1:5173/?frame=sidebar"  // chat-ui HMR\n'
 		'     "lazychat_allow_email": true                                    // enable prepare_send_email\n'
-		'     "lazychat_allow_dangerous_tools": true                          // enable prepare_run_sql / prepare_run_python (System Manager only)\n'
+		'     "lazychat_allow_dangerous_tools": true                          // enable prepare_run_sql / prepare_run_python\n'
 		"   }\n"
 		"\n"
-		" Smoke test (verifies all 38 tools against real data):\n"
+		" Smoke test (verifies all 38 tools + settings + MCP against real data):\n"
 		f"   bench --site {site} execute lazychat_mcp_erpnext._smoke.run\n"
 		"================================================================\n"
 	)

@@ -1,0 +1,150 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-05-04 16:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_panel",
+  "enabled",
+  "iframe_base_url",
+  "iframe_query_params",
+  "section_path",
+  "chat_path",
+  "mcp_endpoint",
+  "section_legacy",
+  "legacy_widget_enabled",
+  "section_security",
+  "allow_email",
+  "allow_dangerous_tools",
+  "section_help",
+  "help_html"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_panel",
+   "fieldtype": "Section Break",
+   "label": "Panel"
+  },
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Enabled",
+   "description": "Master switch. If unchecked, the chat panel is not mounted on any Desk page."
+  },
+  {
+   "default": "/assets/lazychat_mcp_erpnext/lazychat_dist/index.html",
+   "fieldname": "iframe_base_url",
+   "fieldtype": "Data",
+   "label": "Iframe Base URL",
+   "description": "Where the chat-ui SPA loads from. Default is the bundled dist (same-origin). Override to point at a remote chat-ui (e.g. https://chat.example.com) or a dev server (http://127.0.0.1:5173) for HMR."
+  },
+  {
+   "default": "?frame=sidebar",
+   "fieldname": "iframe_query_params",
+   "fieldtype": "Data",
+   "label": "Iframe Query Params",
+   "description": "Appended to the base URL. Default forces the sidebar layout. Add &fixture=meta for demo fixtures, etc."
+  },
+  {
+   "fieldname": "section_path",
+   "fieldtype": "Section Break",
+   "label": "Chat Path"
+  },
+  {
+   "default": "auto",
+   "fieldname": "chat_path",
+   "fieldtype": "Select",
+   "options": "auto\nbrowser\nbackend",
+   "label": "Chat Path",
+   "description": "Which side of the embed orchestrates the LLM call.\n\n* auto (default): chat-ui uses Browser-LLM if user has a custom model configured, else falls back to Backend-LLM.\n* browser: always Browser-LLM. User must configure a custom model + API key in chat-ui's model picker. Keys never reach the server.\n* backend: always Backend-LLM. Uses the LLM Provider + LLM Model doctypes (admin-controlled, shared keys). Custom models in chat-ui are ignored."
+  },
+  {
+   "default": "/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle",
+   "fieldname": "mcp_endpoint",
+   "fieldtype": "Data",
+   "label": "MCP Endpoint",
+   "read_only": 1,
+   "description": "URL the chat-ui calls to fetch tool defs and execute tools (Browser-LLM path). Read-only; rely on the default."
+  },
+  {
+   "fieldname": "section_legacy",
+   "fieldtype": "Section Break",
+   "label": "Legacy Widget"
+  },
+  {
+   "default": "0",
+   "fieldname": "legacy_widget_enabled",
+   "fieldtype": "Check",
+   "label": "Use Legacy Vanilla-JS Widget Instead of Iframe",
+   "description": "When checked, the legacy claude_assistant_desk vanilla-JS panel mounts and the iframe panel is suppressed. Mutually exclusive with the iframe panel. Useful for fallback if you hit an iframe-rendering issue."
+  },
+  {
+   "fieldname": "section_security",
+   "fieldtype": "Section Break",
+   "label": "Security Gates"
+  },
+  {
+   "default": "0",
+   "fieldname": "allow_email",
+   "fieldtype": "Check",
+   "label": "Allow prepare_send_email Tool",
+   "description": "When checked, the prepare_send_email tool can stage outbound email. Defense against accidental mass-mail. site_config 'lazychat_allow_email' takes precedence if set."
+  },
+  {
+   "default": "0",
+   "fieldname": "allow_dangerous_tools",
+   "fieldtype": "Check",
+   "label": "Allow prepare_run_sql + prepare_run_python Tools",
+   "description": "When checked AND caller has System Manager role, the SQL and Python power tools can be staged via /commit. SELECT-only SQL enforced by regex. site_config 'lazychat_allow_dangerous_tools' takes precedence if set."
+  },
+  {
+   "fieldname": "section_help",
+   "fieldtype": "Section Break",
+   "label": "Help"
+  },
+  {
+   "fieldname": "help_html",
+   "fieldtype": "HTML",
+   "options": "<div class=\"text-muted\" style=\"line-height:1.6\"><h5>Two chat paths</h5><p><b>Browser-LLM</b>: chat-ui (in the iframe) calls the LLM directly using a key the user pastes into chat-ui's model picker. Tools are still ERPNext tools — chat-ui calls our MCP wire endpoint to execute them. Best for single-user / power-user setups.</p><p><b>Backend-LLM</b>: the existing flow. ERPNext owns the LLM key (Desk → LLM Provider) and runs the agent loop server-side. Best for org deployments with shared keys and central audit.</p><h5>Both share</h5><ul><li>The same 38 ERPNext tools (tools.py)</li><li>Per-user permission scoping via frappe.has_permission</li><li>Server-side conversation history in 'Claude Conversation' doctype</li></ul><p><b>Site_config overrides</b> (advanced): the keys <code>lazychat_iframe_src</code>, <code>lazychat_panel_enabled</code>, <code>lazychat_legacy_widget_enabled</code>, <code>lazychat_allow_email</code>, <code>lazychat_allow_dangerous_tools</code> in <code>sites/&lt;site&gt;/site_config.json</code> still work and override fields here. This is for site-by-site policy.</p></div>"
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-05-04 16:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Desk Assistant",
+ "name": "Lazychat Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 0,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 0,
+   "role": "System Manager",
+   "share": 0,
+   "write": 1
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 0,
+   "export": 0,
+   "print": 0,
+   "read": 1,
+   "report": 0,
+   "role": "All",
+   "share": 0,
+   "write": 0
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1
+}

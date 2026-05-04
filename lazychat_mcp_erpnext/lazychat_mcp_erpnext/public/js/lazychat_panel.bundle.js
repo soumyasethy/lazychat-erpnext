@@ -138,12 +138,26 @@
 		return ctx;
 	}
 
-	function resolveIframeSrc() {
-		// Default: same-origin bundled SPA (no port dependency, works on any bench).
-		// Override via site_config.json `lazychat_iframe_src` for chat-ui HMR dev.
+	function lazychatSettings() {
+		// Source of truth: frappe.boot.lazychat_settings (populated by boot.py from
+		// the Lazychat Settings doctype + site_config overrides). Falls back to legacy
+		// frappe.boot.lazychat_iframe_src for one release cycle.
 		const boot = (window.frappe && frappe.boot) || {};
-		if (boot.lazychat_iframe_src) return boot.lazychat_iframe_src;
-		return "/assets/lazychat_mcp_erpnext/lazychat_dist/index.html?frame=sidebar";
+		const settings = boot.lazychat_settings || {};
+		const legacyIframeSrc = boot.lazychat_iframe_src || null;
+		const baseUrl = settings.iframe_base_url || "/assets/lazychat_mcp_erpnext/lazychat_dist/index.html";
+		const queryParams = settings.iframe_query_params || "?frame=sidebar";
+		return {
+			enabled: settings.enabled !== undefined ? !!settings.enabled : (boot.lazychat_panel_enabled !== false),
+			legacyWidget: !!(settings.legacy_widget_enabled || boot.lazychat_legacy_widget_enabled),
+			chatPath: settings.chat_path || "auto",
+			mcpEndpoint: settings.mcp_endpoint || "/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle",
+			iframeSrc: legacyIframeSrc || (baseUrl + queryParams),
+		};
+	}
+
+	function resolveIframeSrc() {
+		return lazychatSettings().iframeSrc;
 	}
 
 	function originOf(url) {
@@ -488,9 +502,16 @@
 		if (!isDeskShell()) return;
 		const user = deskUser();
 		if (!user || user === "Guest") return;
-		if (frappe.boot && frappe.boot.lazychat_panel_enabled === false) return;
 
-		const iframeSrc = resolveIframeSrc();
+		const settings = lazychatSettings();
+		// Master kill-switch (doctype: enabled, with backward-compat to boot.lazychat_panel_enabled)
+		if (!settings.enabled) return;
+		// Mutually exclusive with the legacy widget — when admin flips legacy on, we step aside
+		// so the old vanilla-JS panel can mount (its own gate at claude_assistant_desk.js:60-63
+		// reads frappe.boot.lazychat_legacy_widget_enabled).
+		if (settings.legacyWidget) return;
+
+		const iframeSrc = settings.iframeSrc;
 		const iframeOrigin = originOf(iframeSrc);
 		const { iframe } = buildPanel(iframeSrc);
 
@@ -503,13 +524,21 @@
 			writeSidMap(sidToConvo);
 		};
 
-		/* Send init when iframe finishes loading */
+		/* Send init when iframe finishes loading. Includes new browser-LLM-path config:
+		 *   chatPath, mcpEndpoint, mcpAuth, saveEndpoint
+		 * chat-ui ignores unknown init keys, so this is harmless even when the bundled
+		 * dist hasn't been rebuilt with Phase B (mcp-client.ts) yet. */
+		const csrf = (window.frappe && window.frappe.csrf_token) || "";
 		const initPayload = {
 			theme: (frappe.boot.user && frappe.boot.user.desk_theme === "Dark") ? "dark" : "light",
 			mode: "edit-auto",
 			effort: "medium",
 			frame: "sidebar",
 			hostOrigin: window.location.origin,
+			chatPath: settings.chatPath,
+			mcpEndpoint: settings.mcpEndpoint,
+			mcpAuth: { csrf: csrf },
+			saveEndpoint: "/api/method/lazychat_mcp_erpnext.desk_assistant.api.save_conversation",
 		};
 		iframe.addEventListener("load", () => {
 			bridge.send("init", initPayload);
