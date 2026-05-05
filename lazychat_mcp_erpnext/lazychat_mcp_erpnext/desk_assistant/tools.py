@@ -1212,6 +1212,253 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"confirm_with": f"/commit {token}",
 		}
 
+	# Audit Trail — one-shot aggregator across the Frappe surfaces that record
+	# "who changed/said what when" for a single doc. Read-only.
+	# Sources: Version (field diffs), Comment (user remarks + workflow events
+	# Frappe stamps as 'Workflow' comment_type), Activity Log (login/edit
+	# events with reference_doctype/name set), and the doc's own creation/
+	# modified metadata as a synthesised first event.
+	if name == "get_audit_trail":
+		dt = args.get("doctype")
+		dn = args.get("name")
+		limit = min(int(args.get("limit") or 100), 200)
+		if not dt or not dn:
+			return {"error": "doctype and name required"}
+		if not frappe.has_permission(dt, "read", doc=dn):
+			return {"error": "no read permission"}
+		events = []
+		# Doc creation / last-modified metadata
+		try:
+			meta = frappe.db.get_value(
+				dt, dn, ["owner", "creation", "modified", "modified_by"], as_dict=True
+			) or {}
+			if meta.get("creation"):
+				events.append({
+					"kind": "created",
+					"ts": str(meta["creation"]),
+					"user": meta.get("owner"),
+					"summary": f"Document created by {meta.get('owner')}",
+				})
+		except Exception:
+			meta = {}
+		# Version doctype rows (scalar field changes)
+		try:
+			vrows = frappe.get_all(
+				"Version",
+				filters={"ref_doctype": dt, "docname": dn},
+				fields=["name", "owner", "creation", "data"],
+				order_by="creation desc",
+				limit_page_length=limit,
+			)
+			for v in vrows:
+				try:
+					d = json.loads(v["data"]) if isinstance(v["data"], str) else (v["data"] or {})
+				except Exception:
+					d = {}
+				changed = d.get("changed") or []
+				row_changed = d.get("row_changed") or []
+				added = d.get("added") or []
+				removed = d.get("removed") or []
+				parts = []
+				if changed:
+					parts.append(f"{len(changed)} field change(s)")
+				if row_changed or added or removed:
+					parts.append(f"{len(row_changed)+len(added)+len(removed)} child-row change(s)")
+				summary = ", ".join(parts) or "(empty version)"
+				events.append({
+					"kind": "modified",
+					"ts": str(v["creation"]),
+					"user": v["owner"],
+					"summary": summary,
+					"version_id": v["name"],
+					"changed_fields": [ch[0] for ch in changed if isinstance(ch, (list, tuple)) and len(ch) >= 1],
+				})
+		except Exception:
+			pass
+		# Comment doctype rows (user remarks, workflow notes, attachments)
+		try:
+			crows = frappe.get_all(
+				"Comment",
+				filters={"reference_doctype": dt, "reference_name": dn},
+				fields=["name", "owner", "creation", "comment_type", "content", "subject"],
+				order_by="creation desc",
+				limit_page_length=limit,
+			)
+			for c in crows:
+				txt = (c.get("content") or c.get("subject") or "").strip()
+				# Strip simple HTML so the snippet is readable
+				txt = re.sub(r"<[^>]+>", " ", txt)
+				txt = re.sub(r"\s+", " ", txt)[:200]
+				kind_map = {
+					"Comment": "comment",
+					"Workflow": "workflow_event",
+					"Like": "like",
+					"Attachment": "attachment",
+					"Attachment Removed": "attachment_removed",
+					"Assigned": "assigned",
+					"Assignment Completed": "assignment_completed",
+					"Edit": "edit",
+				}
+				events.append({
+					"kind": kind_map.get(c.get("comment_type"), "comment"),
+					"ts": str(c["creation"]),
+					"user": c["owner"],
+					"summary": txt,
+					"comment_id": c["name"],
+				})
+		except Exception:
+			pass
+		# Activity Log rows (login + Desk activity tied to this doc)
+		try:
+			arows = frappe.get_all(
+				"Activity Log",
+				filters={"reference_doctype": dt, "reference_name": dn},
+				fields=["name", "owner", "creation", "subject", "operation"],
+				order_by="creation desc",
+				limit_page_length=limit,
+			)
+			for a in arows:
+				events.append({
+					"kind": "activity",
+					"ts": str(a["creation"]),
+					"user": a["owner"],
+					"summary": (a.get("subject") or a.get("operation") or "")[:200],
+					"activity_id": a["name"],
+				})
+		except Exception:
+			pass
+		# Sort newest-first then cap
+		events.sort(key=lambda e: e["ts"], reverse=True)
+		return {
+			"ok": True,
+			"doctype": dt,
+			"name": dn,
+			"created_by": meta.get("owner"),
+			"created_at": str(meta.get("creation")) if meta.get("creation") else None,
+			"last_modified_at": str(meta.get("modified")) if meta.get("modified") else None,
+			"last_modified_by": meta.get("modified_by"),
+			"event_count": len(events),
+			"events": events[:limit],
+		}
+
+	# Export — generates an actual downloadable file, returns a clickable URL.
+	# Generic get_list/get_doc tools can't produce files — only this can.
+	if name == "export_list_to_csv":
+		dt = args.get("doctype")
+		if not dt or not frappe.db.exists("DocType", dt):
+			return {"error": "invalid doctype"}
+		if not frappe.has_permission(dt, "read"):
+			return {"error": "no read permission"}
+		filters = args.get("filters") or {}
+		if isinstance(filters, str):
+			try: filters = json.loads(filters)
+			except Exception: return {"error": "filters must be a JSON object"}
+		fields = args.get("fields") or ["name"]
+		if not isinstance(fields, list) or not all(isinstance(f, str) for f in fields):
+			return {"error": "fields must be a list of strings"}
+		limit = min(int(args.get("limit") or 1000), 5000)
+		try:
+			import csv as _csv
+			rows = frappe.get_list(dt, filters=filters, fields=fields, limit_page_length=limit)
+			buf = io.StringIO()
+			writer = _csv.DictWriter(buf, fieldnames=fields)
+			writer.writeheader()
+			for r in rows:
+				# Coerce non-stringable values
+				writer.writerow({f: ("" if r.get(f) is None else str(r.get(f))) for f in fields})
+			csv_bytes = buf.getvalue().encode("utf-8")
+			ts = frappe.utils.now_datetime().strftime("%Y-%m-%d-%H%M%S")
+			fname = f"{frappe.scrub(dt)}-{ts}.csv"
+			file_doc = frappe.get_doc({
+				"doctype": "File",
+				"file_name": fname,
+				"is_private": 1,
+				"content": csv_bytes,
+			}).insert(ignore_permissions=False)
+			return {
+				"ok": True,
+				"file_url": file_doc.file_url,
+				"absolute_url": _frappe_get_url(file_doc.file_url),
+				"file_name": fname,
+				"row_count": len(rows),
+				"truncated": len(rows) >= limit,
+			}
+		except Exception as e:
+			return {"error": str(e)}
+
+	if name == "export_doc_pdf":
+		dt = args.get("doctype")
+		dn = args.get("name")
+		print_format = args.get("print_format") or None
+		if not dt or not dn:
+			return {"error": "doctype and name required"}
+		if not frappe.has_permission(dt, "read", doc=dn):
+			return {"error": "no read permission"}
+		try:
+			from frappe.utils.pdf import get_pdf
+			html = frappe.get_print(dt, dn, print_format=print_format)
+			pdf_bytes = get_pdf(html)
+			ts = frappe.utils.now_datetime().strftime("%Y-%m-%d-%H%M%S")
+			fname = f"{frappe.scrub(dt)}-{frappe.scrub(dn)}-{ts}.pdf"
+			file_doc = frappe.get_doc({
+				"doctype": "File",
+				"file_name": fname,
+				"is_private": 1,
+				"content": pdf_bytes,
+				"attached_to_doctype": dt,
+				"attached_to_name": dn,
+			}).insert(ignore_permissions=False)
+			return {
+				"ok": True,
+				"file_url": file_doc.file_url,
+				"absolute_url": _frappe_get_url(file_doc.file_url),
+				"file_name": fname,
+				"print_format_used": print_format or "(default)",
+				"size_bytes": len(pdf_bytes),
+			}
+		except Exception as e:
+			return {"error": f"PDF render failed: {e}"}
+
+	# RQ Job tools — early Tier D pieces. Read + cancel; full enqueue/schedule
+	# arrives with the rest of Tier D.
+	if name == "list_my_jobs":
+		limit = min(int(args.get("limit") or 20), 100)
+		try:
+			# RQ Job is a Frappe-shipped doctype; it stores who queued and when.
+			rows = frappe.get_all(
+				"RQ Job",
+				filters={"user": frappe.session.user},
+				fields=["name", "status", "queue", "job_name", "creation", "started_at", "ended_at", "exc_info"],
+				order_by="creation desc",
+				limit_page_length=limit,
+			)
+			for r in rows:
+				if r.get("exc_info"):
+					r["exc_info"] = str(r["exc_info"])[:400]
+			return {"ok": True, "count": len(rows), "jobs": rows}
+		except Exception as e:
+			return {"error": f"RQ Job query failed: {e}"}
+
+	if name == "cancel_job":
+		job_id = (args.get("job_id") or "").strip()
+		if not job_id:
+			return {"error": "job_id required"}
+		if not frappe.has_permission("RQ Job", "write", doc=job_id):
+			return {"error": "no permission to cancel this job"}
+		try:
+			job = frappe.get_doc("RQ Job", job_id)
+			# RQ Job exposes a stop method on Frappe v15+; fall back to status flip
+			# for older versions.
+			if hasattr(job, "stop_job"):
+				job.stop_job()
+			elif hasattr(job, "cancel"):
+				job.cancel()
+			else:
+				return {"error": "this Frappe build doesn't expose RQ Job cancel — use the bench worker controls"}
+			return {"ok": True, "job_id": job_id, "status": getattr(job, "status", "cancelled")}
+		except Exception as e:
+			return {"error": f"cancel failed: {e}"}
+
 	# Diagnostics — what's running here? Read-only, no gates.
 	if name == "get_system_info":
 		info = {

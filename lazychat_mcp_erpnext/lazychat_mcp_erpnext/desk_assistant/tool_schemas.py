@@ -512,6 +512,85 @@ TOOL_SCHEMAS = [
 		},
 	},
 	{
+		"name": "get_audit_trail",
+		"description": (
+			"Aggregate every 'who-changed-what-when' event for a single document into one timeline: "
+			"creation, scalar field changes (Version doctype), comments + workflow notes (Comment doctype), "
+			"and Activity Log entries tied to the doc. Returns events sorted newest-first with kind, ts, "
+			"user, and a summary (or field list / snippet). Use this when the user asks 'who edited X?', "
+			"'audit trail of X', 'show changes to X', or wants accountability before approving."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"doctype": {"type": "string"},
+				"name": {"type": "string"},
+				"limit": {"type": "integer", "default": 100, "description": "Cap per source (Version/Comment/Activity); cap 200."},
+			},
+			"required": ["doctype", "name"],
+		},
+	},
+	{
+		"name": "export_list_to_csv",
+		"description": (
+			"Export a doctype list to a downloadable CSV file. Writes to /private/files/ with a timestamped name "
+			"and returns {file_url, absolute_url, file_name, row_count}. Permission-checked at the doctype level. "
+			"Cap 5000 rows. Surface the absolute_url as a markdown link in the chat so the user can click to download."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"doctype": {"type": "string"},
+				"filters": {"type": "object"},
+				"fields": {"type": "array", "items": {"type": "string"}, "description": "Columns to include. Required."},
+				"limit": {"type": "integer", "default": 1000, "description": "Cap 5000."},
+			},
+			"required": ["doctype", "fields"],
+		},
+	},
+	{
+		"name": "export_doc_pdf",
+		"description": (
+			"Render a single document via its Print Format and save as PDF in /private/files/. Returns "
+			"{file_url, absolute_url, file_name, size_bytes}. If print_format omitted, uses the doctype's default. "
+			"Surface the absolute_url as a markdown link. Permission: Read on the source doc."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"doctype": {"type": "string"},
+				"name": {"type": "string"},
+				"print_format": {"type": "string", "description": "Optional Print Format name; default = doctype default."},
+			},
+			"required": ["doctype", "name"],
+		},
+	},
+	{
+		"name": "list_my_jobs",
+		"description": (
+			"List background jobs (RQ Job doctype rows) queued by the calling user, newest-first. "
+			"Each row: {name (job_id), status, queue, job_name, creation, started_at, ended_at, exc_info}. "
+			"Read-only. For cross-user job listing use get_list('RQ Job', ...) directly."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {"limit": {"type": "integer", "default": 20, "description": "Cap 100."}},
+		},
+	},
+	{
+		"name": "cancel_job",
+		"description": (
+			"Cancel a queued or running RQ Job by id. Requires Write permission on the RQ Job row. "
+			"Returns the new status. Direct action — no /commit needed (cancellation is reversible: "
+			"just re-queue the underlying method)."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {"job_id": {"type": "string", "description": "RQ Job doctype name (= job id)."}},
+			"required": ["job_id"],
+		},
+	},
+	{
 		"name": "prepare_rename_doc",
 		"description": (
 			"STAGE renaming a document. Wraps Frappe's rename tool. Returns "

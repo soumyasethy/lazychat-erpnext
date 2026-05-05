@@ -6,7 +6,7 @@ A reference for what the agent can do **today**, what's **shipping next**, and w
 
 ## TL;DR — current state
 
-- **49 permission-scoped tools** (read, write, workflow, analytics, reports, files, ERPNext domain, gated power tools, skills, knowledge base, system diagnostics, **admin (rename + version history + revert)**)
+- **54 permission-scoped tools** (read, write, workflow, analytics, reports, files, ERPNext domain, gated power tools, skills, knowledge base, system diagnostics, admin (rename + version history + revert), **audit trail, file exports (CSV / PDF), background-job control**)
 - **2 chat paths** — Browser-LLM (BYO key in browser) or Backend-LLM (shared key in `LLM Provider` doctype)
 - **Multi-provider LLM** — Anthropic native + any OpenAI-compatible endpoint (OpenAI, NVIDIA, OpenRouter, LM Studio, Groq, Together, Vercel AI Gateway, …)
 - **Two-phase mutations** — `prepare_*` → `/commit TOKEN` so the LLM can never silently mutate
@@ -164,7 +164,10 @@ Open the `/` command palette (or Cmd+K). The **Skills** section lists everything
 | **Knowledge Base** | `list_knowledge_bases`, `get_kb_files`, `search_kb` | 3 |
 | **System diagnostics** | `get_system_info`, `get_user_info` | 2 |
 | **Admin** *(rename, version history, revert)* | `prepare_rename_doc`, `list_doc_versions`, `prepare_revert_doc` | 3 |
-| **Total** | | **49** |
+| **Audit Trail** | `get_audit_trail` | 1 |
+| **File exports** | `export_list_to_csv`, `export_doc_pdf` | 2 |
+| **Background jobs** | `list_my_jobs`, `cancel_job` | 2 |
+| **Total** | | **54** |
 
 Every tool runs as `frappe.session.user`. `frappe.has_permission(...)` is checked **before** any DB access. There is no god-mode bypass.
 
@@ -176,32 +179,35 @@ Coverage map for the standard admin/dev surface in Frappe + ERPNext. Most items 
 
 | Capability | Status | How |
 |---|---|---|
-| **Workflow** (transitions on a doc) | ✅ direct tool | `list_workflow_actions`, `get_pending_approvals`, `prepare_workflow_action` |
-| **Workflow Builder** (designing new state machines) | ✅ generic | `prepare_create_doc(doctype="Workflow", values={...})` + Workflow State / Workflow Document State / Workflow Transition child tables. Tier I (planned) will add a `prepare_create_workflow` ergonomic wrapper. |
-| **Query Report** (Report Type=Query Report, raw SQL) | ✅ direct tool | `list_reports`, `report_requirements`, `run_report`. Create new ones via `prepare_create_doc(doctype="Report")`. |
-| **Script Report** (Report Type=Script Report, Python) | ✅ direct tool | Same as above; `run_report` dispatches to whichever report type. |
-| **Report Builder in UI** (drag-drop column picker) | ✅ generic | `prepare_create_doc(doctype="Report", values={"report_type": "Report Builder", ...})`. The visual column picker is a Desk-only UI; the underlying Report doctype is fully createable. |
-| **Rename Tool** | ✅ **direct tool (new)** | `prepare_rename_doc(doctype, name, new_name, merge?)` → `/commit TOKEN`. Wraps `frappe.rename_doc()`. |
-| **Print Format** | 🟡 partial | Read/edit via generic doctype tools. PDF rendering of a doc with a chosen print format ships in **Tier C — `export_doc_pdf`** (planned). |
-| **Server Script** | ✅ generic + revert | `prepare_create_doc(doctype="Server Script", values={...})` + `list_doc_versions` / `prepare_revert_doc` for undo. |
-| **Client Script** | ✅ generic + revert | Same — `prepare_create_doc(doctype="Client Script", ...)` + version history + revert. |
-| **Role Permission Manager** | ✅ generic | `prepare_create_doc(doctype="Custom DocPerm", values={"role": ..., "parent": ..., "read": 1, ...})` for per-role permission rules; `prepare_create_doc(doctype="Role")` for new roles. |
-| **Property Setter** (override field defaults) | ✅ generic | `prepare_create_doc(doctype="Property Setter", values={...})`. The agent can also `describe_doctype` first to find the right `doc_type` + `field_name` + `property` triplet. |
-| **Custom Field** | ✅ generic | `prepare_create_doc(doctype="Custom Field", values={"dt": ..., "fieldname": ..., "fieldtype": ..., ...})`. |
-| **Role Permission** (DocPerm) | ✅ generic | Same as Role Permission Manager above. |
-| **Error Log** | ✅ generic read | `get_list("Error Log", filters={"creation": ["> ", "..."]}, fields=["error", "method"])` — real example used in the iframe-cache debug playbook in CLAUDE.md. |
-| **System Console** (`/app/system-console`) | ✅ direct tool | `prepare_run_python` (gated: `allow_dangerous_tools` + System Manager + `/commit`). Same execution surface as the Desk console, with the same gates. |
-| **Access Log** | ✅ generic read | `get_list("Access Log", filters={...})`. |
-| **Activity Log** | ✅ generic read | `get_list("Activity Log", filters={...})`. |
-| **Scheduled Job Type** | 🟡 generic now / direct tool planned | `get_list("Scheduled Job Type")` for inspection today. Tier D's `schedule_recurring` (planned) will add a creation/update tool with cron validation. |
-| **RQ Job** | 🟡 generic now / direct tool planned | `get_list("RQ Job")` works today. Tier D's `list_my_jobs` + `cancel_job` (planned) will add user-scoped + safe cancellation. |
-| **RQ Workers** | 🟡 read via SQL | Visible via `prepare_run_sql` against `tabRQ Job` (gated). Worker pool itself is Frappe infra, not a doctype — managed via `bench` CLI, not exposed to the agent by design. |
-| **Data Import** | 🟡 generic now / direct tool planned | `prepare_create_doc(doctype="Data Import", values={...})` works today. Tier C's `prepare_import_csv` (planned) will add a dedicated two-phase tool with row-count validation. |
-| **Data Export** | 🟡 generic now / direct tool planned | `get_list` returns rows the user can post-process today. Tier C's `export_list_to_csv` + `export_doc_pdf` + Tier G's smart field-picker (all planned) will add proper download URLs. |
-| **Document version history** | ✅ **direct tool (new)** | `list_doc_versions(doctype, name)` returns Frappe `Version` doctype rows newest-first with field-level diffs. |
-| **Document revert** | ✅ **direct tool (new)** | `prepare_revert_doc(doctype, name, version_id)` → `/commit TOKEN`. Reverts scalar field changes from a chosen version. Child-table changes need manual `prepare_update_doc`. |
+| **Workflow** (transitions on a doc) | ✅ direct | `list_workflow_actions`, `get_pending_approvals`, `prepare_workflow_action` |
+| **Workflow Builder** (designing new state machines) | ✅ generic | `prepare_create_doc("Workflow", values={...})` + child tables Workflow State / Workflow Document State / Workflow Transition. Use `describe_doctype("Workflow")` to learn the schema, then create. (A `prepare_create_workflow` ergonomic wrapper is in the Tier I backlog but not blocking — generic works fully today.) |
+| **Query Report** (Report Type=Query Report, raw SQL) | ✅ direct | `list_reports`, `report_requirements`, `run_report` |
+| **Script Report** (Report Type=Script Report, Python) | ✅ direct | Same — `run_report` dispatches to whichever report type |
+| **Report Builder in UI** (drag-drop column picker) | ✅ generic | `prepare_create_doc("Report", values={"report_type": "Report Builder", ...})`. Visual picker is Desk-only UI; Report doctype is fully createable from the agent. |
+| **Rename Tool** | ✅ direct | `prepare_rename_doc(doctype, name, new_name, merge?)` → `/commit`. Wraps `frappe.rename_doc()`. |
+| **Print Format** | ✅ direct (render) + generic (design) | Render: `export_doc_pdf(doctype, name, print_format?)` via `frappe.get_print` + `frappe.utils.pdf.get_pdf`, returns clickable PDF URL. Design: `prepare_create_doc("Print Format", ...)`. |
+| **Server Script** | ✅ generic + revert | `prepare_create_doc("Server Script", ...)` + `list_doc_versions` + `prepare_revert_doc` for undo. |
+| **Client Script** | ✅ generic + revert | Same — `prepare_create_doc("Client Script", ...)` + version history + revert. |
+| **Role Permission Manager** | ✅ generic | `prepare_create_doc("Custom DocPerm", values={"role": ..., "parent": ..., "read": 1, ...})` for per-role rules; `prepare_create_doc("Role")` for new roles. |
+| **Property Setter** | ✅ generic | `prepare_create_doc("Property Setter", values={"doc_type": ..., "field_name": ..., "property": ..., "value": ...})`. Use `describe_doctype` first to find the right field. |
+| **Custom Field** | ✅ generic | `prepare_create_doc("Custom Field", values={"dt": ..., "fieldname": ..., "fieldtype": ..., "label": ...})`. |
+| **Role Permission** (DocPerm) | ✅ generic | Same as Role Permission Manager. |
+| **Error Log** | ✅ generic read | `get_list("Error Log", filters={"creation": [">", "..."]}, fields=["error", "method"])`. Used in the iframe-cache debug playbook in CLAUDE.md. |
+| **System Console** | ✅ direct | `prepare_run_python` (gated: `allow_dangerous_tools` + System Manager + `/commit`). Same execution surface as `/app/system-console`. |
+| **Access Log** | ✅ generic read | `get_list("Access Log", ...)`. |
+| **Activity Log** | ✅ generic read | `get_list("Activity Log", ...)` plus surfaces in `get_audit_trail` filtered to a single doc. |
+| **Scheduled Job Type** | ✅ generic | `get_list("Scheduled Job Type")` for inspection; `prepare_create_doc("Scheduled Job Type", values={"method": ..., "frequency": "Cron", "cron_format": ..., ...})` for create. (Tier D adds cron-validating `schedule_recurring`; not blocking.) |
+| **RQ Job** | ✅ direct | `list_my_jobs(limit?)` returns the user's queued/running/finished jobs newest-first with status, queue, started_at, ended_at, exc_info. `cancel_job(job_id)` cancels a queued or running job (Frappe v15+ `stop_job`, fallback `cancel`). For cross-user, `get_list("RQ Job")`. |
+| **RQ Workers** | 🟡 read only | Worker processes are bench-managed (`bench worker`); not a doctype. Visible counts via `prepare_run_sql` against the RQ-internal tables (gated). Out of scope for tool exposure by design — worker control belongs at the OS layer, not the agent. |
+| **Data Import** | ✅ generic | `prepare_create_doc("Data Import", values={"reference_doctype": ..., "import_file": <File URL>, "import_type": "Insert New Records"})` then submit. (Tier C's `prepare_import_csv` will add a column-mapping picker UX; generic works fully today for the import action itself.) |
+| **Data Export** | ✅ direct | `export_list_to_csv(doctype, fields, filters?, limit?)` writes CSV to `/private/files/`, returns clickable download URL. Cap 5000 rows. Tier G's smart field-picker UX is the planned ergonomic upgrade. |
+| **Document version history** | ✅ direct | `list_doc_versions(doctype, name)` — Version rows newest-first with field-level diffs. |
+| **Document revert** | ✅ direct | `prepare_revert_doc(doctype, name, version_id)` → `/commit`. Scalar fields only; child-table revisions need manual `prepare_update_doc`. |
+| **Audit Trail** | ✅ direct | `get_audit_trail(doctype, name)` — unified timeline aggregating Version + Comment + Activity Log + creation/modified metadata, sorted newest-first. Drives "who edited X?" / "show me the audit trail of X" queries. |
 
-**Key:** ✅ direct tool = dedicated entry in the tool registry · ✅ generic = works via `prepare_create_doc` etc. · 🟡 partial = today via generic, dedicated wrapper coming · ❌ missing.
+**Key:** ✅ direct = dedicated tool · ✅ generic = works via `prepare_create_doc` / `get_list` etc. · 🟡 read only = exposed enough for inspection but not action (by design).
+
+**Coverage of the 23-item admin surface: 22 ✅ direct or generic-full · 1 🟡 read-only by design (RQ Workers — OS layer, not a doctype).**
 
 ## What's shipping right now (in flight)
 
