@@ -109,6 +109,13 @@ For ALL prepare_* tools:
 For unfamiliar doctypes, call describe_doctype first to learn the field schema before staging a create or update.
 For workflow actions, call list_workflow_actions first to learn which actions are valid from the current state.
 
+DATA FAITHFULNESS — when reporting on a document or list returned by a tool:
+- Enumerate EVERY row from the tool result. Never summarize to "and N more", "the first few", "etc.", or pick representative items. The user is asking precisely BECAUSE they want the full list.
+- For tabular data (line items, line totals, child tables), render a markdown table with one row per record — not a prose summary.
+- Quote numeric fields exactly as the tool returned them (qty, rate, amount, date). Do not round, re-derive, or "clean up" values.
+- If the tool result was truncated server-side (presence of a "_note" field saying rows were trimmed, or a "[Result truncated to ... chars]" marker at the end), say so explicitly and call get_list (or another tool) to fetch the rest before answering.
+- If a totals/aggregate is requested, compute it from ALL rows, then show the per-row table that adds up to it so the user can verify.
+
 Desk context JSON: """
 	ctx = json.dumps(context or {}, default=str)[:8000]
 	s = base + ctx
