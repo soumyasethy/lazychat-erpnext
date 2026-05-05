@@ -263,14 +263,27 @@ def save_conversation(conversation_id=None, messages=None, title=None, model_lab
 
 
 @frappe.whitelist(methods=["POST"])
-def commit_prepared_action(token):
-	"""Apply a previously staged action (returned by prepare_*) by token. Called by /commit slash command."""
+def commit_prepared_action(token, file_url=None, fields=None):
+	"""Apply a previously staged action (returned by prepare_*) by token.
+	Called by /commit and /upload slash commands.
+
+	Optional extras (action-specific):
+	  - file_url: panel shim's /upload TOKEN flow passes the URL of a freshly
+	    uploaded file so the attach_file action can wire it to the target doc.
+	  - fields: chat-ui's field-picker UI passes the selected fields list (or
+	    comma-separated string) so the export_csv action runs the actual CSV.
+	"""
 	from lazychat_mcp_erpnext.desk_assistant.tools import commit_prepared
 
 	tok = str(token or "").strip()
 	if not tok:
 		return {"ok": False, "error": "Token required"}
-	return commit_prepared(tok)
+	extras = {}
+	if file_url:
+		extras["file_url"] = str(file_url).strip()
+	if fields is not None:
+		extras["fields"] = fields
+	return commit_prepared(tok, **extras)
 
 
 def _anthropic_curated_model_ids():

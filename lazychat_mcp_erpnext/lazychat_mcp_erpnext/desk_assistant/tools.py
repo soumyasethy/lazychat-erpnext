@@ -1212,6 +1212,79 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"confirm_with": f"/commit {token}",
 		}
 
+	# Tier B-upload — chat-side file picker. prepare_upload_file stages an
+	# attach action; the chat-ui panel shim's /upload TOKEN slash command opens
+	# a file picker, uploads to /api/method/upload_file, then calls
+	# commit_prepared_action with the returned file_url. The commit handler
+	# attaches the new File row to the target doc.
+	if name == "prepare_upload_file":
+		dt = (args.get("target_doctype") or args.get("doctype") or "").strip()
+		dn = (args.get("target_name") or args.get("name") or "").strip()
+		accept = (args.get("accept") or "").strip()  # optional MIME / ext filter for the picker
+		if not dt or not dn:
+			return {"error": "target_doctype and target_name required"}
+		if not frappe.db.exists(dt, dn):
+			return {"error": f"target doc not found: {dt}/{dn}"}
+		if not frappe.has_permission(dt, "write", doc=dn):
+			return {"error": "no write permission on target doc"}
+		token = _stage_action(
+			"attach_file",
+			{"target_doctype": dt, "target_name": dn, "accept": accept},
+		)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"file_picker": True,  # chat-ui marker — render an Upload button
+			"accept": accept or "*/*",
+			"target_doctype": dt,
+			"target_name": dn,
+			"summary": f"Will attach a file to {dt}/{dn}" + (f" (filter: {accept})" if accept else ""),
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/upload {token}",
+			"_note": "Type /upload TOKEN in the chat input to open the file picker. The chat-ui will upload + attach automatically.",
+		}
+
+	# Tier C-import — bulk insert/update via Frappe's Data Import doctype.
+	# Gated identically to prepare_run_sql / prepare_run_python: requires
+	# allow_dangerous_tools site flag + System Manager role + /commit. Bulk
+	# DB writes need the same safeguard as raw SQL.
+	if name == "prepare_import_csv":
+		ok, gate_err = _dangerous_tools_enabled()
+		if not ok:
+			return {"error": gate_err}
+		dt = (args.get("doctype") or "").strip()
+		csv_file_url = (args.get("csv_file_url") or args.get("file_url") or "").strip()
+		import_type = (args.get("import_type") or "Insert New Records").strip()
+		if not dt or not frappe.db.exists("DocType", dt):
+			return {"error": "valid doctype required"}
+		if not csv_file_url:
+			return {"error": "csv_file_url required (upload the CSV via Desk attachments first OR call prepare_upload_file)"}
+		# Find the File doctype row by URL and verify the user can read it
+		matches = frappe.get_all("File", filters={"file_url": csv_file_url}, fields=["name", "file_name"], limit=1)
+		if not matches:
+			return {"error": f"file not found at URL: {csv_file_url}"}
+		if not frappe.has_permission("Data Import", "create"):
+			return {"error": "no permission to create Data Import"}
+		if import_type not in ("Insert New Records", "Update Existing Records"):
+			return {"error": "import_type must be 'Insert New Records' or 'Update Existing Records'"}
+		token = _stage_action(
+			"import_csv",
+			{
+				"reference_doctype": dt,
+				"import_type": import_type,
+				"file_url": csv_file_url,
+				"file_name": matches[0]["file_name"],
+			},
+		)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will create a Data Import for {dt} ({import_type}) using {matches[0]['file_name']}",
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+			"_note": "On commit, a Data Import doctype row is created and start_import() is called. Watch progress via list_my_jobs.",
+		}
+
 	# Files (Tier B reads) — list attachments on any doc the user can read,
 	# resolve a File doctype row (by name or file_url) to its absolute URL.
 	# These complement extract_file_content (which reads a file's text) and
@@ -1445,6 +1518,10 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 
 	# Export — generates an actual downloadable file, returns a clickable URL.
 	# Generic get_list/get_doc tools can't produce files — only this can.
+	# Tier G: when called with NO `fields` arg, returns a field-picker preview
+	# (preview_token + available fields with default-selected flags + row-count
+	# estimate). The chat-ui detects this shape and renders an inline checkbox
+	# UI; on Generate, posts /commit TOKEN fields=... to run the actual export.
 	if name == "export_list_to_csv":
 		dt = args.get("doctype")
 		if not dt or not frappe.db.exists("DocType", dt):
@@ -1455,7 +1532,51 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		if isinstance(filters, str):
 			try: filters = json.loads(filters)
 			except Exception: return {"error": "filters must be a JSON object"}
-		fields = args.get("fields") or ["name"]
+		fields = args.get("fields")
+		# --- Tier G: field-picker preview when fields omitted ---
+		if fields is None:
+			try:
+				meta = frappe.get_meta(dt)
+				picker_fields = []
+				# Always offer 'name' first — every doctype has it
+				picker_fields.append({
+					"fieldname": "name",
+					"label": "ID",
+					"fieldtype": "Data",
+					"default_selected": True,
+				})
+				for df in meta.fields:
+					if df.fieldtype in ("Section Break", "Column Break", "Tab Break", "HTML", "Button", "Heading"):
+						continue
+					if df.fieldtype == "Table" or df.fieldtype == "Table MultiSelect":
+						continue  # child tables can't go in a flat CSV
+					picker_fields.append({
+						"fieldname": df.fieldname,
+						"label": df.label or df.fieldname,
+						"fieldtype": df.fieldtype,
+						"default_selected": bool(getattr(df, "in_list_view", 0)),
+					})
+				# Estimate row count given filters
+				try:
+					row_count_estimate = frappe.db.count(dt, filters=filters)
+				except Exception:
+					row_count_estimate = None
+				token = _stage_action(
+					"export_csv",
+					{"doctype": dt, "filters": filters, "limit": min(int(args.get("limit") or 1000), 5000)},
+				)
+				return {
+					"ok": True,
+					"preview_token": token,
+					"field_picker": True,  # chat-ui marker — render checkbox UI
+					"target_doctype": dt,
+					"fields": picker_fields,
+					"row_count_estimate": row_count_estimate,
+					"prompt": f"Pick fields to include in the {dt} CSV. Default selection follows the doctype's 'in_list_view' flags.",
+					"expires_in_sec": PREP_TTL_SEC,
+					"confirm_with": f"/commit {token} fields=field1,field2,...",
+				}
+		# --- Direct export when fields supplied ---
 		if not isinstance(fields, list) or not all(isinstance(f, str) for f in fields):
 			return {"error": "fields must be a list of strings"}
 		limit = min(int(args.get("limit") or 1000), 5000)
@@ -1740,14 +1861,23 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 	return {"error": f"unknown tool {name}"}
 
 
-def commit_prepared(token):
-	"""Execute a previously staged action. Called by /commit slash command, NOT by the LLM."""
+def commit_prepared(token, **extras):
+	"""Execute a previously staged action. Called by /commit slash command, NOT by the LLM.
+
+	`extras` carries action-specific runtime parameters that arrive at commit
+	time but weren't known at prepare time:
+	  - attach_file: extras['file_url'] from the panel shim's /upload flow
+	  - export_csv: extras['fields'] from the field-picker UI
+	"""
 	obj = _retrieve_action(token)
 	if not obj:
 		return {"ok": False, "error": "Token not found, expired, or not yours"}
 	action = obj["action"]
 	payload = obj["payload"]
 	sp_name = "lazychat_commit"
+	# Stash a place for handlers to drop extra response fields (e.g.
+	# export_csv returns the file_url + row_count + selected fields).
+	frappe.local.flags.lazychat_commit_extras = None
 	try:
 		frappe.db.savepoint(sp_name)
 		if action == "create":
@@ -1918,6 +2048,99 @@ def commit_prepared(token):
 				"is_public": payload.get("is_public", 0),
 			}).insert(ignore_permissions=False)
 			doc = kb_doc
+		elif action == "attach_file":
+			# Tier B-upload commit. Caller passes file_url alongside the token
+			# (panel shim's /upload command does this after the upload_file POST).
+			file_url = (extras.get("file_url") or "").strip()
+			if not file_url:
+				return {"ok": False, "error": "file_url required (panel shim's /upload should pass this)"}
+			if not frappe.has_permission(payload["target_doctype"], "write", doc=payload["target_name"]):
+				return {"ok": False, "error": "no write permission at commit time"}
+			matches = frappe.get_all("File", filters={"file_url": file_url}, fields=["name"], limit=1)
+			if not matches:
+				return {"ok": False, "error": f"uploaded file not found by url: {file_url}"}
+			file_doc = frappe.get_doc("File", matches[0]["name"])
+			file_doc.attached_to_doctype = payload["target_doctype"]
+			file_doc.attached_to_name = payload["target_name"]
+			file_doc.save(ignore_permissions=False)
+			class _R:
+				pass
+			doc = _R()
+			doc.doctype = payload["target_doctype"]
+			doc.name = payload["target_name"]
+		elif action == "import_csv":
+			# Tier C-import commit. Creates a Frappe Data Import doctype row
+			# and kicks off start_import() — same path as the Desk's Data
+			# Import wizard. The job runs async via Frappe's background queue;
+			# the user can watch progress via list_my_jobs.
+			ok2, gate_err2 = _dangerous_tools_enabled()
+			if not ok2:
+				return {"ok": False, "error": gate_err2}
+			if not frappe.has_permission("Data Import", "create"):
+				return {"ok": False, "error": "no permission to create Data Import"}
+			data_import = frappe.get_doc({
+				"doctype": "Data Import",
+				"reference_doctype": payload["reference_doctype"],
+				"import_type": payload["import_type"],
+				"import_file": payload["file_url"],
+				"submit_after_import": 0,
+				"mute_emails": 1,
+			}).insert(ignore_permissions=False)
+			# start_import enqueues the actual row inserts as a background job
+			try:
+				data_import.start_import()
+			except Exception as e:
+				# Preserve the row so the user can inspect via Desk
+				return {"ok": False, "error": f"start_import failed: {e}", "data_import": data_import.name}
+			doc = data_import
+		elif action == "export_csv":
+			# Tier G commit — caller passes selected fields[] alongside the
+			# token after picking columns in the field-picker UI. We re-use
+			# the same CSV-write logic as the direct export_list_to_csv path.
+			selected = extras.get("fields") or []
+			if isinstance(selected, str):
+				selected = [s.strip() for s in selected.split(",") if s.strip()]
+			if not isinstance(selected, list) or not selected:
+				return {"ok": False, "error": "fields[] required from the picker"}
+			if not all(isinstance(f, str) for f in selected):
+				return {"ok": False, "error": "fields must be a list of strings"}
+			dt = payload["doctype"]
+			if not frappe.has_permission(dt, "read"):
+				return {"ok": False, "error": "no read permission at commit time"}
+			try:
+				import csv as _csv
+				rows = frappe.get_list(dt, filters=payload.get("filters") or {}, fields=selected, limit_page_length=payload.get("limit") or 1000)
+				buf = io.StringIO()
+				writer = _csv.DictWriter(buf, fieldnames=selected)
+				writer.writeheader()
+				for r in rows:
+					writer.writerow({f: ("" if r.get(f) is None else str(r.get(f))) for f in selected})
+				ts = frappe.utils.now_datetime().strftime("%Y-%m-%d-%H%M%S")
+				fname = f"{frappe.scrub(dt)}-{ts}.csv"
+				file_doc = frappe.get_doc({
+					"doctype": "File",
+					"file_name": fname,
+					"is_private": 1,
+					"content": buf.getvalue().encode("utf-8"),
+				}).insert(ignore_permissions=False)
+				class _R:
+					pass
+				doc = _R()
+				doc.doctype = "File"
+				doc.name = file_doc.name
+				# Stash the URL so commit_prepared returns it in the result
+				_export_csv_result = {
+					"ok": True,
+					"file_url": file_doc.file_url,
+					"absolute_url": _frappe_get_url(file_doc.file_url),
+					"file_name": fname,
+					"row_count": len(rows),
+					"fields": selected,
+				}
+				# We'll merge this into the response below
+				frappe.local.flags.lazychat_commit_extras = _export_csv_result
+			except Exception as e:
+				return {"ok": False, "error": f"export failed: {e}"}
 		elif action == "add_file_to_kb":
 			if not frappe.has_permission("Lazychat Knowledge Base", "write", doc=payload["kb_name"]):
 				return {"ok": False, "error": "no permission on KB at commit time"}
@@ -1974,13 +2197,18 @@ def commit_prepared(token):
 			return {"ok": False, "error": f"Unknown action: {action}"}
 		frappe.db.commit()
 		_consume_action(token)
-		return {
+		response = {
 			"ok": True,
 			"action": action,
 			"name": doc.name,
 			"doctype": doc.doctype,
 			"link": f"/app/{frappe.scrub(doc.doctype)}/{doc.name}",
 		}
+		# Merge handler-supplied extras (export_csv returns file_url + row_count etc).
+		extras_out = getattr(frappe.local.flags, "lazychat_commit_extras", None)
+		if isinstance(extras_out, dict):
+			response.update({k: v for k, v in extras_out.items() if k != "ok"})
+		return response
 	except Exception as e:
 		try:
 			frappe.db.rollback(save_point=sp_name)
