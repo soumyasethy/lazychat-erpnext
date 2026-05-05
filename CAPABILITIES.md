@@ -6,7 +6,7 @@ A reference for what the agent can do **today**, what's **shipping next**, and w
 
 ## TL;DR — current state
 
-- **57 permission-scoped tools** (read, write, workflow, analytics, reports, files, ERPNext domain, gated power tools, skills, knowledge base + chat-ui management + citations, system diagnostics, admin, audit trail, file exports (CSV / PDF), background-job control, **inline charts (Vega-Lite)**)
+- **58 permission-scoped tools** (read, write, workflow, analytics, reports, files, ERPNext domain, gated power tools, skills, knowledge base + **vector embeddings + hybrid retrieval** + chat-ui management + citations, system diagnostics, admin, audit trail, file exports (CSV / PDF), background-job control, inline charts (Vega-Lite))
 - **2 chat paths** — Browser-LLM (BYO key in browser) or Backend-LLM (shared key in `LLM Provider` doctype)
 - **Multi-provider LLM** — Anthropic native + any OpenAI-compatible endpoint (OpenAI, NVIDIA, OpenRouter, LM Studio, Groq, Together, Vercel AI Gateway, …)
 - **Two-phase mutations** — `prepare_*` → `/commit TOKEN` so the LLM can never silently mutate
@@ -117,7 +117,15 @@ The agent emits a clickable Desk link — click to SPA-navigate. Cmd-click opens
 
 Tools: `list_knowledge_bases`, `get_kb_files`, `search_kb`. Search is **keyword paragraph match across all visible KBs by default** (or one named KB). For each match returns a snippet centred on the first hit + the source file URL (clickable per Tier A).
 
-**MVP scope:** keyword search with no persistent index — every search re-extracts file text. Fine for KBs under ~50 files. **Roadmap:** vector embeddings via your configured LLM provider's `/embeddings` endpoint, persistent SQLite index, semantic top-K. Same tool surface; just better quality.
+**Indexing pipeline (Tier H2 shipped):** when you attach a file to a `Lazychat Knowledge Base` doc, a Frappe `on_update` hook fires and enqueues a background job (`frappe.enqueue`). The job extracts text, splits it into ~500-token chunks with 50-token overlap, and POSTs to your configured LLM provider's `/v1/embeddings` endpoint with model `text-embedding-3-small`. Embeddings are stored as base64-encoded float32 in the `Lazychat KB Chunk` doctype. Content-hash dedupe means re-uploading an unchanged file skips embedding entirely.
+
+**Hybrid retrieval:** every `search_kb` call computes a query embedding (one API call), scores all chunks by cosine similarity (top 20), runs the existing keyword paragraph match (top 20), and fuses the two rankings via Reciprocal Rank Fusion (k=60) → top 5. Falls back to keyword-only when no chunk has been embedded yet (e.g. first-time setup, no provider configured) — graceful degradation, no errors.
+
+**Provider lookup:** mirrors the chat path. The first enabled `LLM Provider` row of `provider_type=openai_compatible` with a non-empty API key is used. If you can chat, you can embed — no extra config. Override the default `text-embedding-3-small` by adding an `extra_headers` row with `header_key=lazychat_embedding_model, header_value=<model-id>` on the provider doc.
+
+**Reindexing:** for KBs that had files attached BEFORE Tier H2 shipped, ask the agent *"reindex my product catalog"* — it'll call `reindex_kb` which enqueues a background job per file. Watch progress with *"list my background jobs"* (`list_my_jobs`).
+
+**Status surfacing:** `get_kb_files` now returns per-file `embedding_status` (`indexed` / `partial` / `keyword_only` / `pending`) + `chunk_count` so admins can spot files that didn't embed.
 
 ### System diagnostics
 
@@ -185,7 +193,8 @@ Open the `/` command palette (or Cmd+K). The **Skills** section lists everything
 | **Background jobs** | `list_my_jobs`, `cancel_job` | 2 |
 | **KB management** *(write)* | `prepare_create_kb`, `prepare_add_file_to_kb` | 2 |
 | **Charts** *(inline Vega-Lite)* | `make_chart` | 1 |
-| **Total** | | **57** |
+| **KB indexing** *(reindex existing files)* | `reindex_kb` | 1 |
+| **Total** | | **58** |
 
 Every tool runs as `frappe.session.user`. `frappe.has_permission(...)` is checked **before** any DB access. There is no god-mode bypass.
 
@@ -241,6 +250,7 @@ Coverage map for the standard admin/dev surface in Frappe + ERPNext. Most items 
 | **System diagnostics** | ✅ shipped | `get_system_info` (Frappe + ERPNext + installed apps + site config) and `get_user_info` (current user profile + roles). Agent can now self-introspect. |
 | **H3 — KB chat-ui palette + citations** | ✅ shipped | New `Lazychat Knowledge Bases` section in `/` palette (mirrors Skills). Inline `+ Create knowledge base` form chains `prepare_create_kb` + commit in one round-trip. Each KB row has an ↗ button that navigates the parent ERPNext window (Tier A) to the KB doc so you can drop files into the standard Attachments sidebar. New `prepare_add_file_to_kb` tool re-attaches an existing File doctype row to a KB. Both system prompts teach the citation format: `[<file_name>](<file_url>)` with verbatim quotes. |
 | **F — Inline charts (Vega-Lite)** | ✅ shipped | New `make_chart(spec, title?)` tool validates a Vega-Lite v5 spec and echoes it. New `'chart'` ContentKind in `contentDetector.ts` (detects via `$schema` URL or shape keys after JSON.parse). New `ChartBlock` component with `React.lazy` + `<Suspense>` — the ~500 KB `react-vega` + `vega-lite` bundle only fetches the first time a chart appears in the chat. Both system prompts teach the agent to: (a) call data tool first, (b) optionally call `make_chart` for tool-card visibility, (c) emit `[[lazychat:artifact kind="chart"]]<spec>[[/lazychat:artifact]]` with inline `data.values`, (d) caption in prose afterward. |
+| **H2 — KB vector embeddings + hybrid retrieval** | ✅ shipped | New `Lazychat KB Chunk` doctype (parent_kb, file_doc, chunk_index, text, content_hash, embedding_model, embedding_blob — base64 little-endian float32). New `embeddings.py` module: paragraph-aware chunker (~500 tokens with 50-token overlap), provider lookup mirroring chat path, batched `/v1/embeddings` POST, hybrid retrieval (cosine top-20 + keyword top-20, RRF-fused to top-5). New File doctype `on_update` hook auto-indexes attachments on Lazychat Knowledge Base via `frappe.enqueue`. Content-hash dedupe makes re-indexing idempotent. New `reindex_kb(kb_name)` tool for first-time setup of existing KBs. `search_kb` now delegates to `hybrid_search` when chunks exist, falls back to keyword paragraph match otherwise. `get_kb_files` extended with `embedding_status` (`indexed | partial | keyword_only | pending`) + `chunk_count` per file. |
 
 ---
 

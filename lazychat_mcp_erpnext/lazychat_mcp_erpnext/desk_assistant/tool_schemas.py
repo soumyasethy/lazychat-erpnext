@@ -730,6 +730,23 @@ TOOL_SCHEMAS = [
 		},
 	},
 	{
+		"name": "reindex_kb",
+		"description": (
+			"Re-run the embedding pipeline for every file currently attached to a Lazychat "
+			"Knowledge Base. Use after first install (existing files attached before the "
+			"on_update hook was wired) or to refresh after switching embedding providers. "
+			"Each file's chunks are skipped if their content_hash hasn't changed, so "
+			"re-running is idempotent and cheap when nothing changed. Returns "
+			"{ok, kb_name, files_enqueued} — actual indexing happens in background jobs "
+			"visible via list_my_jobs."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {"kb_name": {"type": "string"}},
+			"required": ["kb_name"],
+		},
+	},
+	{
 		"name": "prepare_create_kb",
 		"description": (
 			"STAGE creating a new Lazychat Knowledge Base. Returns "

@@ -93,6 +93,19 @@ def get_kb_files(kb_name):
 		fields=["name", "file_name", "file_url", "is_private", "file_size", "file_type"],
 		order_by="file_name asc",
 	)
+	# Tier H2 — surface per-file embedding status so the agent (and the user)
+	# knows whether semantic search is available or we're still on keyword-only.
+	try:
+		from lazychat_mcp_erpnext.desk_assistant import embeddings as _emb
+
+		index_status = _emb.kb_index_status(kb_name)
+	except Exception:
+		index_status = {}
+	for r in rows:
+		st = index_status.get(r["name"]) or {}
+		r["embedding_status"] = st.get("status") or "pending"
+		r["chunk_count"] = st.get("chunk_count") or 0
+		r["embedded_count"] = st.get("embedded_count") or 0
 	return {"ok": True, "kb_name": kb_name, "count": len(rows), "files": rows}
 
 
@@ -230,8 +243,15 @@ def search(query, kb_name=None, max_chunks=8, max_chars_per_file=30000):
 
 	Returns:
 	  {ok, query, kb_names_searched, files_scanned, chunks: [
-	    {kb_name, file_name, file_url, snippet, format}
+	    {kb_name, file_name, file_url, snippet, format, score?, vector_rank?, keyword_rank?}
 	  ]}
+
+	Routing (Tier H2):
+	  - If any KB Chunk rows exist for the scope → delegate to embeddings.hybrid_search
+	    (cosine-over-embeddings + keyword + RRF fusion). When chunks have no
+	    embeddings yet, falls back internally to keyword-only.
+	  - Else → file-walk + paragraph match (original keyword-only path below).
+	    This path is the v1 fallback for KBs that haven't been indexed yet.
 	"""
 	terms = [t.lower() for t in _TOKEN_RE.findall(query)]
 	# Drop stop-word-ish single chars and dedupe
@@ -249,6 +269,33 @@ def search(query, kb_name=None, max_chunks=8, max_chars_per_file=30000):
 		kb_names = [kb["name"] for kb in visible]
 		if not kb_names:
 			return {"ok": True, "query": query, "kb_names_searched": [], "files_scanned": 0, "chunks": []}
+
+	# H2 path: prefer hybrid search when any KB Chunk rows exist for this scope.
+	try:
+		any_chunks = frappe.db.count(
+			"Lazychat KB Chunk", {"parent_kb": ["in", kb_names]}
+		)
+	except Exception:
+		any_chunks = 0
+	if any_chunks > 0:
+		try:
+			from lazychat_mcp_erpnext.desk_assistant import embeddings as _emb
+
+			chunks = _emb.hybrid_search(query, kb_names, max_chunks=max_chunks)
+			return {
+				"ok": True,
+				"query": query,
+				"kb_names_searched": kb_names,
+				"files_scanned": len({c["file_name"] for c in chunks}),
+				"chunks": chunks,
+				"_note": (
+					f"Hybrid retrieval (cosine + keyword RRF) over {any_chunks} indexed chunks. "
+					f"Returned {len(chunks)} of max {max_chunks}."
+				),
+			}
+		except Exception as e:
+			# Fall through to legacy keyword-only path on any failure
+			frappe.log_error(frappe.get_traceback(), f"lazychat hybrid_search failed: {e}")
 
 	files = frappe.get_all(
 		"File",

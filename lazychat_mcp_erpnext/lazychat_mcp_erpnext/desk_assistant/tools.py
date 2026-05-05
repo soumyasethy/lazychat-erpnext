@@ -1563,6 +1563,16 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		max_chunks = min(int(args.get("max_chunks") or 8), 20)
 		return _kb.search(query, kb_name=kb_name, max_chunks=max_chunks)
 
+	if name == "reindex_kb":
+		from lazychat_mcp_erpnext.desk_assistant import embeddings as _emb
+
+		kb_name = (args.get("kb_name") or "").strip()
+		if not kb_name:
+			return {"error": "kb_name required"}
+		# reindex_kb is direct (no /commit) because it's idempotent — content_hash
+		# dedupe means re-running is safe and cheap when nothing changed.
+		return _emb.reindex_kb(kb_name)
+
 	# KB write tools (Tier H3) — create a Lazychat Knowledge Base or attach an
 	# existing File to one. Two-phase via /commit because they mutate state.
 	if name == "prepare_create_kb":

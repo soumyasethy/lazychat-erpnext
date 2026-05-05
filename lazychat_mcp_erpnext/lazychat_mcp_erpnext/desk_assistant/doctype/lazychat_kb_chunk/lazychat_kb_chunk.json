@@ -1,0 +1,127 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-05-05 12:45:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_link",
+  "parent_kb",
+  "file_doc",
+  "chunk_index",
+  "section_text",
+  "text",
+  "content_hash",
+  "section_embedding",
+  "embedding_model",
+  "embedding_blob"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_link",
+   "fieldtype": "Section Break",
+   "label": "Source"
+  },
+  {
+   "fieldname": "parent_kb",
+   "fieldtype": "Link",
+   "options": "Lazychat Knowledge Base",
+   "label": "Knowledge Base",
+   "in_list_view": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "file_doc",
+   "fieldtype": "Link",
+   "options": "File",
+   "label": "Source File",
+   "in_list_view": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "chunk_index",
+   "fieldtype": "Int",
+   "label": "Chunk Index",
+   "in_list_view": 1,
+   "reqd": 1,
+   "description": "0-based position of this chunk within its source file."
+  },
+  {
+   "fieldname": "section_text",
+   "fieldtype": "Section Break",
+   "label": "Content"
+  },
+  {
+   "fieldname": "text",
+   "fieldtype": "Long Text",
+   "label": "Chunk Text",
+   "reqd": 1,
+   "description": "Plain-text content extracted from the source file (typically 300-700 tokens / 1000-2500 chars)."
+  },
+  {
+   "fieldname": "content_hash",
+   "fieldtype": "Data",
+   "label": "Content Hash",
+   "length": 64,
+   "search_index": 1,
+   "description": "SHA-256 of the normalised chunk text. Used to skip re-embedding when a file is re-uploaded with no changes."
+  },
+  {
+   "fieldname": "section_embedding",
+   "fieldtype": "Section Break",
+   "label": "Embedding"
+  },
+  {
+   "fieldname": "embedding_model",
+   "fieldtype": "Data",
+   "label": "Embedding Model",
+   "description": "e.g. text-embedding-3-small. Empty when chunk hasn't been embedded yet (pending) or embedding call failed (keyword-only fallback applies)."
+  },
+  {
+   "fieldname": "embedding_blob",
+   "fieldtype": "Long Text",
+   "label": "Embedding (base64 float32)",
+   "description": "Base64-encoded little-endian float32 array. ~6KB raw / ~8KB base64 per chunk for 1536-dim text-embedding-3-small."
+  }
+ ],
+ "issingle": 0,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-05-05 12:45:00.000000",
+ "modified_by": "Administrator",
+ "module": "Desk Assistant",
+ "name": "Lazychat KB Chunk",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 0,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 0,
+   "export": 0,
+   "print": 0,
+   "read": 1,
+   "report": 0,
+   "role": "All",
+   "share": 0,
+   "write": 0
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 0
+}

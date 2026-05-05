@@ -56,3 +56,13 @@ doctype_css = {
 
 after_install = "lazychat_mcp_erpnext.install.after_install"
 after_migrate = "lazychat_mcp_erpnext.install.run_after_migrate"
+
+# Tier H2 — File doctype hook auto-indexes KB attachments. The handler
+# filters internally to attached_to_doctype="Lazychat Knowledge Base" and
+# enqueues a background job (frappe.enqueue) so the request returns fast.
+# Re-saves of unchanged files are near-free thanks to content-hash dedupe.
+doc_events = {
+	"File": {
+		"on_update": "lazychat_mcp_erpnext.desk_assistant.embeddings.on_file_attach",
+	}
+}
