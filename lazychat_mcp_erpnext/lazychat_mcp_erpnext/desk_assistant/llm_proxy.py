@@ -116,7 +116,18 @@ def _make_response(generator, *, status: int = 200, mimetype: str | None = None,
 	resp = Response(generator, status=status, mimetype=mimetype, direct_passthrough=True)
 	resp.headers["Cache-Control"] = "no-cache, no-transform"
 	resp.headers["X-Accel-Buffering"] = "no"
-	resp.headers["Connection"] = "keep-alive"
+	# Tell the browser to release the socket after this response.
+	#
+	# Why: SSE streams that finish via [DONE] hold a keep-alive socket in
+	# Chrome's HTTP/1.1 connection pool (max 6 per origin). When the chat-ui
+	# kept LLM streams alive then immediately POSTed mcp.handle for tool
+	# dispatch, the new fetch could not get a slot — it queued for ~55s and
+	# Chrome eventually rejected it with a generic `TypeError: Failed to
+	# fetch`. Forcing close on the LLM proxy response evicts that slot the
+	# instant the upstream completes, so the very next mcp.handle fetch
+	# succeeds in milliseconds. Keep-alive on a streaming proxy buys you
+	# nothing — every LLM turn opens a fresh connection anyway.
+	resp.headers["Connection"] = "close"
 	resp.headers["Access-Control-Allow-Origin"] = "*"
 	if extra_headers:
 		for k, v in extra_headers.items():
