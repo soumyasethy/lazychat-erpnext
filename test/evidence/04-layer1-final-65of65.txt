@@ -1,0 +1,88 @@
+==============================================================================
+LAZYCHAT-MCP-ERPNEXT — Layer 1 (HTTP MCP wire) — FINAL
+==============================================================================
+Endpoint: http://localhost:8000/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle
+Auth:     login:Administrator
+Run at:   1777972380
+Total registered tools: 65
+Tools called this run: 65
+
+  OK              =  54   ← validator-checked content + correct shape
+  OK_ERROR        =  11   ← gated/expected error responses
+  TOOL_ERROR      =   0
+  VALIDATOR_FAIL  =   0
+  WIRE_ERROR      =   0
+  MISSING_ARGS    =   0
+  SKIP_NEEDS_FIXTURE =   0
+
+  TOTAL VERIFIED OK  = 65 / 65
+  TOTAL FAILING      = 0
+
+------------------------------------------------------------------------------
+tool                             status             ms  detail
+------------------------------------------------------------------------------
+get_list                         OK                  4  count=2 sample=21000001
+get_doc                          OK                 14  doc.name=21000001
+get_current_context              OK                  3  keys=['ok', 'context']
+describe_doctype                 OK                  4  fields=189
+prepare_create_doc               OK                  4  token=0P7gOXKe…
+prepare_update_doc               OK                  5  token=GdGb0QSR…
+prepare_submit_doc               OK                  4  preview_token=tYQJAXCreR6mtEccmV6TzQ
+list_workflow_actions            OK                  9  actions=0
+prepare_workflow_action          OK_ERROR            8  action '_lazychat_smoke_no_action' not allowed fro
+prepare_add_comment              OK                  3  token=y4zngrDI…
+prepare_assign_to                OK                  3  token=wVwf2opY…
+aggregate                        OK                 10  groups=11 top={'item_group': 'Apparel', 'value': 3
+dashboard_chart_data             OK                 10  keys=['ok', 'name', 'data']
+number_card_value                OK                  6  value=0.0
+search_global                    OK                  4  count=5
+count_doc                        OK                  3  count=57
+get_value                        OK                  3  value='SAP ENTERPRISES'
+get_doctype_links                OK                  3  links=0
+list_reports                     OK                  5  count=100
+run_report                       OK              25027  rows=0
+get_stock_balance                OK                  8  keys=['ok', 'item_code', 'warehouse', 'posting_dat
+get_account_balance              OK_ERROR            5  invalid account
+get_outstanding                  OK                  8  count=None
+get_open_invoices                OK                271  count=50
+get_sales_summary                OK                361  rows=50
+get_item_price                   OK                 11  keys=['ok', 'item_code', 'count', 'prices']
+get_company_defaults             OK                  7  keys=['ok', 'defaults', 'company', 'current_user',
+prepare_send_email               OK_ERROR            7  Email sending disabled. Enable in Desk → Lazychat 
+prepare_delete_doc               OK_ERROR            5  Note/_lazychat_smoke_no_note does not exist
+search_doctype                   OK                  7  count=1
+search_link                      OK                  7  count=0
+get_pending_approvals            OK                  6  count=0
+report_requirements              OK                 10  keys=['ok', 'info']
+list_user_dashboards             OK                  7  count=8
+extract_file_content             OK                  7  text_len=45
+prepare_run_sql                  OK_ERROR            4  dangerous tools disabled (enable in Desk → Lazycha
+prepare_run_python               OK_ERROR            4  dangerous tools disabled (enable in Desk → Lazycha
+prepare_share_doc                OK                  4  token=iwCLmFeP…
+prepare_upload_file              OK                  4  token=f-dqMrh_…
+prepare_import_csv               OK_ERROR            4  dangerous tools disabled (enable in Desk → Lazycha
+list_attachments                 OK                  4  files=1 sample=_lz_smoke_attachment.txt
+get_file_url                     OK                  4  url=http://localhost:8000/files/_lz_smoke_attachme
+subscribe_doc_changes            OK                  4  sub_id=
+unsubscribe_doc_changes          OK                  3  unsubscribed
+list_my_subscriptions            OK                  3  count=0
+make_chart                       OK                  3  mark=bar
+get_audit_trail                  OK                 30  events=98
+export_list_to_csv               OK                  5  field_picker token=YifBek5g…
+export_doc_pdf                   OK               2639  size=76066 url=/private/files/sales_order-so_02_26
+list_my_jobs                     OK                 14  count=19
+cancel_job                       OK                  3  status=failed
+prepare_rename_doc               OK_ERROR            3  doc not found: Note/_lazychat_smoke_no_note
+list_doc_versions                OK                  5  count=20
+prepare_revert_doc               OK_ERROR            3  doctype, name, version_id required
+get_system_info                  OK                  4  keys=['ok', 'info']
+get_user_info                    OK                  3  user=Administrator
+list_knowledge_bases             OK                  4  count=1
+get_kb_files                     OK                  4  count=0
+search_kb                        OK                  5  hits=0
+reindex_kb                       OK                  4  keys=['ok', 'kb_name', 'files_enqueued']
+prepare_create_kb                OK_ERROR            3  knowledge base already exists: _lz_smoke_kb
+prepare_add_file_to_kb           OK                  4  preview_token=zd37ZoEDEbONQ5ppR0qc6Q
+list_skills                      OK                  4  count=4
+activate_skill                   OK_ERROR            3  skill '_lazychat_smoke_no_skill' not found or you 
+deactivate_skill                 OK                  3  (empty result)

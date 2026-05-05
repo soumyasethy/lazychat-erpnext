@@ -1,0 +1,75 @@
+LAYER 1 (curl/HTTP MCP wire) — full registry probe
+Endpoint: http://localhost:8000/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle
+Auth: login:Administrator
+Registered tools: 65
+Called: 65
+
+OK=34  OK_ERROR=11  TOOL_ERROR=0  WIRE_ERROR=0  SKIP_NEEDS_FIXTURE=20  MISSING_ARGS=0
+
+tool                             status                    ms  detail
+--------------------------------------------------------------------------------------------------------------
+get_list                         OK                        10  count=1, rows=[1]
+get_doc                          OK                        23  (empty result)
+get_current_context              OK                         5  (empty result)
+describe_doctype                 OK                         7  doctype=Sales Order
+prepare_create_doc               OK                         4  preview_token=SBscp-pwrT9GLFh9M-KdEw
+prepare_update_doc               OK                        12  preview_token=aEByhADJ0dU_CjCfgRK-cw
+prepare_submit_doc               OK                         5  preview_token=MgBbcx8611Tik9ZGSZ6Gzg
+list_workflow_actions            OK_ERROR                  43  Workflow  not found
+prepare_workflow_action          OK_ERROR                  21  Workflow  not found
+prepare_add_comment              OK                         3  preview_token=KOtXDhSGXTfbjU82Eof4zQ
+prepare_assign_to                OK                         4  preview_token=fy4WsZfRJStPfIBBZ5noXQ
+aggregate                        OK                        17  count=11, rows=[11], doctype=Item
+dashboard_chart_data             SKIP_NEEDS_FIXTURE            needs an existing Dashboard Chart by name
+number_card_value                SKIP_NEEDS_FIXTURE            needs an existing Number Card by name
+search_global                    OK                         5  count=5
+count_doc                        OK                         4  count=57, doctype=Customer
+get_value                        OK                         4  name=DocType, doctype=DocType
+get_doctype_links                OK                      7598  name=DocType, doctype=DocType
+list_reports                     OK                         7  count=100
+run_report                       SKIP_NEEDS_FIXTURE            needs report-specific filters; SLOW_TOOLS=1 to enable
+get_stock_balance                OK                         7  (empty result)
+get_account_balance              OK_ERROR                   4  invalid account
+get_outstanding                  OK_ERROR                   4  invalid Customer
+get_open_invoices                OK                       267  count=50, doctype=Sales Invoice
+get_sales_summary                OK                       361  rows=[50]
+get_item_price                   OK                        19  count=0
+get_company_defaults             OK                         7  (empty result)
+prepare_send_email               OK_ERROR                   6  Email sending disabled. Enable in Desk → Lazychat Settings →
+prepare_delete_doc               OK_ERROR                   5  Note/_lazychat_smoke_no_note does not exist
+search_doctype                   OK                         6  count=5
+search_link                      OK                        10  count=0, doctype=Customer
+get_pending_approvals            OK                         5  count=0
+report_requirements              OK                         8  (empty result)
+list_user_dashboards             OK                         7  count=8
+extract_file_content             SKIP_NEEDS_FIXTURE            needs an attached File row (run setup_fixtures.py)
+prepare_run_sql                  OK_ERROR                   5  dangerous tools disabled (enable in Desk → Lazychat Settings
+prepare_run_python               OK_ERROR                   5  dangerous tools disabled (enable in Desk → Lazychat Settings
+prepare_share_doc                OK                         4  preview_token=ZNPbA9OOJWnAkWWeuTG9ow
+prepare_upload_file              SKIP_NEEDS_FIXTURE            needs a base64 file payload — handle in Layer 2
+prepare_import_csv               SKIP_NEEDS_FIXTURE            needs a queued File row — handle in Layer 2
+list_attachments                 OK                         6  count=0, name=DocType, doctype=DocType
+get_file_url                     OK_ERROR                   5  file not found: /files/__lazychat_smoke_no_such_file_xyz.txt
+subscribe_doc_changes            SKIP_NEEDS_FIXTURE            mutates session state — handled in Layer 2
+unsubscribe_doc_changes          SKIP_NEEDS_FIXTURE            mutates session state — handled in Layer 2
+list_my_subscriptions            OK                         4  count=0
+make_chart                       OK                         3  spec={'$schema': 'https://vega.github.io/schema/vega-lite/v5
+get_audit_trail                  OK                         8  name=DocType, doctype=DocType
+export_list_to_csv               SKIP_NEEDS_FIXTURE            binary response — handle in Layer 2
+export_doc_pdf                   SKIP_NEEDS_FIXTURE            binary response — handle in Layer 2
+list_my_jobs                     OK                        12  count=8
+cancel_job                       SKIP_NEEDS_FIXTURE            needs a queued background job
+prepare_rename_doc               OK_ERROR                   3  doc not found: Note/_lazychat_smoke_no_note
+list_doc_versions                OK                         3  count=0, name=DocType, doctype=DocType
+prepare_revert_doc               OK_ERROR                   3  doctype, name, version_id required
+get_system_info                  OK                         5  (empty result)
+get_user_info                    OK                         4  (empty result)
+list_knowledge_bases             SKIP_NEEDS_FIXTURE            needs at least one KB row
+get_kb_files                     SKIP_NEEDS_FIXTURE            needs an existing KB
+search_kb                        SKIP_NEEDS_FIXTURE            needs an existing KB
+reindex_kb                       SKIP_NEEDS_FIXTURE            starts a background job — needs an existing KB
+prepare_create_kb                SKIP_NEEDS_FIXTURE            mutates state — handle in Layer 2 with cleanup
+prepare_add_file_to_kb           SKIP_NEEDS_FIXTURE            needs a KB + File fixture
+list_skills                      SKIP_NEEDS_FIXTURE            skills setup not assumed
+activate_skill                   SKIP_NEEDS_FIXTURE            mutates session state — Layer 2
+deactivate_skill                 SKIP_NEEDS_FIXTURE            mutates session state — Layer 2
