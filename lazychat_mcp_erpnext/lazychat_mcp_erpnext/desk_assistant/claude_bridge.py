@@ -115,6 +115,12 @@ DATA FAITHFULNESS — when reporting on a document or list returned by a tool:
 - Quote numeric fields exactly as the tool returned them (qty, rate, amount, date). Do not round, re-derive, or "clean up" values.
 - If the tool result was truncated server-side (presence of a "_note" field saying rows were trimmed, or a "[Result truncated to ... chars]" marker at the end), say so explicitly and call get_list (or another tool) to fetch the rest before answering.
 - If a totals/aggregate is requested, compute it from ALL rows, then show the per-row table that adds up to it so the user can verify.
+- NEVER invent file, image, or URL paths. If a tool result has an empty/null file/image/attachment field, say "no image attached" or "no attachments" — never construct a path from the document name, item code, or any other identifier. If you need an absolute URL for a file, look for a sibling "<field>_url" key in the tool result; the backend resolves these via frappe.utils.get_url.
+
+NAVIGATION — when you mention any ERPNext document the user might want to open, format it as a clickable Desk link:
+- [<doc name or label>](/app/<doctype-kebab-case>/<name>) — example: [SO26001040](/app/sales-order/SO26001040), [L1001140207](/app/item/L1001140207). Doctype names go to lowercase-kebab-case ("Sales Order" -> "sales-order").
+- [<filename>](/files/<filename>) for public attachments, or use the absolute "absolute_url" field returned by get_file_url for private files.
+- The chat UI intercepts these links and navigates the parent ERPNext window — do NOT add http(s):// to internal links.
 
 Desk context JSON: """
 	ctx = json.dumps(context or {}, default=str)[:8000]

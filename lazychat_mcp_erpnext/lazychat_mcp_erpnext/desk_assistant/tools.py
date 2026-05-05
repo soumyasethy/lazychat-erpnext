@@ -4,6 +4,7 @@ import re
 import secrets
 
 import frappe
+from frappe.utils import get_url as _frappe_get_url
 
 PREP_TTL_SEC = 300
 PREP_KEY = "lazychat:prep:"
@@ -79,6 +80,30 @@ def _consume_action(token):
 	frappe.cache().delete_value(PREP_KEY + token)
 
 
+_FILE_PATH_RE = re.compile(r"^/(?:private/)?files/")
+
+
+def _resolve_file_urls(d):
+	"""For every value that looks like a relative Frappe file path, inject an
+	absolute sibling under '<key>_url'. Stops the LLM from having to invent
+	URLs from raw paths (it does so badly — typical hallucination is
+	'/files/<itemcode>_01.png'). Empty/null values produce no sibling.
+
+	Mutates and returns the same dict.
+	"""
+	if not isinstance(d, dict):
+		return d
+	additions = {}
+	for k, v in d.items():
+		if isinstance(v, str) and _FILE_PATH_RE.match(v):
+			try:
+				additions[f"{k}_url"] = _frappe_get_url(v)
+			except Exception:
+				pass
+	d.update(additions)
+	return d
+
+
 def _trim_doc(doc_dict, max_child_rows=25):
 	"""Truncate child-table lists so huge docs don't overflow the LLM context window."""
 	note_parts = []
@@ -94,6 +119,14 @@ def _trim_doc(doc_dict, max_child_rows=25):
 			"Child tables truncated — " + "; ".join(note_parts)
 			+ ". Use get_list with filters for the full data."
 		)
+	# Resolve relative file paths on the parent doc (e.g. `image: "/files/foo.png"`
+	# gains `image_url: "https://erp.local/files/foo.png"`). Also walk one level
+	# of child rows since item images are common.
+	_resolve_file_urls(trimmed)
+	for k, v in trimmed.items():
+		if isinstance(v, list):
+			for row in v:
+				_resolve_file_urls(row)
 	return trimmed
 
 

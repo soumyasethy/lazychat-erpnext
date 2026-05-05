@@ -600,6 +600,37 @@
 			}
 		});
 
+		/* Tier A — agent emits markdown links like [SO26001040](/app/sales-order/SO26001040);
+		 * the chat-ui intercepts the click and sends `navigateDesk { route, openInNewTab? }`.
+		 * For /app/<doctype>/<name?> we navigate the Desk via frappe.set_route — this is
+		 * a SPA route change, doesn't reload, preserves the lazychat panel state.
+		 * For /files/* (attachments) we always open in a new tab so the user keeps the chat. */
+		bridge.on("navigateDesk", (payload) => {
+			const route = payload && payload.route;
+			if (!route || typeof route !== "string") return;
+			if (payload.openInNewTab) {
+				window.open(route, "_blank");
+				return;
+			}
+			const appMatch = route.match(/^\/app\/([^\/?#]+)(?:\/([^?#]+))?/);
+			if (appMatch && window.frappe && frappe.set_route) {
+				const doctype = appMatch[1];
+				const name = appMatch[2] ? decodeURIComponent(appMatch[2]) : undefined;
+				try {
+					if (name) frappe.set_route(doctype, name); else frappe.set_route(doctype);
+					return;
+				} catch (e) {
+					console.warn("[lazychat] frappe.set_route failed, falling back to location.assign", e);
+				}
+			}
+			// Files, or /app/ without router available: fall back to navigation.
+			if (/^\/(?:files|private\/files)\//.test(route)) {
+				window.open(route, "_blank");
+			} else {
+				window.location.assign(route);
+			}
+		});
+
 		/* Forward route changes for context-aware answers */
 		if (frappe.router && frappe.router.on) {
 			frappe.router.on("change", () => {
