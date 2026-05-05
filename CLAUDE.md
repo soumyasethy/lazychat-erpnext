@@ -80,20 +80,39 @@ bench --site site.example install-app lazychat_mcp_erpnext
 
 **Defaults work without any site_config edits.** Boot extension reads `lazychat_iframe_src` from `site_config.json` if set; otherwise defaults to bundled dist.
 
-## Tool registry — 38 tools (all permission-scoped to `frappe.session.user`)
+## Tool registry — 65 tools (all permission-scoped to `frappe.session.user`)
 
-| Category | Tools |
-|---|---|
-| Discovery (3) | search_doctype, search_global, search_link |
-| Basic reads (6) | get_list, get_doc, get_value, count_doc, describe_doctype, get_current_context |
-| Relationships (1) | get_doctype_links |
-| Workflow reads (2) | list_workflow_actions, get_pending_approvals |
-| Analytics (5) | aggregate, get_sales_summary, dashboard_chart_data, number_card_value, list_user_dashboards |
-| Reports (3) | list_reports, report_requirements, run_report |
-| Files (1) | extract_file_content |
-| ERPNext domain (6) | get_stock_balance, get_account_balance, get_outstanding, get_open_invoices, get_item_price, get_company_defaults |
-| Mutations / Comms (9) | prepare_create_doc, prepare_update_doc, prepare_submit_doc, prepare_delete_doc, prepare_workflow_action, prepare_add_comment, prepare_assign_to, prepare_send_email, prepare_share_doc |
-| Power tools (2, gated) | prepare_run_sql, prepare_run_python |
+The registry has grown well past the original 38 documented in earlier
+revisions. **Treat `tool_schemas.py:TOOL_SCHEMAS` as the source of truth**;
+T54 in the smoke test compares `len(TOOL_SCHEMAS)` to the live MCP
+`tools/list` count, so the assertion stays correct as tools are added.
+
+| Category | Count | Examples |
+|---|---|---|
+| Discovery / reads | 10 | get_list, get_doc, get_value, count_doc, describe_doctype, get_current_context, get_doctype_links, search_doctype, search_global, search_link |
+| Aggregation / analytics | 8 | aggregate, dashboard_chart_data, number_card_value, list_user_dashboards, get_sales_summary, get_pending_approvals, list_my_jobs, get_open_invoices |
+| Reports | 3 | list_reports, report_requirements, run_report |
+| Workflow | 2 | list_workflow_actions, prepare_workflow_action |
+| ERPNext domain | 7 | get_stock_balance, get_account_balance, get_outstanding, get_item_price, get_company_defaults, get_user_info, get_audit_trail |
+| Files | 3 | list_attachments, get_file_url, extract_file_content |
+| Subscriptions / charts / jobs | 5 | subscribe_doc_changes, unsubscribe_doc_changes, list_my_subscriptions, make_chart, cancel_job |
+| Mutations (`prepare_*`) | 15 | create / update / submit / delete / comment / assign / share / upload / import_csv / rename / revert / send_email / workflow / run_sql / run_python |
+| Exports | 2 | export_list_to_csv, export_doc_pdf |
+| Knowledge Base (Tier H) | 6 | list_knowledge_bases, get_kb_files, search_kb, reindex_kb, prepare_create_kb, prepare_add_file_to_kb |
+| Skills (Tier E) | 3 | list_skills, activate_skill, deactivate_skill |
+| Misc | 1 | get_system_info, list_doc_versions, list_my_jobs |
+
+**Defensive arg coercion** (added 2026-05-05): `tools.py:_coerce_args()`
+runs at the top of `execute_tool` before dispatch. Non-tool-trained models
+(seed-oss-36b, smaller open-weight models) routinely emit `tool_calls`
+with everything stringified — `filters: "{}"`, `fields: "['name']"`,
+`limit: "1"` — even when the schema declares them as objects/arrays/ints.
+Without this normalizer, `frappe.get_all(fields="['name']")` generates
+broken SQL because the string is interpreted as a single weird field name.
+The coercer JSON-parses well-known schema-shaped keys (filters, fields,
+values, patch, spec, …) and int-coerces well-known integer keys (limit,
+max_chunks, …). Idempotent — already-typed args pass through unchanged.
+T75 + T76 cover the regression.
 
 **`get_doc` child-table truncation** (added 2026-05-05): `tools.py:get_doc` calls `_trim_doc(doc.as_dict(), max_child_rows=25)` before returning. Without this, Sales Orders with 50+ line items produced 20–50 KB JSON blobs that overflowed LLM context windows and caused the agent to stall silently. `_trim_doc` keeps all scalar header fields, trims each list (child table) to 25 rows, and injects a `"_note"` key summarising what was trimmed and telling the LLM to use `get_list` for the full data. The 12,000-char `mcpResultToText` cap in `mcp-client.ts` serves as a second-layer safety net on the browser-LLM path.
 
@@ -163,27 +182,74 @@ bench --site site.example install-app lazychat_mcp_erpnext
 
 Seed fixtures in [seed_data.json](lazychat_mcp_erpnext/lazychat_mcp_erpnext/seed_data.json) auto-load via `after_install` + `after_migrate`. Ships disabled-by-default rows for OpenAI/OpenRouter/NVIDIA/Vercel/LM Studio.
 
-## Smoke test
+## Smoke test — two layers (added 2026-05-05)
+
+A two-layer harness covers every tool. Both must be green to ship.
+
+### Layer 1 — HTTP MCP wire (`test/curl_smoke.py`, all 65 tools)
+
+Pure-stdlib HTTP smoke that hits `POST /api/method/.../mcp.handle`
+directly, with real fixtures and per-tool content validators (not just
+"HTTP 200"). Catches drift the in-process Layer 2 can't see — CSRF/auth,
+JSONRPC envelope shape, content-type, body-shape regressions.
 
 ```bash
-cp lazychat-mcp-erpnext/scripts/smoke-test-tools.py <bench>/apps/lazychat_mcp_erpnext/lazychat_mcp_erpnext/_smoke.py
-cd <bench>
-bench --site <site> execute lazychat_mcp_erpnext._smoke.run
+# 1) Provision fixtures (idempotent — Note + File + KB + queued Job, plus
+#    resolves real Customer / SO / Item / Chart / Card / Report /
+#    Workflow / PrintFormat / company / file_url from existing site data)
+cp lazychat-mcp-erpnext/test/setup_fixtures.py \
+   <bench>/apps/lazychat_mcp_erpnext/lazychat_mcp_erpnext/_setup_fixtures.py
+cd <bench> && bench --site <site> execute lazychat_mcp_erpnext._setup_fixtures.run
+
+# 2) Run Layer 1
+cd ~/Desktop/code-chat
+python3 lazychat-mcp-erpnext/test/curl_smoke.py
+# expected:
+#   [curl_smoke] summary: OK=54 | OK_ERROR=11
+#   [curl_smoke] tools registered: 65, called: 65
 ```
 
-Currently asserts **72 cases** across all 38 tools + theme/route-context briefings + MCP wire transport + Lazychat Settings doctype + save_conversation against real ERPNext data:
-- Reads (T1–T4, T19–T31, T34–T39): exercise every read tool against actual rows
-- Mutations (T5–T8, T10–T13, T33, T40–T41): create + update + comment + assign + share + delete (each with cleanup)
-- Workflow + analytics (T9, T14–T16): real Workflow Action / Dashboard Chart / Number Card
-- Edge cases (T17–T18, T32): invalid token, unknown tool, gated email
-- Power tools (T42–T47): rejection when flag off, execution when flag on (monkey-patched in test)
-- Route-context briefings (T48–T51): form view names doc + asks for get_doc grounding, dirty flag, list-view selected rows, empty-context noise check
-- MCP wire transport (T52–T59): initialize handshake, ping, tools/list (38 tools, MCP-shaped inputSchema), tools/call dispatches to execute_tool, error paths (-32601 unknown tool, -32602 missing name, -32601 unknown method, isError on tool failure)
-- Lazychat Settings (T60–T62): doctype defaults + boot-extension shape + site_config fallback override
-- save_conversation + validation (T63–T64): browser-LLM path conversation persist + mcp_endpoint URL validation
-- Cleanup at end removes all created Comments / ToDos / Notes
+`OK_ERROR` = graceful expected error: gated tools (allow_email,
+allow_dangerous_tools), probes against deliberately-non-existent
+fixtures. Validators per tool live in `test/tool_args.py`.
 
-When adding a new tool: add a corresponding T## case in `scripts/smoke-test-tools.py`, sync to bench (`cp`), re-run. Target = always 100% pass.
+### Layer 2 — in-process (`scripts/smoke-test-tools.py`)
+
+```bash
+cp lazychat-mcp-erpnext/scripts/smoke-test-tools.py \
+   <bench>/apps/lazychat_mcp_erpnext/lazychat_mcp_erpnext/_smoke.py
+cd <bench>
+bench --site <site> execute lazychat_mcp_erpnext._smoke.run
+# expected: === 84 pass, 0 fail, 0 skip ===
+```
+
+Currently 84 cases — exercises read/mutation/workflow/analytics/MCP-wire/
+settings paths in-process (calls `execute_tool()` directly, bypassing
+HTTP). Critical recent additions:
+
+- **T54** unhardcoded "38" → `len(TOOL_SCHEMAS)` (future-proof).
+- **T67** rewritten to verify the actual llm_proxy security model — strip
+  Frappe-internal `Authorization`/`X-Frappe-CSRF-Token`, rewrite
+  `x-target-authorization` → `Authorization` upstream.
+- **T69-T72** for the 3 newest tools (`list_attachments`, `get_file_url`,
+  `make_chart`).
+- **T73-T74** cancel_job idempotency regression.
+- **T75-T76** stringified-args coercion regression (the seed-oss-36b
+  arg-shape bug — see Tool Registry section above).
+
+Target = always 100% pass. When adding a new tool: add a T## case AND
+its `tool_args.py` entry + validator, then re-run both layers.
+
+### Deploy gotcha — rsync wipes the bench-side smoke files
+
+`scripts/deploy-local.sh` runs `rsync --delete` from the source repo into
+`<bench>/apps/lazychat_mcp_erpnext/`. The smoke files live at
+`<bench>/apps/.../_smoke.py` and `_setup_fixtures.py` (gitignored, NOT
+in source — they get cp'd in for runs only). **Every deploy wipes them.**
+Re-run the `cp` commands above before invoking `bench execute` after a
+deploy, otherwise the runner errors with `NameError: name
+'lazychat_mcp_erpnext' is not defined` (because Frappe can't find the
+function path).
 
 ## Conventions
 
@@ -261,6 +327,91 @@ curl -i -X POST "http://localhost:8000/api/method/lazychat_mcp_erpnext.desk_assi
   -d '{}' 2>&1 | head -3
 ```
 
+## "Tool dispatch sits at IN forever" — three stacked bugs (resolved 2026-05-05)
+
+The single most expensive debug session in this repo's life — symptom
+was "every prompt hangs at the IN block, no result, eventually 60s
+timeout". Three independent bugs stacked. All resolved; documenting so
+the next time something looks similar you start with the right tier.
+
+**Why this is hard to see**: each layer below ALSO works in isolation —
+the backend is fast (curl returns in <50ms), the chat-ui's mcpRpc works
+when called from a parent-injected probe, the LLM emits real
+`tool_calls`. The bugs only fire in combination. Diagnose by binary-
+searching with the harness:
+
+| Symptom | Tier where bug lives |
+|---|---|
+| `python3 test/curl_smoke.py` shows `TOOL_ERROR` or `WIRE_ERROR` | backend `tools.py` impl OR `mcp.handle` plumbing |
+| Layer 1 green but `bench execute _smoke.run` fails | something Frappe does only on the wire (rare) |
+| Both green but iframe panel hangs at IN forever | one of the three below |
+
+### Tier 1 — HTTP/1.1 connection-pool starvation in Chrome (server-side fix)
+
+`bench serve` returns `Connection: keep-alive` on every response, including
+streamed SSE from `llm_proxy.handle`. Chrome holds the socket in the
+per-origin pool (max 6 connections per origin) for ~60s after the LLM
+stream completes. Combined with ERPNext's background polls
+(notification_log, route_history, fiscal_year, etc.) the pool fills.
+The chat-ui's `mcpCallTool` POST that follows the LLM stream end up
+queued waiting for a slot, eventually rejected with
+`TypeError: Failed to fetch` ~55s later. The chat-ui surfaces this as
+the AbortSignal.timeout firing at 60s.
+
+**Fix** ([llm_proxy.py:119](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/llm_proxy.py#L119)):
+emit `Connection: close` on every llm_proxy response. Chrome releases
+the socket the instant the upstream completes, freeing a pool slot for
+the immediate tool-dispatch fetch that follows. Keep-alive on a
+streaming proxy buys nothing — every LLM turn opens a fresh connection
+upstream anyway.
+
+### Tier 2 — system-prompt marker conflict (chat-ui-side fix in lazychat.ai)
+
+The chat-ui's `routerSystemPrompt.ts` taught the LLM TWO ways to invoke
+tools simultaneously:
+1. `[[lazychat:tool kind="..." status="..."]]` markdown marker — pure
+   rendering hint, the UI shows a card but nothing dispatches.
+2. The provider's native `tool_calls` (OpenAI) / `tool_use` (Anthropic)
+   field — what the chat-ui's `_streamToolTurn` parser actually picks
+   up and routes to mcpCallTool.
+
+Non-tool-trained models (seed-oss-36b, smaller open-weight) routinely
+pick the marker form because it's more prominent in the prompt and
+matches the way the rest of the response is "styled". UI shows IN block
+forever, no real `tool_calls` ever arrives.
+
+**Fix** (lazychat.ai `fix(prompt)` commit `be01aaa`): split the prompt
+into MCP_PROMPT (no marker, explicit "use the native protocol field"
+instruction) and LEGACY_PROMPT (keeps the marker for the standalone
+Cycle 1 chat-ui where there's no real dispatch). `agentRunner.ts`
+computes `mcpToolsActive` from the embed config and picks the right
+variant per turn.
+
+### Tier 3 — stringified tool args (server-side fix)
+
+Even with Tier 2 fixed, models like seed-oss-36b stringify everything
+in `tool_calls.function.arguments` — `filters: "{}"`, `fields: "['name']"`,
+`limit: "1"` — even when the schema declares them as objects/arrays/ints.
+`frappe.get_all(fields="['name']")` then generates broken SQL because
+the string is interpreted as a single weird field name.
+
+**Fix**
+([tools.py:_coerce_args](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py)):
+runs at the top of every `execute_tool` dispatch. JSON-parses well-known
+schema-shaped keys (filters, fields, values, patch, spec, …), int-coerces
+well-known integer keys (limit, max_chunks, …). Idempotent on already-
+typed args. T75/T76 cover the regression.
+
+### End-to-end verification
+
+After all three fixes are deployed, the canonical test is:
+1. Open the embedded panel at `http://localhost:8000/app/home`.
+2. Send `Use get_list to fetch 1 customer with name`.
+3. Expected: tool card shows `Returned in <100>ms · <N> B` with a result
+   preview. Backend curl, in-process smoke, AND the panel UI all work.
+
+Evidence: `lazychat-mcp-erpnext/test/evidence/05-chat-ui-tool-call-success-21ms.png`.
+
 ## Where to go next
 
 When user opens a new task in this repo:
@@ -284,6 +435,8 @@ When user opens a new task in this repo:
 | Lazychat Settings doctype | Single doctype at `/app/lazychat-settings` (System Manager edit) — 8 fields: enabled, iframe_base_url, iframe_query_params, chat_path (auto/browser/backend), mcp_endpoint, legacy_widget_enabled, allow_email, allow_dangerous_tools. Replaces site_config flag scattering; site_config still wins as advanced override. boot.py `get_lazychat_settings()` is the unified resolver. T60–T64 cover defaults, boot-extension shape, fallback behavior, validation, save_conversation. | **DONE** (commit 55b432f) |
 | Browser-LLM path with tools | chat-ui (lazychat.ai repo) gained a JSONRPC MCP client — `mcp-client.ts` fetches tool defs from our wire endpoint and `agent.ts:runChatWithMcp` runs a **streaming** tool-use loop (`_streamToolTurn`) with the user's BYO LLM — text deltas stream in real time, tool_use blocks accumulate silently, `> _Got results, thinking…_` separator posted between rounds. `mcp-client.ts:mcpResultToText` caps tool results at **12,000 chars** to prevent context overflow. Empty final text and max-turns (8) both raise `cb.onError()` (not silent `cb.onDone()`). agentRunner does 3-way routing based on `chatPath` setting AND active model. See [lazychat.ai/CLAUDE.md](../lazychat.ai/CLAUDE.md) for the chat-ui side. | **DONE** (lazychat.ai db300ce + streaming update 2026-05-05; chat-ui dist bundled here) |
 | save_conversation endpoint | `/api/method/lazychat_mcp_erpnext.desk_assistant.api.save_conversation` — chat-ui pushes turns from the browser-LLM path to `Claude Conversation` so admins have one unified history regardless of who orchestrated the LLM. T63 covers it. | **DONE** |
+| 2-layer test harness | `test/curl_smoke.py` (HTTP MCP wire, all 65 tools, content-validated) + extended `scripts/smoke-test-tools.py` (in-process, 84 cases). Provisioned by `test/setup_fixtures.py` (idempotent: Note + File + KB + queued Job + resolves real Customer/SO/Item/Chart/Card/Report from existing site data). Per-tool validators in `test/tool_args.py`. See "Smoke test" section above. | **DONE** (2026-05-05) |
+| Chat-ui hang root cause | Three stacked bugs (Connection: keep-alive pool starvation + system-prompt marker conflict + stringified args) — fully diagnosed and fixed end-to-end. Panel went from "stuck at IN forever" with seed-oss-36b to `Returned in 21ms · 56 B`. See "Tool dispatch sits at IN forever" section above. | **DONE** (2026-05-05) |
 | Analytics extras | `analyze_business_data` (pandas-based) heavy analytics | deferred |
 | Visualization mutations | `create_dashboard`, `create_dashboard_chart` specialized creators (vs the generic `prepare_create_doc`) | deferred |
 | Streamable-HTTP MCP upgrade | SSE upgrade + `Mcp-Session-Id` header support for server-initiated notifications + progress | deferred (current sync JSONRPC is sufficient for tool-call clients) |
