@@ -64,5 +64,11 @@ after_migrate = "lazychat_mcp_erpnext.install.run_after_migrate"
 doc_events = {
 	"File": {
 		"on_update": "lazychat_mcp_erpnext.desk_assistant.embeddings.on_file_attach",
-	}
+	},
+	# Tier D — universal doc-update hook for realtime subscriptions. Fires for
+	# every doctype save in the bench but the handler's first line is a single
+	# Redis flag GET — zero cost when no user has subscribed to anything.
+	"*": {
+		"on_update": "lazychat_mcp_erpnext.desk_assistant.realtime_subs.on_doc_update",
+	},
 }
