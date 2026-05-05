@@ -1698,6 +1698,16 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			return {"error": "no permission to cancel this job"}
 		try:
 			job = frappe.get_doc("RQ Job", job_id)
+			# Check terminal status BEFORE attempting cancel. Idempotent:
+			# repeated calls on a finished job shouldn't surface errors.
+			current_status = (getattr(job, "status", "") or "").lower()
+			if current_status in ("finished", "failed", "stopped", "canceled", "cancelled"):
+				return {
+					"ok": True,
+					"job_id": job_id,
+					"status": current_status,
+					"already_terminal": True,
+				}
 			# RQ Job exposes a stop method on Frappe v15+; fall back to status flip
 			# for older versions.
 			if hasattr(job, "stop_job"):
@@ -1708,7 +1718,23 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				return {"error": "this Frappe build doesn't expose RQ Job cancel — use the bench worker controls"}
 			return {"ok": True, "job_id": job_id, "status": getattr(job, "status", "cancelled")}
 		except Exception as e:
-			return {"error": f"cancel failed: {e}"}
+			# rq.exceptions.InvalidJobOperation fires with an empty message when
+			# stop_job / cancel is called on a job that's already terminal (or
+			# whose RQ status hasn't propagated to the doc yet — common when
+			# the SAME caller cancels twice in quick succession). Treat that
+			# specific case as idempotent success.
+			err_name = type(e).__name__
+			if err_name in ("InvalidJobOperation", "NoSuchJobError"):
+				return {
+					"ok": True,
+					"job_id": job_id,
+					"status": (getattr(job, "status", "") or "stopped"),
+					"already_terminal": True,
+					"note": f"{err_name}: treated as idempotent success",
+				}
+			# repr(e) surfaces type+message — str(e) was returning empty for
+			# InvalidJobOperation and similar zero-message rq exceptions.
+			return {"error": f"cancel failed: {err_name}: {e!r}"}
 
 	# Diagnostics — what's running here? Read-only, no gates.
 	if name == "get_system_info":
