@@ -482,13 +482,18 @@ def run():
 	# T53: ping
 	r = mcp_dispatch("ping", {}, req_id=2)
 	record(_ok("T53 MCP ping", r.get("result") == {} and "error" not in r))
-	# T54: tools/list returns all 38 tools with MCP-shaped inputSchema
+	# T54: tools/list returns the full registry with MCP-shaped inputSchema.
+	# We compare against TOOL_SCHEMAS so this stays correct when tools are
+	# added (the count drifted from 38 → 65 silently before this fix).
+	from lazychat_mcp_erpnext.desk_assistant.tool_schemas import TOOL_SCHEMAS as _ALL
 	r = mcp_dispatch("tools/list", {}, req_id=3)
 	tools = (r.get("result") or {}).get("tools") or []
 	first = tools[0] if tools else {}
+	expected = len(_ALL)
 	record(_ok(
-		"T54 MCP tools/list returns 38 tools with inputSchema",
-		len(tools) == 38 and "inputSchema" in first and "name" in first,
+		f"T54 MCP tools/list returns {expected} tools with inputSchema",
+		len(tools) == expected and "inputSchema" in first and "name" in first,
+		f"got {len(tools)}",
 	))
 	# T55: tools/call dispatches to execute_tool — get_list against Customer
 	r = mcp_dispatch("tools/call", {"name": "get_list", "arguments": {"doctype": "Customer", "limit": 2}}, req_id=4)
@@ -652,13 +657,20 @@ def run():
 			status, _ct, body = _read_response(resp)
 			record(_ok("T66 LLM proxy returns 504 on upstream connection error", status == 504 and "Upstream error" in body))
 
-	# T67: forwarded headers omit denylist (host, accept-encoding, cookie); body forwarded as-is
+	# T67: header forwarding security model.
+	#
+	# The proxy DELIBERATELY strips inbound `Authorization` and `X-Frappe-CSRF-Token`
+	# — those are FRAPPE auth/CSRF tokens that have no meaning to the upstream
+	# LLM. The user's actual LLM API key arrives via `x-target-authorization`
+	# and the proxy REWRITES it as `Authorization: ...` before the upstream call
+	# (see llm_proxy.py:239). Same trick for `x-target-api-key`.
 	deny_check_headers = {
 		"Host": "erp.local:8000",
 		"Cookie": "sid=abc",
 		"Accept-Encoding": "gzip, br",
 		"sec-fetch-mode": "cors",
-		"X-Frappe-CSRF-Token": "csrf-xyz",  # non-deny — should be forwarded
+		"X-Frappe-CSRF-Token": "csrf-xyz",       # frappe-internal — must be stripped
+		"x-target-authorization": "Bearer llm-secret-key",  # user's real LLM key
 	}
 	posted_call: dict = {}
 	def _capture_post(url, headers=None, data=None, stream=None, timeout=None):
@@ -678,13 +690,26 @@ def run():
 			# Drain
 			_read_response(resp)
 	hdrs = {k.lower(): v for k, v in (posted_call.get("headers") or {}).items()}
+	t67_checks = {
+		"body_passthrough":   posted_call.get("data") == b'{"hi":"world"}',
+		"strip_host":         "host" not in hdrs,
+		"strip_cookie":       "cookie" not in hdrs,
+		"strip_accept_encoding": "accept-encoding" not in hdrs,
+		"strip_sec_fetch":    not any(k.startswith("sec-fetch-") for k in hdrs),
+		"strip_frappe_csrf":  "x-frappe-csrf-token" not in hdrs,            # frappe-internal
+		"strip_frappe_auth":  hdrs.get("authorization") != "Bearer secret-key",  # the FRAPPE auth header (Bearer secret-key) must not pass through
+		"rewrite_target_auth": hdrs.get("authorization") == "Bearer llm-secret-key",  # x-target-authorization → Authorization
+		"strip_x_target_url": "x-target-url" not in hdrs,                   # never forward the proxy hint
+	}
+	t67_pass = all(t67_checks.values())
+	if not t67_pass:
+		failed = [k for k, v in t67_checks.items() if not v]
+		print(f"[DEBUG-T67] failed checks: {failed}")
+		print(f"[DEBUG-T67] forwarded headers: {hdrs}")
+		print(f"[DEBUG-T67] forwarded body: {posted_call.get('data')!r}")
 	record(_ok(
-		"T67 LLM proxy forwards body + Authorization + CSRF, strips host/cookie/accept-encoding/sec-fetch-*",
-		posted_call.get("data") == b'{"hi":"world"}'
-		and "host" not in hdrs and "cookie" not in hdrs and "accept-encoding" not in hdrs
-		and not any(k.startswith("sec-fetch-") for k in hdrs)
-		and hdrs.get("authorization") == "Bearer secret-key"
-		and hdrs.get("x-frappe-csrf-token") == "csrf-xyz",
+		"T67 LLM proxy strips frappe-internal headers, rewrites x-target-authorization to Authorization upstream",
+		t67_pass,
 	))
 
 	# T68: upstream Content-Type preserved
@@ -702,6 +727,82 @@ def run():
 	record(_ok(
 		"T68 LLM proxy preserves upstream Content-Type (text/event-stream)",
 		status == 200 and ct == "text/event-stream" and "event: ok" in body,
+	))
+
+	# T69–T71: tools added after the original 38 (covered by Layer 1 curl_smoke,
+	# now mirrored in-process so an isolated bench run also exercises them).
+	# T69: list_attachments — DocType doctype always exists; expect ok with
+	# count >= 0 (likely 0 since DocType rows don't accumulate attachments).
+	# Impl returns {"ok": True, "files": [...], "count": N}.
+	r = execute_tool("list_attachments", {"doctype": "DocType", "name": "DocType"})
+	record(_ok(
+		"T69 list_attachments DocType",
+		r.get("ok") is True and isinstance(r.get("files"), list),
+		f"count={r.get('count')}",
+	))
+
+	# T70: get_file_url — non-existent path. Impl returns {"error": "file
+	# not found: ..."} (no ok key) — proves the resolver runs gracefully
+	# instead of raising.
+	r = execute_tool("get_file_url", {"file": "/files/__lazychat_smoke_no_such.txt"})
+	record(_ok(
+		"T70 get_file_url graceful miss",
+		"error" in r and "not found" in r["error"].lower(),
+		r.get("error", "")[:60],
+	))
+
+	# T71: make_chart — Vega-Lite v5 spec validator. Spec must round-trip
+	# unchanged with a title attached.
+	spec = {
+		"$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+		"data": {"values": [{"a": 1, "b": 2}, {"a": 3, "b": 4}]},
+		"mark": "bar",
+		"encoding": {
+			"x": {"field": "a", "type": "ordinal"},
+			"y": {"field": "b", "type": "quantitative"},
+		},
+	}
+	r = execute_tool("make_chart", {"spec": spec, "title": "smoke"})
+	record(_ok(
+		"T71 make_chart returns valid spec",
+		r.get("ok") is True and r.get("spec", {}).get("$schema") == spec["$schema"]
+		and r.get("title") == "smoke",
+		f"mark={r.get('spec', {}).get('mark')}",
+	))
+
+	# T72: make_chart rejects a spec with NO Vega-Lite shape keys at all.
+	# (Validator passes if any of $schema/mark/layer/hconcat/vconcat/facet/repeat
+	# is present, so a spec with just `data` should fail.)
+	r = execute_tool("make_chart", {"spec": {"data": {"values": []}}})
+	record(_ok(
+		"T72 make_chart rejects spec missing Vega-Lite keys",
+		"error" in r and "vega-lite" in r["error"].lower(),
+		r.get("error", "")[:60],
+	))
+
+	# T73: cancel_job is idempotent — calling it twice on the same job (where
+	# the second call hits a now-terminal state) must NOT surface an empty
+	# 'cancel failed:' error. Regression for the rq.exceptions.InvalidJobOperation
+	# empty-message bug fixed in tools.py.
+	from frappe.utils.background_jobs import enqueue
+	t73_job = enqueue("frappe.utils.sleep", seconds=30, queue="short", timeout=60,
+	                   job_name="_lazychat_smoke_t73", now=False)
+	t73_id = getattr(t73_job, "id", None) or str(t73_job)
+	r1 = execute_tool("cancel_job", {"job_id": t73_id})
+	r2 = execute_tool("cancel_job", {"job_id": t73_id})  # idempotent
+	record(_ok(
+		"T73 cancel_job first call ok",
+		r1.get("ok") is True,
+		f"status={r1.get('status')}",
+	))
+	# Idempotency contract: a second call must not surface 'cancel failed:' or
+	# any other error to the caller. Whether RQ has propagated the terminal
+	# status to the in-memory job doc by the time we re-load is unrelated to
+	# the contract — what matters is no exception leaks out.
+	record(_ok(
+		"T74 cancel_job second call idempotent on terminal job",
+		r2.get("ok") is True and "error" not in r2,
+		f"status={r2.get('status')} already_terminal={r2.get('already_terminal')}",
 	))
 
 	# Cleanup
