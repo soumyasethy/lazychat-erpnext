@@ -1718,22 +1718,26 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				return {"error": "this Frappe build doesn't expose RQ Job cancel — use the bench worker controls"}
 			return {"ok": True, "job_id": job_id, "status": getattr(job, "status", "cancelled")}
 		except Exception as e:
-			# rq.exceptions.InvalidJobOperation fires with an empty message when
-			# stop_job / cancel is called on a job that's already terminal (or
-			# whose RQ status hasn't propagated to the doc yet — common when
-			# the SAME caller cancels twice in quick succession). Treat that
-			# specific case as idempotent success.
+			# Three exception classes mean the same thing — "the job is gone /
+			# already terminal":
+			#   - rq.exceptions.InvalidJobOperation: stop_job() on a terminal job
+			#   - rq.exceptions.NoSuchJobError:      RQ purged the Redis entry
+			#   - frappe.exceptions.DoesNotExistError: Frappe's RQ Job doc was
+			#     cleaned up (typical when finished_jobs_ttl elapses, ~60s after
+			#     a job completes)
+			# All three should be treated as idempotent success — the caller's
+			# intent (cancel) is satisfied because the job is no longer running.
 			err_name = type(e).__name__
-			if err_name in ("InvalidJobOperation", "NoSuchJobError"):
+			if err_name in ("InvalidJobOperation", "NoSuchJobError", "DoesNotExistError"):
 				return {
 					"ok": True,
 					"job_id": job_id,
-					"status": (getattr(job, "status", "") or "stopped"),
+					"status": "gone",
 					"already_terminal": True,
 					"note": f"{err_name}: treated as idempotent success",
 				}
 			# repr(e) surfaces type+message — str(e) was returning empty for
-			# InvalidJobOperation and similar zero-message rq exceptions.
+			# zero-message rq exceptions.
 			return {"error": f"cancel failed: {err_name}: {e!r}"}
 
 	# Diagnostics — what's running here? Read-only, no gates.
