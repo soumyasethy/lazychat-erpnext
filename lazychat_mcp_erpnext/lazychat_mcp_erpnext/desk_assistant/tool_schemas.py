@@ -512,6 +512,48 @@ TOOL_SCHEMAS = [
 		},
 	},
 	{
+		"name": "prepare_upload_file",
+		"description": (
+			"STAGE attaching a NEW file to a document. The chat-ui detects the response and "
+			"renders an Upload button — the user clicks, picks a file, and the chat-ui "
+			"automatically uploads + commits the attachment. Returns {preview_token, "
+			"file_picker: true, accept, target_doctype, target_name, summary, confirm_with}. "
+			"Permission: Write on the target doc. Use when the user asks 'attach this file to X' "
+			"and they need to pick a file from their machine. To attach an EXISTING File doctype "
+			"row, use prepare_add_file_to_kb (for KBs) or prepare_update_doc."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"target_doctype": {"type": "string"},
+				"target_name": {"type": "string"},
+				"accept": {"type": "string", "description": "Optional MIME or extension filter, e.g. 'application/pdf' or '.csv,.xlsx'."},
+			},
+			"required": ["target_doctype", "target_name"],
+		},
+	},
+	{
+		"name": "prepare_import_csv",
+		"description": (
+			"STAGE bulk-importing rows into a doctype from a CSV file via Frappe's "
+			"Data Import. Gated identically to prepare_run_sql / prepare_run_python "
+			"(requires allow_dangerous_tools site flag + System Manager role + /commit). "
+			"On commit, creates a Data Import doctype row pointing at the CSV and calls "
+			"start_import() — actual row inserts happen async in the background queue, "
+			"watch via list_my_jobs. The CSV must already be uploaded as a File "
+			"(use prepare_upload_file or list_attachments to find one)."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"doctype": {"type": "string", "description": "Target doctype to insert/update rows into."},
+				"csv_file_url": {"type": "string", "description": "/files/... or /private/files/... — must already exist as a File doctype row."},
+				"import_type": {"type": "string", "enum": ["Insert New Records", "Update Existing Records"], "default": "Insert New Records"},
+			},
+			"required": ["doctype", "csv_file_url"],
+		},
+	},
+	{
 		"name": "list_attachments",
 		"description": (
 			"List the File doctype rows attached to a parent document. Returns rows with "

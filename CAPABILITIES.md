@@ -6,7 +6,7 @@ A reference for what the agent can do **today**, what's **shipping next**, and w
 
 ## TL;DR — current state
 
-- **60 permission-scoped tools** (read, write, workflow, analytics, reports, files **+ list/resolve attachments**, ERPNext domain, gated power tools, skills, knowledge base + vector embeddings + hybrid retrieval + chat-ui management + citations, system diagnostics, admin, audit trail, file exports (CSV / PDF), background-job control, inline charts (Vega-Lite))
+- **62 permission-scoped tools** (read, write, workflow, analytics, reports, files + list/resolve attachments + **chat-side upload**, ERPNext domain, gated power tools + **bulk CSV import**, skills, knowledge base + vector embeddings + hybrid retrieval + chat-ui management + citations, system diagnostics, admin, audit trail, file exports (CSV / PDF) + **interactive field picker**, background-job control, inline charts (Vega-Lite))
 - **2 chat paths** — Browser-LLM (BYO key in browser) or Backend-LLM (shared key in `LLM Provider` doctype)
 - **Multi-provider LLM** — Anthropic native + any OpenAI-compatible endpoint (OpenAI, NVIDIA, OpenRouter, LM Studio, Groq, Together, Vercel AI Gateway, …)
 - **Two-phase mutations** — `prepare_*` → `/commit TOKEN` so the LLM can never silently mutate
@@ -140,6 +140,26 @@ Tools: `list_knowledge_bases`, `get_kb_files`, `search_kb`. Search is **keyword 
 
 These were missing — the agent used to say "I don't have access to system-level info" because no tool exposed it. Now it does.
 
+### Upload files from chat (Tier B-upload)
+
+> *"Attach an updated contract PDF to PO-2026-00042."*
+> *"Add this approval letter to the issue."*
+
+The agent calls `prepare_upload_file(target_doctype, target_name, accept?)`, which stages an attach action and tells the user to type `/upload TOKEN`. The panel shim intercepts that slash command, opens a native file picker, uploads via `/api/method/upload_file`, and finishes the attach in one step. The user sees: *Opening picker → Uploading 245 KB → Attached → [PO-2026-00042](/app/purchase-order/PO-2026-00042)*.
+
+### Smart CSV export with field picker (Tier G)
+
+> *"Export the Item master to CSV — let me pick the columns."*
+> *"CSV of all open Sales Orders."*
+
+When you call `export_list_to_csv` without specifying `fields`, the agent gets back a field-picker preview. The chat-ui renders an **inline checkbox card** with every doctype field (default-checked per the doctype's `in_list_view` flags), a search filter, "All / None / Defaults" presets, and a row-count estimate based on the active filters. Click **Generate CSV** → the chat-ui POSTs the selection to `commit_prepared_action` → backend writes the actual CSV to `/private/files/` → file appears as a clickable download button right under the picker. **No more 30-column dump CSVs you didn't want.**
+
+### Bulk CSV import (Tier C-import, gated)
+
+> *"Import this customer CSV — file_url=/files/customers-2026-q4.csv."*
+
+The agent calls `prepare_import_csv(doctype, csv_file_url, import_type?)`. Gated identically to `prepare_run_sql` / `prepare_run_python` (System Manager + `allow_dangerous_tools` + `/commit`). On commit, a Frappe `Data Import` doctype row is created and `start_import()` is called — the actual row inserts happen async in the background queue. Watch progress via `list_my_jobs`.
+
 ### Inline charts
 
 > *"Plot last 6 months sales by month."*
@@ -185,10 +205,10 @@ Open the `/` command palette (or Cmd+K). The **Skills** section lists everything
 | **Workflow** | `list_workflow_actions`, `get_pending_approvals` | 2 |
 | **Analytics** | `aggregate`, `get_sales_summary`, `dashboard_chart_data`, `number_card_value`, `list_user_dashboards` | 5 |
 | **Reports** | `list_reports`, `report_requirements`, `run_report` | 3 |
-| **Files** | `extract_file_content`, `list_attachments`, `get_file_url` | 3 |
+| **Files** | `extract_file_content`, `list_attachments`, `get_file_url`, `prepare_upload_file` | 4 |
 | **ERPNext domain** | `get_stock_balance`, `get_account_balance`, `get_outstanding`, `get_open_invoices`, `get_item_price`, `get_company_defaults` | 6 |
 | **Mutations / Comms** *(two-phase, `/commit` required)* | `prepare_create_doc`, `prepare_update_doc`, `prepare_submit_doc`, `prepare_delete_doc`, `prepare_workflow_action`, `prepare_add_comment`, `prepare_assign_to`, `prepare_send_email`, `prepare_share_doc` | 9 |
-| **Power tools** *(gated + two-phase)* | `prepare_run_sql`, `prepare_run_python` | 2 |
+| **Power tools** *(gated + two-phase)* | `prepare_run_sql`, `prepare_run_python`, `prepare_import_csv` | 3 |
 | **Skills** *(meta — configure the agent itself)* | `list_skills`, `activate_skill`, `deactivate_skill` | 3 |
 | **Knowledge Base** | `list_knowledge_bases`, `get_kb_files`, `search_kb` | 3 |
 | **System diagnostics** | `get_system_info`, `get_user_info` | 2 |
@@ -199,7 +219,7 @@ Open the `/` command palette (or Cmd+K). The **Skills** section lists everything
 | **KB management** *(write)* | `prepare_create_kb`, `prepare_add_file_to_kb` | 2 |
 | **Charts** *(inline Vega-Lite)* | `make_chart` | 1 |
 | **KB indexing** *(reindex existing files)* | `reindex_kb` | 1 |
-| **Total** | | **60** |
+| **Total** | | **62** |
 
 Every tool runs as `frappe.session.user`. `frappe.has_permission(...)` is checked **before** any DB access. There is no god-mode bypass.
 
@@ -256,6 +276,9 @@ Coverage map for the standard admin/dev surface in Frappe + ERPNext. Most items 
 | **H3 — KB chat-ui palette + citations** | ✅ shipped | New `Lazychat Knowledge Bases` section in `/` palette (mirrors Skills). Inline `+ Create knowledge base` form chains `prepare_create_kb` + commit in one round-trip. Each KB row has an ↗ button that navigates the parent ERPNext window (Tier A) to the KB doc so you can drop files into the standard Attachments sidebar. New `prepare_add_file_to_kb` tool re-attaches an existing File doctype row to a KB. Both system prompts teach the citation format: `[<file_name>](<file_url>)` with verbatim quotes. |
 | **F — Inline charts (Vega-Lite)** | ✅ shipped | New `make_chart(spec, title?)` tool validates a Vega-Lite v5 spec and echoes it. New `'chart'` ContentKind in `contentDetector.ts` (detects via `$schema` URL or shape keys after JSON.parse). New `ChartBlock` component with `React.lazy` + `<Suspense>` — the ~500 KB `react-vega` + `vega-lite` bundle only fetches the first time a chart appears in the chat. Both system prompts teach the agent to: (a) call data tool first, (b) optionally call `make_chart` for tool-card visibility, (c) emit `[[lazychat:artifact kind="chart"]]<spec>[[/lazychat:artifact]]` with inline `data.values`, (d) caption in prose afterward. |
 | **H2 — KB vector embeddings + hybrid retrieval** | ✅ shipped | New `Lazychat KB Chunk` doctype (parent_kb, file_doc, chunk_index, text, content_hash, embedding_model, embedding_blob — base64 little-endian float32). New `embeddings.py` module: paragraph-aware chunker (~500 tokens with 50-token overlap), provider lookup mirroring chat path, batched `/v1/embeddings` POST, hybrid retrieval (cosine top-20 + keyword top-20, RRF-fused to top-5). New File doctype `on_update` hook auto-indexes attachments on Lazychat Knowledge Base via `frappe.enqueue`. Content-hash dedupe makes re-indexing idempotent. New `reindex_kb(kb_name)` tool for first-time setup of existing KBs. `search_kb` now delegates to `hybrid_search` when chunks exist, falls back to keyword paragraph match otherwise. `get_kb_files` extended with `embedding_status` (`indexed | partial | keyword_only | pending`) + `chunk_count` per file. |
+| **B-upload — Chat-side file picker** | ✅ shipped | New `prepare_upload_file(target_doctype, target_name, accept?)` two-phase tool. Returns `{file_picker: true, accept, confirm_with: "/upload TOKEN"}` so the agent narrates the next step. Panel shim's new `/upload TOKEN` slash command opens a native `<input type=file>`, POSTs to Frappe's `/api/method/upload_file`, then calls `commit_prepared_action(token, file_url)` — the new commit handler `attach_file` re-points the freshly-uploaded File row to the target doc. `commit_prepared` signature extended to accept `**extras` so future commit actions can pass runtime params. |
+| **C-import — Bulk CSV import** | ✅ shipped | New `prepare_import_csv(doctype, csv_file_url, import_type?)` gated tool (allow_dangerous_tools + System Manager + /commit). Commit handler creates a `Data Import` doctype row and calls `start_import()` — actual row inserts happen async; watch via `list_my_jobs`. |
+| **G — Interactive field picker for CSV export** | ✅ shipped | `export_list_to_csv` extended: when called with no `fields` arg, returns a field-picker preview with a `preview_token` + every doctype field annotated with `default_selected` from `in_list_view`, plus a `row_count_estimate` based on the active filters. New `mcpFieldPicker` Message kind on the type union; new `FieldPickerCard.tsx` renders a scrollable checkbox UI with search + All/None/Defaults presets + row count + Generate button. On Generate, the card calls `commit_prepared_action({token, fields: [...]})` directly — the new `export_csv` commit action runs the actual export and returns `{file_url, row_count}` which the card surfaces as a clickable download button. |
 
 ---
 
@@ -272,17 +295,17 @@ Each tier is independently shippable; the user can stop at any cutpoint.
 | `list_attachments(doctype, name)` | ✅ shipped | All `File` doctype rows linked to a parent doc, with absolute URLs ready to cite |
 | `get_file_url(file)` | ✅ shipped | Resolve a File (by name or relative URL) to its public/private absolute URL via `frappe.utils.get_url`, permission-checked through the parent doc |
 | `export_doc_pdf(doctype, name, print_format?)` | ✅ shipped | Renders a doc via Print Format → PDF, returns clickable URL (covers the original "get_download_url" use case) |
-| `prepare_upload_file(target_doctype, target_name, accept?)` | ⏭️ deferred | Two-phase upload via chat-ui file picker — needs new postMessage protocol (`requestUpload`/`uploadComplete` envelopes) + `<input type=file>` integration in the panel shim. Workaround today: user uploads via standard Frappe attachments sidebar, then asks the agent to wire it up via `prepare_add_file_to_kb` or `prepare_update_doc`. |
+| `prepare_upload_file(target_doctype, target_name, accept?)` | ✅ shipped | Two-phase via the panel shim's `/upload TOKEN` slash command: opens native file picker → POSTs to Frappe's `/api/method/upload_file` → commits the staged attach with the new file_url. No new postMessage protocol needed — handled entirely as a slash command. |
 
-### Tier C — Export & Import (~3 days)
+### Tier C — Export & Import (✅ all shipped)
 
 > "Export all open Sales Orders to CSV." • "Generate a PDF of SI-007." • "Import this CSV as new Items."
 
-| New tool | What it does |
-|---|---|
-| `export_list_to_csv(doctype, filters, fields, limit?)` | CSV up to 5000 rows; returns clickable download URL |
-| `export_doc_pdf(doctype, name, print_format?)` | Renders Frappe print format, returns PDF URL |
-| `prepare_import_csv(doctype, csv_url, mapping?)` | Bulk insert via Frappe Data Import (gated + `/commit`) |
+| Tool | Status | What it does |
+|---|---|---|
+| `export_list_to_csv(doctype, filters?, fields?, limit?)` | ✅ shipped | CSV up to 5000 rows; returns clickable download URL. With no `fields` → returns a field-picker preview (Tier G UI) instead of immediately writing. |
+| `export_doc_pdf(doctype, name, print_format?)` | ✅ shipped | Renders Frappe print format → PDF, returns clickable URL |
+| `prepare_import_csv(doctype, csv_file_url, import_type?)` | ✅ shipped | Bulk insert/update via Frappe Data Import. Gated (allow_dangerous_tools + System Manager + `/commit`). On commit, creates Data Import row + calls `start_import()`; rows inserted async via background queue. |
 
 ### Tier D — Async / Scheduled / Realtime (~2 weeks, splittable)
 
@@ -340,17 +363,17 @@ Renderer: extend the existing `[[lazychat:artifact]]` marker support so `kind="c
 - `prepare_create_kb` and `prepare_add_file_to_kb` two-phase tools so the agent can offer to spin up a new KB from the chat.
 - Citation rendering: when the agent quotes from a `search_kb` result, render the source as a clickable Tier-A markdown link (`[hr-handbook.pdf #page-12](/files/...)`).
 
-### Tier G — Smart export UX with field picker (NEW, your specific ask)
+### Tier G — Smart export UX with field picker (✅ shipped)
 
-You said: *"I want to article master export and fields name selection which fields we want export … smooth and csv file download option like Claude and ChatGPT do."*
+Your original ask: *"I want to article master export and fields name selection which fields we want export … smooth and csv file download option like Claude and ChatGPT do."*
 
-UX:
+Shipped UX:
 1. You: *"Export the Item master to CSV."*
-2. Agent calls `export_list_to_csv` with no `fields` → tool returns a **field-picker preview** (preview_token + the doctype's fields with checkboxes pre-selected for `name`, `item_code`, `item_name`, `item_group`, `stock_uom`).
-3. Chat-ui renders an inline **Field Picker card** (new `mcpFieldPicker` message kind): scrollable list with checkboxes, search box, "select all / none", row-count estimate.
-4. You toggle checkboxes, click **Generate CSV** → chat-ui posts `/commit TOKEN fields=[...]` → backend runs the actual export → returns clickable `[items-2026-05-05.csv](/files/lazychat-exports/<uuid>.csv)` download link (Tier A interceptor opens it in a new tab).
+2. Agent calls `export_list_to_csv(doctype="Item")` with no `fields` → tool stages a token + returns the field-picker preview.
+3. Chat-ui renders the new `<FieldPickerCard>` inline: scrollable checkbox list with every Item field, default-checked per `in_list_view`, search filter (live), All / None / Defaults presets, row-count estimate.
+4. You tick checkboxes → click **Generate CSV (N)** → card POSTs `commit_prepared_action({token, fields: [...]})` → backend writes the actual CSV → card flips to a "CSV ready · X rows · Y fields" state with a clickable download button.
 
-Reuses the existing two-phase pattern; the new piece is the **field-picker rendering component**.
+Reused the existing two-phase pattern + the same `commit_prepared_action` endpoint extended with a `fields` extra. New component lives at [FieldPickerCard.tsx](/Users/<you>/Desktop/code-chat/lazychat.ai/apps/chat-ui/src/components/messages/FieldPickerCard.tsx).
 
 ### Larger context handling (continuous improvement)
 

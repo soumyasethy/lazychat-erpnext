@@ -268,11 +268,86 @@
 		return lastUser ? String(lastUser.content || "") : "";
 	}
 
+	/* ------------------------------------------------------------------
+	 * Tier B-upload — /upload TOKEN slash command. Opens a native file picker,
+	 * uploads to /api/method/upload_file, then commits the staged attach_file
+	 * action with the new file_url. Skips the LLM entirely (same pattern as
+	 * /commit). User aborts the picker → no-op, prompt them to pick again.
+	 * ------------------------------------------------------------------ */
+	function runUploadCommand(token, emit) {
+		emit.chunk("Opening file picker for token `" + token + "` …\n\n");
+		const input = document.createElement("input");
+		input.type = "file";
+		// `accept` from the staged token would require a server roundtrip just
+		// for the filter; v1 accepts everything and lets the user pick. The
+		// agent surfaces the accept hint in its narration so the user knows
+		// what to pick.
+		input.style.display = "none";
+		document.body.appendChild(input);
+		input.addEventListener("change", function () {
+			const file = input.files && input.files[0];
+			document.body.removeChild(input);
+			if (!file) {
+				emit.chunk("_No file selected — aborted._");
+				emit.done("stop");
+				return;
+			}
+			emit.chunk("Uploading " + file.name + " (" + Math.round(file.size / 1024) + " KB) …\n\n");
+			const fd = new FormData();
+			fd.append("file", file);
+			fd.append("is_private", "1");
+			fd.append("optimize", "0");
+			fetch("/api/method/upload_file", {
+				method: "POST",
+				credentials: "include",
+				headers: { "X-Frappe-CSRF-Token": csrf() },
+				body: fd,
+			})
+				.then(function (r) { return r.json(); })
+				.then(function (j) {
+					const uploaded = (j && j.message) || {};
+					const fileUrl = uploaded.file_url;
+					if (!fileUrl) {
+						throw new Error("upload_file returned no file_url: " + JSON.stringify(uploaded));
+					}
+					emit.chunk("Uploaded → " + fileUrl + ". Attaching …\n\n");
+					return fetch("/api/method/lazychat_mcp_erpnext.desk_assistant.api.commit_prepared_action", {
+						method: "POST",
+						credentials: "include",
+						headers: {
+							"Content-Type": "application/json",
+							"X-Frappe-CSRF-Token": csrf(),
+						},
+						body: JSON.stringify({ token: token, file_url: fileUrl }),
+					});
+				})
+				.then(function (r) { return r.json(); })
+				.then(function (j) {
+					const m = (j && j.message) || {};
+					if (m.ok) {
+						const link = m.link ? "[" + m.doctype + "/" + m.name + "](" + m.link + ")" : (m.doctype + "/" + m.name);
+						emit.chunk("**Attached** — file linked to " + link + "\n");
+					} else {
+						emit.chunk("**Failed** — " + (m.error || "Unknown error") + "\n");
+					}
+					emit.done("stop");
+				})
+				.catch(function (err) { emit.error(String(err && err.message ? err.message : err), true); });
+		}, { once: true });
+		// Trigger the OS picker
+		input.click();
+	}
+
 	function runAgentTurn(req, emit, getConvoId, setConvoId) {
 		const userText = lastUserText(req.messages);
 		const commitMatch = /^\s*\/commit\s+(\S+)\s*$/.exec(userText);
 		if (commitMatch) {
 			runCommitCommand(commitMatch[1], emit);
+			return;
+		}
+		const uploadMatch = /^\s*\/upload\s+(\S+)\s*$/.exec(userText);
+		if (uploadMatch) {
+			runUploadCommand(uploadMatch[1], emit);
 			return;
 		}
 		const message = (req.messages || [])
@@ -505,7 +580,7 @@
 
 		const iframeSrc = settings.iframeSrc;
 		const iframeOrigin = originOf(iframeSrc);
-		const { iframe, close } = buildPanel(iframeSrc);
+		const { panel, iframe, close } = buildPanel(iframeSrc);
 
 		const bridge = makeBridge(iframe, iframeOrigin);
 
@@ -513,6 +588,14 @@
 		 * its own X button. Forward that to the outer panel so we don't need a
 		 * second close button in our header. */
 		bridge.on("closed", () => close());
+
+		/* Maximize toggle: chat-ui emits maximizeChanged when the user clicks the
+		 * Maximize2 icon in SidebarChrome. We stretch #lazychat-panel to full
+		 * viewport width via a CSS class; the class also hides the resize handle.
+		 * Restoring drops back to the saved width set by the drag handle. */
+		bridge.on("maximizeChanged", (payload) => {
+			panel.classList.toggle("lazychat-maximized", !!(payload && payload.maximized));
+		});
 
 		const sidToConvo = readSidMap();
 		const getConvoId = (sid) => sidToConvo[sid] || null;
