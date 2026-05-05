@@ -512,6 +512,28 @@ TOOL_SCHEMAS = [
 		},
 	},
 	{
+		"name": "make_chart",
+		"description": (
+			"Validate a Vega-Lite v5 chart spec and echo it back. Use this BEFORE emitting "
+			"`[[lazychat:artifact kind=\"chart\"]]<spec>[[/lazychat:artifact]]` in your reply "
+			"so the chart shows up as a tool-call card in the history. Spec must include `$schema` "
+			"and at least one of `mark`/`layer`/`hconcat`/`vconcat`/`facet`/`repeat`. Inline the "
+			"data via `data.values: [...]` (NOT a URL) — the chat-ui renders entirely client-side. "
+			"Keep specs under 150 rows; for larger datasets, call `aggregate` first."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"spec": {
+					"type": "object",
+					"description": "Vega-Lite v5 spec object. Required keys: $schema (https://vega.github.io/schema/vega-lite/v5.json), data.values, mark, encoding.",
+				},
+				"title": {"type": "string", "description": "Optional chart title shown in the tool-call card."},
+			},
+			"required": ["spec"],
+		},
+	},
+	{
 		"name": "get_audit_trail",
 		"description": (
 			"Aggregate every 'who-changed-what-when' event for a single document into one timeline: "

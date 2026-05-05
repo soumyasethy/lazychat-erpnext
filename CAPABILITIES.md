@@ -6,7 +6,7 @@ A reference for what the agent can do **today**, what's **shipping next**, and w
 
 ## TL;DR — current state
 
-- **56 permission-scoped tools** (read, write, workflow, analytics, reports, files, ERPNext domain, gated power tools, skills, knowledge base **+ chat-ui management + citations**, system diagnostics, admin, audit trail, file exports (CSV / PDF), background-job control)
+- **57 permission-scoped tools** (read, write, workflow, analytics, reports, files, ERPNext domain, gated power tools, skills, knowledge base + chat-ui management + citations, system diagnostics, admin, audit trail, file exports (CSV / PDF), background-job control, **inline charts (Vega-Lite)**)
 - **2 chat paths** — Browser-LLM (BYO key in browser) or Backend-LLM (shared key in `LLM Provider` doctype)
 - **Multi-provider LLM** — Anthropic native + any OpenAI-compatible endpoint (OpenAI, NVIDIA, OpenRouter, LM Studio, Groq, Together, Vercel AI Gateway, …)
 - **Two-phase mutations** — `prepare_*` → `/commit TOKEN` so the LLM can never silently mutate
@@ -127,6 +127,16 @@ Tools: `list_knowledge_bases`, `get_kb_files`, `search_kb`. Search is **keyword 
 
 These were missing — the agent used to say "I don't have access to system-level info" because no tool exposed it. Now it does.
 
+### Inline charts
+
+> *"Plot last 6 months sales by month."*
+> *"Bar chart of open SO count per customer, top 10."*
+> *"Show me a pie of items by item_group."*
+
+The agent calls `aggregate` (or `dashboard_chart_data` / `get_list` / `run_report`) to fetch real numbers, optionally calls `make_chart(spec)` for tool-card visibility, then emits `[[lazychat:artifact kind="chart"]]<vega-lite-v5-json>[[/lazychat:artifact]]` in its reply. The chat-ui detects the spec, lazy-loads `react-vega` (first-chart only — subsequent charts reuse the cached chunk), and renders an interactive Vega-Lite chart inline. Theme follows your Desk light/dark setting.
+
+Specs are capped at 150 rows; for larger datasets the agent rolls up via `aggregate` first. No external network calls — `data.values` is inlined into the spec.
+
 ### Voice
 
 Click the mic icon in the input bar. Permission prompt appears once. Speak; the transcript streams into the input bar live. Click the mic again to stop. **You review and edit the text, then press Enter to send.** Works in Chrome, Edge, Safari (Firefox doesn't ship the Web Speech API yet).
@@ -174,7 +184,8 @@ Open the `/` command palette (or Cmd+K). The **Skills** section lists everything
 | **File exports** | `export_list_to_csv`, `export_doc_pdf` | 2 |
 | **Background jobs** | `list_my_jobs`, `cancel_job` | 2 |
 | **KB management** *(write)* | `prepare_create_kb`, `prepare_add_file_to_kb` | 2 |
-| **Total** | | **56** |
+| **Charts** *(inline Vega-Lite)* | `make_chart` | 1 |
+| **Total** | | **57** |
 
 Every tool runs as `frappe.session.user`. `frappe.has_permission(...)` is checked **before** any DB access. There is no god-mode bypass.
 
@@ -229,6 +240,7 @@ Coverage map for the standard admin/dev surface in Frappe + ERPNext. Most items 
 | **H1 — Knowledge Base (slice 1)** | ✅ shipped | New `Lazychat Knowledge Base` doctype + multi-format extractor (txt/md/csv/json/yaml/pdf/xlsx/docx) + 3 backend tools (`list_knowledge_bases`, `get_kb_files`, `search_kb`). Keyword paragraph search MVP, no embeddings yet. KB creation + file attachment via Desk. |
 | **System diagnostics** | ✅ shipped | `get_system_info` (Frappe + ERPNext + installed apps + site config) and `get_user_info` (current user profile + roles). Agent can now self-introspect. |
 | **H3 — KB chat-ui palette + citations** | ✅ shipped | New `Lazychat Knowledge Bases` section in `/` palette (mirrors Skills). Inline `+ Create knowledge base` form chains `prepare_create_kb` + commit in one round-trip. Each KB row has an ↗ button that navigates the parent ERPNext window (Tier A) to the KB doc so you can drop files into the standard Attachments sidebar. New `prepare_add_file_to_kb` tool re-attaches an existing File doctype row to a KB. Both system prompts teach the citation format: `[<file_name>](<file_url>)` with verbatim quotes. |
+| **F — Inline charts (Vega-Lite)** | ✅ shipped | New `make_chart(spec, title?)` tool validates a Vega-Lite v5 spec and echoes it. New `'chart'` ContentKind in `contentDetector.ts` (detects via `$schema` URL or shape keys after JSON.parse). New `ChartBlock` component with `React.lazy` + `<Suspense>` — the ~500 KB `react-vega` + `vega-lite` bundle only fetches the first time a chart appears in the chat. Both system prompts teach the agent to: (a) call data tool first, (b) optionally call `make_chart` for tool-card visibility, (c) emit `[[lazychat:artifact kind="chart"]]<spec>[[/lazychat:artifact]]` with inline `data.values`, (d) caption in prose afterward. |
 
 ---
 

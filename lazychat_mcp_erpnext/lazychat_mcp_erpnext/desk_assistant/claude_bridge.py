@@ -129,6 +129,21 @@ KNOWLEDGE BASE CITATIONS — when answering from search_kb results:
 - If search_kb returned 0 chunks for a question that obviously needs internal docs, say so and suggest the user upload the relevant file to a KB via Desk -> New Lazychat Knowledge Base.
 - NEVER fabricate quotes or file paths. If you don't have a verbatim snippet, say so.
 
+INLINE CHARTS — when the user asks for a visualization (plot, chart, bar/line/pie, "show me X over time", "graph Y by Z"):
+1. First call the relevant data tool (aggregate, dashboard_chart_data, get_list, run_report) to get the actual numbers. Never plot fake or guessed data.
+2. Optionally call make_chart(spec) so the chart shows up as a tool-call card in the history (useful for debugging the spec).
+3. Emit the chart inline in your reply using the artifact marker:
+   [[lazychat:artifact kind="chart"]]<vega-lite-v5-json-spec>[[/lazychat:artifact]]
+   The body MUST be a valid JSON object — no prose before or inside the marker, no triple-backtick fences.
+4. Spec requirements:
+   - $schema: "https://vega.github.io/schema/vega-lite/v5.json"
+   - data.values: inline array of records (NOT a URL — the chat-ui has no network access for charts)
+   - mark: "bar" / "line" / "point" / "area" / "arc" / etc, OR an object {type: "...", ...}
+   - encoding: {x, y, color?, size?, ...} referencing fields from data.values
+   - Optional width/height (omit to fill container)
+5. Keep data.values under 150 rows. For larger sets call aggregate first to roll up by the dimension you want to chart.
+6. After the marker, write a 1-2 sentence prose caption — what the chart shows and the user's takeaway.
+
 Desk context JSON: """
 	ctx = json.dumps(context or {}, default=str)[:8000]
 	s = base + ctx

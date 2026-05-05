@@ -1212,6 +1212,32 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"confirm_with": f"/commit {token}",
 		}
 
+	# Charts (Tier F) — thin passthrough that validates a Vega-Lite spec and
+	# echoes it back. Purpose: gives the LLM a tool-call so the live mcpTool
+	# card shows "Calling make_chart…" while the chart itself is rendered
+	# inline via the [[lazychat:artifact kind="chart"]]...[[/lazychat:artifact]]
+	# marker the agent also emits in its reply.
+	if name == "make_chart":
+		spec = args.get("spec")
+		title = (args.get("title") or "").strip() or None
+		if isinstance(spec, str):
+			try:
+				spec = json.loads(spec)
+			except Exception as e:
+				return {"error": f"spec must be a JSON object or a JSON-parseable string: {e}"}
+		if not isinstance(spec, dict):
+			return {"error": "spec must be a JSON object"}
+		# Vega-Lite shape check — spec needs at least ONE of: $schema, mark,
+		# layer, hconcat, vconcat, facet, repeat. Cheap reject of obvious
+		# nonsense without pulling in a vega-lite validator.
+		shape_keys = {"$schema", "mark", "layer", "hconcat", "vconcat", "facet", "repeat"}
+		if not any(k in spec for k in shape_keys):
+			return {
+				"error": "spec doesn't look like a Vega-Lite document — needs at least one of: "
+				+ ", ".join(sorted(shape_keys))
+			}
+		return {"ok": True, "spec": spec, "title": title}
+
 	# Audit Trail — one-shot aggregator across the Frappe surfaces that record
 	# "who changed/said what when" for a single doc. Read-only.
 	# Sources: Version (field diffs), Comment (user remarks + workflow events
