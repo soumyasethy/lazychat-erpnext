@@ -125,31 +125,40 @@ def _make_response(generator, *, status: int = 200, mimetype: str | None = None,
 	return resp
 
 
-def trace_legacy_proxy_hit():
-	"""before_request hook: log when the browser hits /llm-proxy on Frappe.
+_PROXY_PATH_API = "/api/method/lazychat_mcp_erpnext.desk_assistant.llm_proxy.handle"
+_PROXY_PATH_LEGACY = "/llm-proxy"
 
-	If this fires, chat-ui is using the dev-only fallback URL — meaning either
-	the embedded llmProxyUrl never reached chat-ui's useEmbedConfig, OR chat-ui
-	is loading a stale bundle that doesn't have the fix. Either way, this log
-	tells us EXACTLY which scenario is happening so we can stop guessing.
+
+def trace_legacy_proxy_hit():
+	"""before_request hook: log every request that hits either proxy path.
+
+	Fires BEFORE Frappe's auth/csrf check, so we capture even rejected requests.
+	If chat-ui keeps failing without a handler-entry log, this tells us why:
+	  - path=/llm-proxy → chat-ui on stale bundle (dev fallback URL)
+	  - path=/api/method/... but no entry log later → Frappe rejected at auth/csrf BEFORE the handler ran
 	"""
 	try:
 		req = frappe.request
 		path = (req.path or "").rstrip("/")
-		if path == "/llm-proxy" or path.endswith("/llm-proxy"):
-			target_url = req.headers.get("x-target-url", "(missing)")[:120]
-			frappe.log_error(
-				message=(
-					f"BROWSER HIT LEGACY /llm-proxy (not /api/method/...llm_proxy.handle)\n"
-					f"path={path}\n"
-					f"method={req.method}\n"
-					f"target_url={target_url}\n"
-					f"user_agent={req.headers.get('user-agent', '?')[:120]}\n"
-					f"referer={req.headers.get('referer', '(none)')[:200]}\n"
-					f"This means chat-ui is on a stale bundle OR llmProxyUrl wasn't propagated."
-				),
-				title="lazychat llm_proxy: legacy /llm-proxy hit",
-			)
+		if path != _PROXY_PATH_LEGACY and not path.endswith(_PROXY_PATH_API.rstrip("/")):
+			return
+		legacy = path == _PROXY_PATH_LEGACY or path.endswith("/llm-proxy")
+		title = "lazychat llm_proxy: legacy /llm-proxy hit" if legacy else "lazychat llm_proxy: api path pre-auth trace"
+		frappe.log_error(
+			message=(
+				f"path={path}\n"
+				f"method={req.method}\n"
+				f"target_url={req.headers.get('x-target-url', '(missing)')[:120]}\n"
+				f"has_authorization={bool(req.headers.get('authorization'))}\n"
+				f"has_x_target_authorization={bool(req.headers.get('x-target-authorization'))}\n"
+				f"has_x_frappe_csrf_token={bool(req.headers.get('x-frappe-csrf-token'))}\n"
+				f"has_cookie_sid={'sid=' in (req.headers.get('cookie') or '')}\n"
+				f"user_agent={req.headers.get('user-agent', '?')[:120]}\n"
+				f"referer={req.headers.get('referer', '(none)')[:200]}\n"
+				f"all_header_keys={sorted({k.lower() for k in req.headers.keys()})}"
+			),
+			title=title,
+		)
 	except Exception:
 		pass
 

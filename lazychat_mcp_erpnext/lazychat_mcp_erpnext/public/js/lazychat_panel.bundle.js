@@ -63,14 +63,13 @@
 		const mode = frappeThemeMode();
 		bridge.send("setTheme", { theme: mode });
 		const c = readFrappeColors();
+		// Only push the brand/accent token — NOT surface colors (bg/fg/border/etc).
+		// Surface tokens are written as inline styles on <html> which override all
+		// [data-theme="dark"] CSS rules, locking the surface to Frappe's current theme
+		// and preventing the user from toggling dark/light inside the iframe.
+		// Surface colors are managed by chat-ui's own CSS theme system instead.
 		const tokens = {};
 		if (c.primary) tokens["--color-primary"] = c.primary;
-		if (c.bg) tokens["--bg-app"] = c.bg;
-		if (c.fg) tokens["--fg-primary"] = c.fg;
-		if (c.border) tokens["--border"] = c.border;
-		if (c.muted) tokens["--fg-muted"] = c.muted;
-		if (c.elevated) tokens["--bg-elevated"] = c.elevated;
-		if (c.input) tokens["--bg-input"] = c.input;
 		if (Object.keys(tokens).length) {
 			bridge.send("setThemeTokens", { tokens: tokens, persist: false });
 		}
@@ -429,21 +428,6 @@
 		const panel = document.createElement("div");
 		panel.id = "lazychat-panel";
 
-		const header = document.createElement("div");
-		header.id = "lazychat-header";
-
-		const title = document.createElement("div");
-		title.id = "lazychat-title";
-		title.textContent = "Assistant";
-
-		const closeBtn = document.createElement("button");
-		closeBtn.id = "lazychat-close";
-		closeBtn.title = "Close";
-		closeBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
-
-		header.appendChild(title);
-		header.appendChild(closeBtn);
-
 		const handle = document.createElement("div");
 		handle.id = "lazychat-resize-handle";
 
@@ -453,7 +437,6 @@
 		iframe.allow = "clipboard-read; clipboard-write";
 
 		panel.appendChild(handle);
-		panel.appendChild(header);
 		panel.appendChild(iframe);
 
 		root.appendChild(fab);
@@ -497,7 +480,6 @@
 			localStorage.setItem(STORAGE_OPEN, "0");
 		};
 		fab.addEventListener("click", open);
-		closeBtn.addEventListener("click", close);
 		if (localStorage.getItem(STORAGE_OPEN) === "1") open();
 
 		return { root, panel, iframe, isOpen, open, close };
@@ -523,9 +505,14 @@
 
 		const iframeSrc = settings.iframeSrc;
 		const iframeOrigin = originOf(iframeSrc);
-		const { iframe } = buildPanel(iframeSrc);
+		const { iframe, close } = buildPanel(iframeSrc);
 
 		const bridge = makeBridge(iframe, iframeOrigin);
+
+		/* The iframe (chat-ui SidebarChrome) emits `closed` when the user clicks
+		 * its own X button. Forward that to the outer panel so we don't need a
+		 * second close button in our header. */
+		bridge.on("closed", () => close());
 
 		const sidToConvo = readSidMap();
 		const getConvoId = (sid) => sidToConvo[sid] || null;

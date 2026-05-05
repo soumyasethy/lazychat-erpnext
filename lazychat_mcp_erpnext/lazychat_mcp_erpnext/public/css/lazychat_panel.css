@@ -72,40 +72,6 @@
 	background: rgba(217, 119, 87, 0.25);
 }
 
-#lazychat-header {
-	flex: 0 0 auto;
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	padding: 8px 12px;
-	border-bottom: 1px solid var(--border-color, #e5e7eb);
-	background: var(--bg-color, #fff);
-	min-height: 40px;
-}
-
-#lazychat-title {
-	font-size: 13px;
-	font-weight: 600;
-	color: var(--text-color, #1f2937);
-}
-
-#lazychat-close {
-	background: transparent;
-	border: 0;
-	color: var(--text-muted, #6b7280);
-	width: 28px;
-	height: 28px;
-	border-radius: 6px;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	cursor: pointer;
-}
-#lazychat-close:hover {
-	background: var(--bg-light-gray, #f3f4f6);
-	color: var(--text-color, #1f2937);
-}
-
 #lazychat-iframe {
 	flex: 1 1 auto;
 	width: 100%;
@@ -120,20 +86,6 @@
 [data-theme-mode="dark"] #lazychat-panel {
 	background: #1c1f24;
 	border-left-color: #2d3138;
-}
-[data-theme="dark"] #lazychat-header,
-[data-theme-mode="dark"] #lazychat-header {
-	background: #1c1f24;
-	border-bottom-color: #2d3138;
-}
-[data-theme="dark"] #lazychat-title,
-[data-theme-mode="dark"] #lazychat-title {
-	color: #e5e7eb;
-}
-[data-theme="dark"] #lazychat-close:hover,
-[data-theme-mode="dark"] #lazychat-close:hover {
-	background: #2d3138;
-	color: #e5e7eb;
 }
 [data-theme="dark"] #lazychat-iframe,
 [data-theme-mode="dark"] #lazychat-iframe {

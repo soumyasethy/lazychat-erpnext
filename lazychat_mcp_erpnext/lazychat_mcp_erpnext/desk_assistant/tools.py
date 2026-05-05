@@ -79,6 +79,24 @@ def _consume_action(token):
 	frappe.cache().delete_value(PREP_KEY + token)
 
 
+def _trim_doc(doc_dict, max_child_rows=25):
+	"""Truncate child-table lists so huge docs don't overflow the LLM context window."""
+	note_parts = []
+	trimmed = {}
+	for k, v in doc_dict.items():
+		if isinstance(v, list) and len(v) > max_child_rows:
+			trimmed[k] = v[:max_child_rows]
+			note_parts.append(f"{k}: showing {max_child_rows} of {len(v)} rows")
+		else:
+			trimmed[k] = v
+	if note_parts:
+		trimmed["_note"] = (
+			"Child tables truncated — " + "; ".join(note_parts)
+			+ ". Use get_list with filters for the full data."
+		)
+	return trimmed
+
+
 def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 	if name == "get_list":
 		dt = args.get("doctype")
@@ -106,7 +124,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			return {"error": "no read permission"}
 		try:
 			doc = frappe.get_doc(dt, dn)
-			return {"ok": True, "doc": doc.as_dict()}
+			return {"ok": True, "doc": _trim_doc(doc.as_dict())}
 		except Exception as e:
 			return {"error": str(e)}
 
