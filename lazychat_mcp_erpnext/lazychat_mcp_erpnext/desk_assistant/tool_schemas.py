@@ -512,6 +512,65 @@ TOOL_SCHEMAS = [
 		},
 	},
 	{
+		"name": "get_system_info",
+		"description": (
+			"Return what's running on this site: Frappe version, ERPNext version (if installed), "
+			"every installed app with its version, site name, country, time zone, language, "
+			"date format, currency, Python version. Use this when the user asks 'what version', "
+			"'what's installed', 'system info', etc."
+		),
+		"input_schema": {"type": "object", "properties": {}},
+	},
+	{
+		"name": "get_user_info",
+		"description": (
+			"Return the calling user's profile: email/id, full name, language, time zone, "
+			"enabled flag, and full role list. Useful for 'who am I', 'what permissions do I have', "
+			"or to tailor an answer to the user's role."
+		),
+		"input_schema": {"type": "object", "properties": {}},
+	},
+	{
+		"name": "list_knowledge_bases",
+		"description": (
+			"List Lazychat Knowledge Base rows the user can see (own + public, enabled). "
+			"Each KB carries attached files (PDF/XLSX/CSV/TXT/MD/DOCX) the agent can search. "
+			"Returns rows with {name, title, description, is_public, file_count}. Read-only."
+		),
+		"input_schema": {"type": "object", "properties": {}},
+	},
+	{
+		"name": "get_kb_files",
+		"description": (
+			"List the files attached to a specific Knowledge Base by kb_name (slug). "
+			"Returns rows with {name, file_name, file_url, file_size, file_type}. Read-only."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {"kb_name": {"type": "string", "description": "Knowledge Base slug, e.g. 'product-catalog'"}},
+			"required": ["kb_name"],
+		},
+	},
+	{
+		"name": "search_kb",
+		"description": (
+			"Keyword paragraph search across files attached to one or all visible Knowledge Bases. "
+			"Returns up to max_chunks paragraphs that contain ALL query terms (case-insensitive), "
+			"each with its source file name + URL. Multi-format extraction: txt/md/csv/json/yaml, "
+			"pdf, xlsx, docx. When kb_name is omitted, searches across every KB the user can see. "
+			"Use this whenever the user asks something that might be answered from internal docs."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"query": {"type": "string", "description": "Free-text keyword query."},
+				"kb_name": {"type": "string", "description": "Optional. Restrict to one KB by slug."},
+				"max_chunks": {"type": "integer", "default": 8, "description": "Max paragraphs returned (cap 20)."},
+			},
+			"required": ["query"],
+		},
+	},
+	{
 		"name": "list_skills",
 		"description": (
 			"List the user's installed skills (own + public). Each skill is a focused "

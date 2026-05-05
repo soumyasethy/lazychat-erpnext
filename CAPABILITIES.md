@@ -6,7 +6,7 @@ A reference for what the agent can do **today**, what's **shipping next**, and w
 
 ## TL;DR — current state
 
-- **41 permission-scoped tools** (read, write, workflow, analytics, reports, files, ERPNext domain, gated power tools, **skills**)
+- **46 permission-scoped tools** (read, write, workflow, analytics, reports, files, ERPNext domain, gated power tools, skills, **knowledge base**, **system diagnostics**)
 - **2 chat paths** — Browser-LLM (BYO key in browser) or Backend-LLM (shared key in `LLM Provider` doctype)
 - **Multi-provider LLM** — Anthropic native + any OpenAI-compatible endpoint (OpenAI, NVIDIA, OpenRouter, LM Studio, Groq, Together, Vercel AI Gateway, …)
 - **Two-phase mutations** — `prepare_*` → `/commit TOKEN` so the LLM can never silently mutate
@@ -14,6 +14,8 @@ A reference for what the agent can do **today**, what's **shipping next**, and w
 - **Clickable Desk navigation** — agent emits `[SO26001040](/app/sales-order/SO26001040)` markdown; clicking SPA-navigates the Desk without reloading the chat
 - **Live tool-call cards** — each MCP tool call shows args, ticking elapsed timer, final duration, result preview (pretty-printed JSON, shiki-highlighted)
 - **Skills (Tier E, slice 1)** — focused agent personas with optional tool-subset restriction. Toggle from the `/` palette. Two starter skills seeded: *AR Collections*, *Item Onboarding*. Active set persists per-user across tabs (Redis, 7-day TTL).
+- **Knowledge Base (Tier H, slice 1)** — attach PDF / XLSX / CSV / TXT / MD / DOCX files to a `Lazychat Knowledge Base` doctype row, ask the agent to find answers in them. Multi-format text extraction; keyword paragraph search MVP (vector embeddings on the roadmap).
+- **System diagnostics** — `get_system_info` (Frappe + ERPNext + every installed app's version, country, time zone, currency, Python version) and `get_user_info` (your email, full name, roles, time zone). Now the agent can answer "what version are we running?" and "what apps are installed?" from its own tool calls.
 
 ---
 
@@ -92,6 +94,33 @@ Tools: `prepare_run_sql`, `prepare_run_python`. Require **all of**: `lazychat_al
 
 The agent emits a clickable Desk link — click to SPA-navigate. Cmd-click opens in a new tab. Files (`/files/...`) always open in a new tab so the chat survives.
 
+### Knowledge Base
+
+> *"What's our return policy on damaged goods?"* (answered from your HR/policies PDF)
+> *"Which SKUs are tagged 'Premium' in the catalog?"* (answered from a Product Master XLSX)
+> *"Summarise the contract clauses about late-payment penalties."* (answered from contract PDFs)
+
+**Setup:**
+1. `Desk → New Lazychat Knowledge Base` (System Manager). Set the slug, title, description; check `is_public` if everyone in the org should be able to query it.
+2. Save the doc. The standard Frappe **Attachments** sidebar appears — upload your files there. Supported formats:
+   - **Text** — `.txt`, `.md`, `.csv`, `.tsv`, `.json`, `.yaml`, `.log`, `.html`, `.xml`, `.sql`, `.py`, `.js`, `.ts`
+   - **PDF** — `.pdf` (uses `pdfplumber` → `pypdf` fallback)
+   - **Excel** — `.xlsx`, `.xlsm` (uses `openpyxl`)
+   - **Word** — `.docx` (uses `python-docx`)
+3. Ask the agent anything — it'll call `search_kb` automatically when the question looks answerable from internal docs.
+
+Tools: `list_knowledge_bases`, `get_kb_files`, `search_kb`. Search is **keyword paragraph match across all visible KBs by default** (or one named KB). For each match returns a snippet centred on the first hit + the source file URL (clickable per Tier A).
+
+**MVP scope:** keyword search with no persistent index — every search re-extracts file text. Fine for KBs under ~50 files. **Roadmap:** vector embeddings via your configured LLM provider's `/embeddings` endpoint, persistent SQLite index, semantic top-K. Same tool surface; just better quality.
+
+### System diagnostics
+
+> *"Which version of ERPNext are we running?"* → `get_system_info` returns frappe, erpnext, and every installed app's version.
+> *"What apps are installed?"* → same tool — full list with versions.
+> *"Who am I logged in as?"* → `get_user_info` returns email, full name, roles, time zone, language.
+
+These were missing — the agent used to say "I don't have access to system-level info" because no tool exposed it. Now it does.
+
 ### Voice
 
 Click the mic icon in the input bar. Permission prompt appears once. Speak; the transcript streams into the input bar live. Click the mic again to stop. **You review and edit the text, then press Enter to send.** Works in Chrome, Edge, Safari (Firefox doesn't ship the Web Speech API yet).
@@ -128,7 +157,9 @@ Open the `/` command palette (or Cmd+K). The **Skills** section lists everything
 | **Mutations / Comms** *(two-phase, `/commit` required)* | `prepare_create_doc`, `prepare_update_doc`, `prepare_submit_doc`, `prepare_delete_doc`, `prepare_workflow_action`, `prepare_add_comment`, `prepare_assign_to`, `prepare_send_email`, `prepare_share_doc` | 9 |
 | **Power tools** *(gated + two-phase)* | `prepare_run_sql`, `prepare_run_python` | 2 |
 | **Skills** *(meta — configure the agent itself)* | `list_skills`, `activate_skill`, `deactivate_skill` | 3 |
-| **Total** | | **41** |
+| **Knowledge Base** | `list_knowledge_bases`, `get_kb_files`, `search_kb` | 3 |
+| **System diagnostics** | `get_system_info`, `get_user_info` | 2 |
+| **Total** | | **46** |
 
 Every tool runs as `frappe.session.user`. `frappe.has_permission(...)` is checked **before** any DB access. There is no god-mode bypass.
 
@@ -144,6 +175,8 @@ Every tool runs as `frappe.session.user`. `frappe.has_permission(...)` is checke
 | **MCP timeouts + observability** | ✅ shipped | 45 s SSE inactivity guard, 30 s tool-call timeout, 15 s tools/list timeout, live `mcpTool` cards with elapsed timer. |
 | **DATA FAITHFULNESS prompt** | ✅ shipped | Forces enumeration of every row, markdown tables for tabular data, verbatim numerics. |
 | **E1 — Skills system (slice 1)** | ✅ shipped | New `Lazychat Skill` doctype + 3 backend tools (`list_skills`, `activate_skill`, `deactivate_skill`) + per-user Redis active set + system-prompt composer + `tools/list` filter. Chat-ui Skills section in `/` palette. Two starter skills seeded. Skill creation via `Desk → New Lazychat Skill` (System Manager). Inline skill creation form deferred to slice 2. |
+| **H1 — Knowledge Base (slice 1)** | ✅ shipped | New `Lazychat Knowledge Base` doctype + multi-format extractor (txt/md/csv/json/yaml/pdf/xlsx/docx) + 3 backend tools (`list_knowledge_bases`, `get_kb_files`, `search_kb`). Keyword paragraph search MVP, no embeddings yet. KB creation + file attachment via Desk. |
+| **System diagnostics** | ✅ shipped | `get_system_info` (Frappe + ERPNext + installed apps + site config) and `get_user_info` (current user profile + roles). Agent can now self-introspect. |
 
 ---
 
@@ -208,6 +241,24 @@ Plus: chat-ui SSE subscriber + new `useRealtime` store + extended `mcpTool` card
 | `explore_data(doctype, dimensions, measures)` | Combines `aggregate` + `make_chart` into a one-shot data-explore turn |
 
 Renderer: extend the existing `[[lazychat:artifact]]` marker support so `kind="chart"` mounts a Recharts component (already a peer of LinkCard/Markdown). The agent gets a system-prompt block teaching the chart spec format. Also exposes a "Save chart" button that creates a `Dashboard Chart` doctype row.
+
+### Tier H — Knowledge Base with vector embeddings (✅ slice 1 shipped, slice 2 planned)
+
+**Slice 1 (shipped May 5):** keyword paragraph search across attached files. New `Lazychat Knowledge Base` doctype + multi-format extractor (txt/md/csv/json/yaml/pdf/xlsx/docx) + 3 backend tools. KB creation + file attachment via Desk's standard sidebar.
+
+**Slice 2 (planned, ~3–4 days):** vector embeddings for semantic search.
+
+- New `Lazychat KB Chunk` child doctype storing `(file, chunk_index, text, embedding_blob, embedding_model)`. Indexing happens on file attach (Frappe `on_update` hook on the File doctype). Re-indexes on file modify.
+- Embeddings generated via the user's configured LLM provider's `/embeddings` endpoint (OpenAI text-embedding-3-small as default for OpenAI-compatible providers; Voyage / Cohere supported via the existing provider-adapter pattern). Falls back to local sentence-transformers if a small embedding model is configured.
+- `search_kb` upgraded: when chunks have embeddings, ranks by cosine similarity (top-K with score threshold). Falls back to keyword search when embeddings are missing.
+- Hybrid retrieval: combines vector similarity + keyword filter (BM25-lite) for higher precision than either alone.
+- Optional: cross-encoder reranker for the top-20 → top-5 narrowing (defer if scope creeps).
+
+**Slice 3 (planned, ~2 days):** chat-ui Knowledge Bases panel.
+
+- New `/kb` palette section listing KBs + file counts + a "+ Create KB" button (mirrors Skills slice 2 pattern).
+- `prepare_create_kb` and `prepare_add_file_to_kb` two-phase tools so the agent can offer to spin up a new KB from the chat.
+- Citation rendering: when the agent quotes from a `search_kb` result, render the source as a clickable Tier-A markdown link (`[hr-handbook.pdf #page-12](/files/...)`).
 
 ### Tier G — Smart export UX with field picker (NEW, your specific ask)
 

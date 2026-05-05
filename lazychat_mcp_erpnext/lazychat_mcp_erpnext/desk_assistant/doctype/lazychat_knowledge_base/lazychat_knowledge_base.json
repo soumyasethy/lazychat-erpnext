@@ -1,0 +1,114 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:kb_name",
+ "creation": "2026-05-05 10:30:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_identity",
+  "kb_name",
+  "title",
+  "description",
+  "section_meta",
+  "enabled",
+  "is_public",
+  "section_help",
+  "help_html"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_identity",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "fieldname": "kb_name",
+   "fieldtype": "Data",
+   "label": "Knowledge Base Name (slug)",
+   "in_list_view": 1,
+   "reqd": 1,
+   "unique": 1,
+   "description": "Stable identifier (kebab-case). Example: 'product-catalog' or 'hr-handbook'."
+  },
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "label": "Title",
+   "in_list_view": 1,
+   "reqd": 1,
+   "description": "Human-friendly name. Surfaced when the agent describes which KB it's searching."
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description",
+   "description": "What this knowledge base contains. Helps the agent decide when to query it."
+  },
+  {
+   "fieldname": "section_meta",
+   "fieldtype": "Section Break",
+   "label": "Visibility"
+  },
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled",
+   "description": "When unchecked, the KB is hidden from list_knowledge_bases / search_kb."
+  },
+  {
+   "default": "0",
+   "fieldname": "is_public",
+   "fieldtype": "Check",
+   "label": "Public (visible to all users)",
+   "description": "When checked, every authenticated user can query this KB. Otherwise only the owner. System Manager only."
+  },
+  {
+   "fieldname": "section_help",
+   "fieldtype": "Section Break",
+   "label": "Help"
+  },
+  {
+   "fieldname": "help_html",
+   "fieldtype": "HTML",
+   "options": "<div class=\"text-muted\" style=\"line-height:1.6\"><p>A <b>Knowledge Base</b> is a collection of attached files the agent can search via the <code>search_kb</code> tool. Save this doc, then use the <i>Attach</i> button (sidebar) to upload files in any of these formats:</p><ul><li><b>Text</b> — .txt, .md, .csv, .json, .yaml, .py</li><li><b>PDF</b> — .pdf (pdfplumber / pypdf required)</li><li><b>Excel</b> — .xlsx (openpyxl)</li><li><b>Word</b> — .docx (python-docx)</li></ul><p>The agent answers from these files using keyword search by default. Embeddings / vector search are deferred to a future slice.</p><h5>Example queries</h5><ul><li><i>\"What's the return-policy notice period?\"</i> — agent calls <code>search_kb(query=\"return policy notice period\")</code> and pulls the relevant clause.</li><li><i>\"Which SKUs are 'Premium' tier?\"</i> — searches the product catalog spreadsheet.</li></ul></div>"
+  }
+ ],
+ "issingle": 0,
+ "links": [],
+ "modified": "2026-05-05 10:30:00.000000",
+ "modified_by": "Administrator",
+ "module": "Desk Assistant",
+ "name": "Lazychat Knowledge Base",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 0,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 0,
+   "export": 0,
+   "print": 0,
+   "read": 1,
+   "report": 0,
+   "role": "All",
+   "share": 0,
+   "write": 0
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1
+}

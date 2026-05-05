@@ -1096,6 +1096,84 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		except Exception as e:
 			return {"error": str(e)}
 
+	# Diagnostics — what's running here? Read-only, no gates.
+	if name == "get_system_info":
+		info = {
+			"site": getattr(frappe.local, "site", None),
+			"frappe_version": getattr(frappe, "__version__", None),
+			"installed_apps": [],
+		}
+		try:
+			for app in frappe.get_installed_apps():
+				ver = None
+				try:
+					ver = frappe.get_attr(f"{app}.__version__")
+				except Exception:
+					ver = None
+				info["installed_apps"].append({"app": app, "version": ver})
+		except Exception as e:
+			info["installed_apps_error"] = str(e)
+		try:
+			ss = frappe.get_single("System Settings")
+			info["country"] = ss.country
+			info["time_zone"] = ss.time_zone
+			info["language"] = ss.language
+			info["date_format"] = ss.date_format
+			info["currency"] = ss.currency
+		except Exception:
+			pass
+		try:
+			info["python_version"] = __import__("sys").version.split()[0]
+		except Exception:
+			pass
+		return {"ok": True, "info": info}
+
+	if name == "get_user_info":
+		user = frappe.session.user
+		try:
+			full_name, language, time_zone, enabled = frappe.db.get_value(
+				"User", user, ["full_name", "language", "time_zone", "enabled"]
+			) or (None, None, None, None)
+		except Exception:
+			full_name, language, time_zone, enabled = None, None, None, None
+		return {
+			"ok": True,
+			"user": user,
+			"full_name": full_name,
+			"language": language,
+			"time_zone": time_zone,
+			"enabled": bool(enabled) if enabled is not None else None,
+			"roles": frappe.get_roles(user),
+		}
+
+	# Knowledge Base (Tier H) — query attached files in a Lazychat Knowledge Base
+	# doctype row. MVP: keyword paragraph search across all visible KBs (or one
+	# named KB). Multi-format extraction via _extract_file_text covers
+	# txt/md/csv/json/yaml (UTF-8) + xlsx (openpyxl) + pdf (pdfplumber/pypdf) +
+	# docx (python-docx). Embeddings/vector search deferred to slice 2.
+	if name == "list_knowledge_bases":
+		from lazychat_mcp_erpnext.desk_assistant import knowledge as _kb
+
+		return {"ok": True, "knowledge_bases": _kb.list_kbs_for_user()}
+
+	if name == "get_kb_files":
+		from lazychat_mcp_erpnext.desk_assistant import knowledge as _kb
+
+		kb_name = (args.get("kb_name") or "").strip()
+		if not kb_name:
+			return {"error": "kb_name required"}
+		return _kb.get_kb_files(kb_name)
+
+	if name == "search_kb":
+		from lazychat_mcp_erpnext.desk_assistant import knowledge as _kb
+
+		query = (args.get("query") or "").strip()
+		if not query:
+			return {"error": "query required"}
+		kb_name = (args.get("kb_name") or "").strip() or None
+		max_chunks = min(int(args.get("max_chunks") or 8), 20)
+		return _kb.search(query, kb_name=kb_name, max_chunks=max_chunks)
+
 	# Skills (Tier E) — runtime activation/deactivation of agent personas.
 	# Implementation in desk_assistant/skills.py. The active set is stored in
 	# Redis per user; mcp.handle reads it on every tools/list to filter the
