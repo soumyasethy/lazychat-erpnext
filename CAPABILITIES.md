@@ -13,7 +13,7 @@ A reference for what the agent can do **today**, what's **shipping next**, and w
 - **Voice input** (Chrome / Edge / Safari) — click the mic, speak, review the transcript, then send
 - **Clickable Desk navigation** — agent emits `[SO26001040](/app/sales-order/SO26001040)` markdown; clicking SPA-navigates the Desk without reloading the chat
 - **Live tool-call cards** — each MCP tool call shows args, ticking elapsed timer, final duration, result preview (pretty-printed JSON, shiki-highlighted)
-- **Skills (Tier E, slice 1)** — focused agent personas with optional tool-subset restriction. Toggle from the `/` palette. Two starter skills seeded: *AR Collections*, *Item Onboarding*. Active set persists per-user across tabs (Redis, 7-day TTL).
+- **Skills (Tier E, COMPLETE)** — focused agent personas with optional tool-subset restriction. Toggle from the `/` palette, **create new ones inline** with the form, **deactivate via chip × above the input bar**. Four starter skills seeded: *AR Collections*, *Item Onboarding*, *Stock Reconciliation*, *Approval Bot*. Active set persists per-user across tabs (Redis, 7-day TTL).
 - **Knowledge Base (Tier H, slice 1)** — attach PDF / XLSX / CSV / TXT / MD / DOCX files to a `Lazychat Knowledge Base` doctype row, ask the agent to find answers in them. Multi-format text extraction; keyword paragraph search MVP (vector embeddings on the roadmap).
 - **System diagnostics** — `get_system_info` (Frappe + ERPNext + every installed app's version, country, time zone, currency, Python version) and `get_user_info` (your email, full name, roles, time zone). Now the agent can answer "what version are we running?" and "what apps are installed?" from its own tool calls.
 
@@ -129,12 +129,16 @@ Click the mic icon in the input bar. Permission prompt appears once. Speak; the 
 
 Open the `/` command palette (or Cmd+K). The **Skills** section lists everything you can activate. Each skill is a packaged persona — a system-prompt snippet plus an optional tool-subset whitelist that restricts what the agent can call while the skill is on. Multiple skills can stack.
 
-**Seeded starter pack:**
+**Seeded starter pack (4):**
 
 - **AR Collections** — receivables follow-up. Restricts the agent to outstanding/invoice reads + email/comment staging. Drafts polite 7-day-out follow-ups; never escalates without you asking.
 - **Item Onboarding** — guides creation of new Items with the right defaults. Restricts to describe/search/list reads + `prepare_create_doc`.
+- **Stock Reconciliation** — investigate physical-vs-system variances. Drives a 5-step flow: stock balance → SLE drilldown → cross-warehouse aggregation (gated SQL) → root-cause hypothesis → propose reconciling entry. Tools restricted to stock + aggregate + gated `prepare_run_sql`.
+- **Approval Bot** — process pending approvals. Renders them as a clickable Desk-link table, then walks the user through `get_doc` → `list_workflow_actions` → `prepare_workflow_action` for each one, with optional `prepare_add_comment` for the audit trail.
 
-**Manage your own:** `Desk → New Lazychat Skill`. Fields: skill name (slug), title, description, system prompt snippet, optional `allowed_tools` JSON array (e.g. `["get_outstanding", "prepare_send_email"]`), examples, enabled, public flag (System Manager only — public skills appear in everyone's palette).
+**Manage your own:** open the `/` palette → scroll to **Skills** → click **+ Create skill**. Inline form takes title, description, system prompt, and an optional comma-separated `allowed_tools` whitelist. Save commits in one click (no separate `/commit` step — you ARE the confirmation since the form is direct UI). The new skill appears in the list immediately and can be toggled on. For advanced fields (examples, public flag), use `Desk → New Lazychat Skill` (System Manager).
+
+**Active-skill chips:** every skill that's currently on shows as a chip above the input bar with a one-click `×` to deactivate. No need to re-open the palette to turn one off.
 
 **How activation works under the hood:**
 - Toggling a skill calls `activate_skill` / `deactivate_skill` over MCP.
@@ -174,7 +178,7 @@ Every tool runs as `frappe.session.user`. `frappe.has_permission(...)` is checke
 | **Voice input** | ✅ shipped | Web Speech API via the mic button; live interim transcript; review-before-send. |
 | **MCP timeouts + observability** | ✅ shipped | 45 s SSE inactivity guard, 30 s tool-call timeout, 15 s tools/list timeout, live `mcpTool` cards with elapsed timer. |
 | **DATA FAITHFULNESS prompt** | ✅ shipped | Forces enumeration of every row, markdown tables for tabular data, verbatim numerics. |
-| **E1 — Skills system (slice 1)** | ✅ shipped | New `Lazychat Skill` doctype + 3 backend tools (`list_skills`, `activate_skill`, `deactivate_skill`) + per-user Redis active set + system-prompt composer + `tools/list` filter. Chat-ui Skills section in `/` palette. Two starter skills seeded. Skill creation via `Desk → New Lazychat Skill` (System Manager). Inline skill creation form deferred to slice 2. |
+| **Tier E — Skills system (COMPLETE)** | ✅ shipped | All 4 slices: `Lazychat Skill` doctype + 3 backend tools + Redis active set + system-prompt composer + `tools/list` filter + chat-ui Skills palette + **inline + Create skill form** + **active-skill chips above InputBar with one-click deactivate** + 4 starter skills seeded (AR Collections, Item Onboarding, Stock Reconciliation, Approval Bot). |
 | **H1 — Knowledge Base (slice 1)** | ✅ shipped | New `Lazychat Knowledge Base` doctype + multi-format extractor (txt/md/csv/json/yaml/pdf/xlsx/docx) + 3 backend tools (`list_knowledge_bases`, `get_kb_files`, `search_kb`). Keyword paragraph search MVP, no embeddings yet. KB creation + file attachment via Desk. |
 | **System diagnostics** | ✅ shipped | `get_system_info` (Frappe + ERPNext + installed apps + site config) and `get_user_info` (current user profile + roles). Agent can now self-introspect. |
 
@@ -219,17 +223,16 @@ Each tier is independently shippable; the user can stop at any cutpoint.
 
 Plus: chat-ui SSE subscriber + new `useRealtime` store + extended `mcpTool` cards that subscribe to job_ids and tick to "Job complete".
 
-### Tier E — Skills / extensions system (✅ slice 1 shipped, slices 2+ planned)
+### Tier E — Skills / extensions system (✅ COMPLETE)
 
-**Slice 1 (shipped May 5):** new `Lazychat Skill` doctype, 3 backend tools (list/activate/deactivate), per-user Redis active set with system-prompt composition + `tools/list` filtering, chat-ui Skills section in `/` palette with optimistic toggles, 2 starter skills seeded (`ar-collections`, `item-onboarding`). Skill creation today via `Desk → New Lazychat Skill` (System Manager).
+All four planned slices shipped:
 
-**Slice 2 (planned, ~2 days):** inline skill creation in chat-ui — `/skills create` opens a form (title + description + prompt + tool checklist) without leaving the chat; `prepare_create_skill` + `prepare_update_skill` two-phase tools.
+- **Slice 1** — `Lazychat Skill` doctype, 3 backend tools (list/activate/deactivate), per-user Redis active set, system-prompt composition, `tools/list` filtering, chat-ui Skills palette with optimistic toggles, 2 starter skills seeded.
+- **Slice 2** — inline `+ Create skill` form in the `/` palette. Reuses `prepare_create_doc` under the hood; `useSkills.create()` chains prepare+commit in one round-trip (the user IS the confirmation since the form is in-app, not LLM-staged).
+- **Slice 3** — `SkillChips` component above the InputBar shows one chip per active skill with a one-click `×` to deactivate. Mirrors `EditingChip` / `QueuedChip` patterns.
+- **Slice 4** — starter pack expanded to 4 skills: AR Collections, Item Onboarding, Stock Reconciliation, Approval Bot.
 
-**Slice 3 (planned, ~1 day):** active-skill chips above InputBar (similar to existing `EditingChip`/`QueuedChip`), one-click deactivate from the chip.
-
-**Slice 4 (planned, ~1 day):** expand the starter pack with *Stock Reconciliation* (stock + gated SQL) and *Approval Bot* (workflow + comment).
-
-**Future:** marketplace-style discovery (JSON manifest + GitHub repo distribution); per-skill memory (skill-scoped session state); skill-driven custom slash commands.
+**Future (deferred):** marketplace-style discovery (JSON manifest + GitHub repo distribution); per-skill memory (skill-scoped session state); skill-driven custom slash commands.
 
 ### Tier F — Charts / data exploration (NEW, planned)
 
