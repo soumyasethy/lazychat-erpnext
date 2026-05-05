@@ -714,6 +714,31 @@
 			}
 		});
 
+		/* Tier D — subscribe to lazychat_doc_update events on Frappe's realtime
+		 * channel (Socket.IO) and forward them to the iframe as realtimeEvent
+		 * envelopes. The backend's universal on_update hook publishes to
+		 * frappe.realtime; we just relay. Per-user filtering already happened
+		 * server-side, so every event we receive is FOR this user. */
+		if (window.frappe && frappe.realtime && typeof frappe.realtime.on === "function") {
+			frappe.realtime.on("lazychat_doc_update", function (data) {
+				try {
+					bridge.send("realtimeEvent", {
+						kind: "doc_update",
+						doctype: (data && data.doctype) || "",
+						name: (data && data.name) || "",
+						action: (data && data.action) || "update",
+						modified_by: (data && data.modified_by) || null,
+						workflow_state: (data && data.workflow_state) || null,
+						status: (data && data.status) || null,
+						docstatus: (data && data.docstatus) || null,
+						link: (data && data.link) || null,
+					});
+				} catch (e) {
+					console.warn("[lazychat] realtime relay failed", e);
+				}
+			});
+		}
+
 		/* Forward route changes for context-aware answers */
 		if (frappe.router && frappe.router.on) {
 			frappe.router.on("change", () => {

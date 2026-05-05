@@ -6,7 +6,7 @@ A reference for what the agent can do **today**, what's **shipping next**, and w
 
 ## TL;DR — current state
 
-- **62 permission-scoped tools** (read, write, workflow, analytics, reports, files + list/resolve attachments + **chat-side upload**, ERPNext domain, gated power tools + **bulk CSV import**, skills, knowledge base + vector embeddings + hybrid retrieval + chat-ui management + citations, system diagnostics, admin, audit trail, file exports (CSV / PDF) + **interactive field picker**, background-job control, inline charts (Vega-Lite))
+- **65 permission-scoped tools** (read, write, workflow, analytics, reports, files + list/resolve attachments + chat-side upload, ERPNext domain, gated power tools + bulk CSV import, skills, knowledge base + vector embeddings + hybrid retrieval + chat-ui management + citations, system diagnostics, admin, audit trail, file exports (CSV / PDF) + interactive field picker, background-job control, inline charts (Vega-Lite), **realtime doc-change subscriptions**)
 - **2 chat paths** — Browser-LLM (BYO key in browser) or Backend-LLM (shared key in `LLM Provider` doctype)
 - **Multi-provider LLM** — Anthropic native + any OpenAI-compatible endpoint (OpenAI, NVIDIA, OpenRouter, LM Studio, Groq, Together, Vercel AI Gateway, …)
 - **Two-phase mutations** — `prepare_*` → `/commit TOKEN` so the LLM can never silently mutate
@@ -160,6 +160,23 @@ When you call `export_list_to_csv` without specifying `fields`, the agent gets b
 
 The agent calls `prepare_import_csv(doctype, csv_file_url, import_type?)`. Gated identically to `prepare_run_sql` / `prepare_run_python` (System Manager + `allow_dangerous_tools` + `/commit`). On commit, a Frappe `Data Import` doctype row is created and `start_import()` is called — the actual row inserts happen async in the background queue. Watch progress via `list_my_jobs`.
 
+### Realtime doc-change watches (Tier D)
+
+> *"Watch SO-001 — ping me when it changes."*
+> *"Notify me when PUR-ORD-2026-00042 gets approved."*
+> *"Show me what I'm currently watching."*
+
+The agent calls `subscribe_doc_changes(doctype, name)`. When the doc is saved by **anyone** (you in another tab, a colleague in the Desk, a scheduled job, an API call), a toast appears above the input bar showing the new workflow_state / status + who modified it. Click the toast to navigate to the doc (Tier-A). Subscriptions persist 7 days or until you call `unsubscribe_doc_changes`. List active watches with `list_my_subscriptions`.
+
+**How it works under the hood:**
+- A universal Frappe `on_update` hook fires for every doc save in the bench. **First line is a single Redis flag check** — when no user has subscribed to anything, it returns immediately (zero overhead).
+- When subscriptions exist, the hook does one Redis GET per save to check if anyone is watching that exact `(doctype, name)` pair. Sub-millisecond.
+- Matched events are pushed via `frappe.publish_realtime` to each subscriber's user channel.
+- The panel shim (lazychat_panel.bundle.js) listens via `frappe.realtime.on("lazychat_doc_update", ...)` and forwards events to the iframe over a new `realtimeEvent` postMessage envelope.
+- Chat-ui's `useRealtime` store buffers events; `RealtimeToast` renders the latest above the input bar, auto-dismissing after 6 seconds.
+- Permission re-checked at publish time, so a user who lost access stops getting events automatically.
+- High-frequency / noisy doctypes (Version, Activity Log, Email Queue, our own KB Chunks, etc.) are skipped in the hot path.
+
 ### Inline charts
 
 > *"Plot last 6 months sales by month."*
@@ -216,10 +233,11 @@ Open the `/` command palette (or Cmd+K). The **Skills** section lists everything
 | **Audit Trail** | `get_audit_trail` | 1 |
 | **File exports** | `export_list_to_csv`, `export_doc_pdf` | 2 |
 | **Background jobs** | `list_my_jobs`, `cancel_job` | 2 |
+| **Realtime subscriptions** | `subscribe_doc_changes`, `unsubscribe_doc_changes`, `list_my_subscriptions` | 3 |
 | **KB management** *(write)* | `prepare_create_kb`, `prepare_add_file_to_kb` | 2 |
 | **Charts** *(inline Vega-Lite)* | `make_chart` | 1 |
 | **KB indexing** *(reindex existing files)* | `reindex_kb` | 1 |
-| **Total** | | **62** |
+| **Total** | | **65** |
 
 Every tool runs as `frappe.session.user`. `frappe.has_permission(...)` is checked **before** any DB access. There is no god-mode bypass.
 
@@ -275,6 +293,7 @@ Coverage map for the standard admin/dev surface in Frappe + ERPNext. Most items 
 | **System diagnostics** | ✅ shipped | `get_system_info` (Frappe + ERPNext + installed apps + site config) and `get_user_info` (current user profile + roles). Agent can now self-introspect. |
 | **H3 — KB chat-ui palette + citations** | ✅ shipped | New `Lazychat Knowledge Bases` section in `/` palette (mirrors Skills). Inline `+ Create knowledge base` form chains `prepare_create_kb` + commit in one round-trip. Each KB row has an ↗ button that navigates the parent ERPNext window (Tier A) to the KB doc so you can drop files into the standard Attachments sidebar. New `prepare_add_file_to_kb` tool re-attaches an existing File doctype row to a KB. Both system prompts teach the citation format: `[<file_name>](<file_url>)` with verbatim quotes. |
 | **F — Inline charts (Vega-Lite)** | ✅ shipped | New `make_chart(spec, title?)` tool validates a Vega-Lite v5 spec and echoes it. New `'chart'` ContentKind in `contentDetector.ts` (detects via `$schema` URL or shape keys after JSON.parse). New `ChartBlock` component with `React.lazy` + `<Suspense>` — the ~500 KB `react-vega` + `vega-lite` bundle only fetches the first time a chart appears in the chat. Both system prompts teach the agent to: (a) call data tool first, (b) optionally call `make_chart` for tool-card visibility, (c) emit `[[lazychat:artifact kind="chart"]]<spec>[[/lazychat:artifact]]` with inline `data.values`, (d) caption in prose afterward. |
+| **D-realtime — Doc-change subscriptions** | ✅ shipped | New `Lazychat realtime_subs` module — Redis-backed per-user + per-doc subscription store with a global "any active" flag. Universal `on_update` hook on `*` doctype (with skip-list for noisy ones) fires `frappe.publish_realtime` to subscribed users. Panel shim relays via `frappe.realtime.on` + new `realtimeEvent` postMessage envelope. Chat-ui has new `useRealtime` zustand store + `RealtimeToast` component above the InputBar (auto-dismisses after 6s, click navigates via Tier-A). Hot-path overhead ≈ 0 when nobody has subscribed. 3 new tools: `subscribe_doc_changes`, `unsubscribe_doc_changes`, `list_my_subscriptions`. |
 | **H2 — KB vector embeddings + hybrid retrieval** | ✅ shipped | New `Lazychat KB Chunk` doctype (parent_kb, file_doc, chunk_index, text, content_hash, embedding_model, embedding_blob — base64 little-endian float32). New `embeddings.py` module: paragraph-aware chunker (~500 tokens with 50-token overlap), provider lookup mirroring chat path, batched `/v1/embeddings` POST, hybrid retrieval (cosine top-20 + keyword top-20, RRF-fused to top-5). New File doctype `on_update` hook auto-indexes attachments on Lazychat Knowledge Base via `frappe.enqueue`. Content-hash dedupe makes re-indexing idempotent. New `reindex_kb(kb_name)` tool for first-time setup of existing KBs. `search_kb` now delegates to `hybrid_search` when chunks exist, falls back to keyword paragraph match otherwise. `get_kb_files` extended with `embedding_status` (`indexed | partial | keyword_only | pending`) + `chunk_count` per file. |
 | **B-upload — Chat-side file picker** | ✅ shipped | New `prepare_upload_file(target_doctype, target_name, accept?)` two-phase tool. Returns `{file_picker: true, accept, confirm_with: "/upload TOKEN"}` so the agent narrates the next step. Panel shim's new `/upload TOKEN` slash command opens a native `<input type=file>`, POSTs to Frappe's `/api/method/upload_file`, then calls `commit_prepared_action(token, file_url)` — the new commit handler `attach_file` re-points the freshly-uploaded File row to the target doc. `commit_prepared` signature extended to accept `**extras` so future commit actions can pass runtime params. |
 | **C-import — Bulk CSV import** | ✅ shipped | New `prepare_import_csv(doctype, csv_file_url, import_type?)` gated tool (allow_dangerous_tools + System Manager + /commit). Commit handler creates a `Data Import` doctype row and calls `start_import()` — actual row inserts happen async; watch via `list_my_jobs`. |

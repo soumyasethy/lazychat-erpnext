@@ -1361,6 +1361,32 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		except Exception as e:
 			return {"error": str(e)}
 
+	# Tier D — Realtime doc-change subscriptions. User says "watch SO-001",
+	# every save (anywhere) pings the chat-ui as a toast. Read-only / config
+	# tools, no /commit needed.
+	if name == "subscribe_doc_changes":
+		from lazychat_mcp_erpnext.desk_assistant import realtime_subs as _rt
+
+		dt = (args.get("doctype") or "").strip()
+		dn = (args.get("name") or "").strip()
+		if not dt or not dn:
+			return {"error": "doctype and name required"}
+		return _rt.subscribe(dt, dn)
+
+	if name == "unsubscribe_doc_changes":
+		from lazychat_mcp_erpnext.desk_assistant import realtime_subs as _rt
+
+		dt = (args.get("doctype") or "").strip()
+		dn = (args.get("name") or "").strip()
+		if not dt or not dn:
+			return {"error": "doctype and name required"}
+		return _rt.unsubscribe(dt, dn)
+
+	if name == "list_my_subscriptions":
+		from lazychat_mcp_erpnext.desk_assistant import realtime_subs as _rt
+
+		return _rt.list_my()
+
 	# Charts (Tier F) — thin passthrough that validates a Vega-Lite spec and
 	# echoes it back. Purpose: gives the LLM a tool-call so the live mcpTool
 	# card shows "Calling make_chart…" while the chart itself is rendered
@@ -1576,6 +1602,8 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 					"expires_in_sec": PREP_TTL_SEC,
 					"confirm_with": f"/commit {token} fields=field1,field2,...",
 				}
+			except Exception as e:
+				return {"error": f"field-picker preview failed: {e}"}
 		# --- Direct export when fields supplied ---
 		if not isinstance(fields, list) or not all(isinstance(f, str) for f in fields):
 			return {"error": "fields must be a list of strings"}

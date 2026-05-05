@@ -590,6 +590,44 @@ TOOL_SCHEMAS = [
 		},
 	},
 	{
+		"name": "subscribe_doc_changes",
+		"description": (
+			"Watch a document for changes. When ANYONE saves it (you in another tab, a colleague "
+			"in Desk, a scheduled job, an API call), a realtime toast appears in your chat showing "
+			"who modified it + the new workflow_state / status. Subscriptions persist for 7 days "
+			"or until you call unsubscribe_doc_changes. Permission: Read on the doc. Use when the "
+			"user says 'watch X', 'notify me when X changes', 'tell me when this PO is approved', etc."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"doctype": {"type": "string"},
+				"name": {"type": "string"},
+			},
+			"required": ["doctype", "name"],
+		},
+	},
+	{
+		"name": "unsubscribe_doc_changes",
+		"description": "Stop watching a document. No-op if not currently subscribed.",
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"doctype": {"type": "string"},
+				"name": {"type": "string"},
+			},
+			"required": ["doctype", "name"],
+		},
+	},
+	{
+		"name": "list_my_subscriptions",
+		"description": (
+			"List the documents you're currently watching for realtime changes. Returns "
+			"{ok, count, subscriptions: [{doctype, name, link}]}. Read-only."
+		),
+		"input_schema": {"type": "object", "properties": {}},
+	},
+	{
 		"name": "make_chart",
 		"description": (
 			"Validate a Vega-Lite v5 chart spec and echo it back. Use this BEFORE emitting "
