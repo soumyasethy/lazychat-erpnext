@@ -1096,6 +1096,122 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		except Exception as e:
 			return {"error": str(e)}
 
+	# Admin tools — rename, version history, version revert. Cover Frappe admin
+	# capabilities (rename tool, document versioning) that the generic
+	# prepare_create_doc / prepare_update_doc don't reach. Permission re-checked
+	# at commit time so a stale preview_token can't bypass a perm change.
+	if name == "prepare_rename_doc":
+		dt = args.get("doctype")
+		old_name = (args.get("name") or args.get("old_name") or "").strip()
+		new_name = (args.get("new_name") or "").strip()
+		merge = bool(args.get("merge", False))
+		if not dt or not old_name or not new_name:
+			return {"error": "doctype, name (or old_name), and new_name required"}
+		if old_name == new_name:
+			return {"error": "new_name must differ from current name"}
+		if not frappe.has_permission(dt, "write", doc=old_name):
+			return {"error": "no write permission on this doc (need 'Write')"}
+		if not frappe.db.exists(dt, old_name):
+			return {"error": f"doc not found: {dt}/{old_name}"}
+		if frappe.db.exists(dt, new_name) and not merge:
+			return {"error": f"new_name already exists: {dt}/{new_name}. Set merge=true to merge instead."}
+		token = _stage_action(
+			"rename_doc",
+			{"doctype": dt, "old_name": old_name, "new_name": new_name, "merge": merge},
+		)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will rename {dt}/{old_name} -> {new_name}" + (" (merge)" if merge else ""),
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "list_doc_versions":
+		dt = args.get("doctype")
+		dn = args.get("name")
+		limit = min(int(args.get("limit") or 20), 50)
+		if not dt or not dn:
+			return {"error": "doctype and name required"}
+		if not frappe.has_permission(dt, "read", doc=dn):
+			return {"error": "no read permission"}
+		rows = frappe.get_all(
+			"Version",
+			filters={"ref_doctype": dt, "docname": dn},
+			fields=["name", "owner", "creation", "data"],
+			order_by="creation desc",
+			limit_page_length=limit,
+		)
+		versions = []
+		for r in rows:
+			try:
+				data = json.loads(r["data"]) if isinstance(r["data"], str) else (r["data"] or {})
+			except Exception:
+				data = {}
+			scalar_changes = data.get("changed") or []
+			# scalar_changes is [[field, old, new], ...]; child-table changes
+			# live under data["row_changed"] / "added" / "removed" — surface
+			# their counts so the user knows the version isn't pure-revertible.
+			versions.append(
+				{
+					"version_id": r["name"],
+					"owner": r["owner"],
+					"creation": str(r["creation"]),
+					"field_changes": [
+						{"field": ch[0], "old": ch[1], "new": ch[2]}
+						for ch in scalar_changes
+						if isinstance(ch, (list, tuple)) and len(ch) >= 3
+					],
+					"row_added_count": len(data.get("added", [])) if isinstance(data.get("added"), list) else 0,
+					"row_removed_count": len(data.get("removed", [])) if isinstance(data.get("removed"), list) else 0,
+					"row_changed_count": len(data.get("row_changed", [])) if isinstance(data.get("row_changed"), list) else 0,
+				}
+			)
+		return {"ok": True, "doctype": dt, "name": dn, "count": len(versions), "versions": versions}
+
+	if name == "prepare_revert_doc":
+		dt = args.get("doctype")
+		dn = args.get("name")
+		version_id = (args.get("version_id") or "").strip()
+		if not dt or not dn or not version_id:
+			return {"error": "doctype, name, version_id required"}
+		if not frappe.has_permission(dt, "write", doc=dn):
+			return {"error": "no write permission"}
+		if not frappe.db.exists("Version", version_id):
+			return {"error": f"version not found: {version_id}"}
+		version = frappe.get_doc("Version", version_id)
+		if version.ref_doctype != dt or version.docname != dn:
+			return {"error": "version does not belong to this doc"}
+		try:
+			data = json.loads(version.data) if isinstance(version.data, str) else (version.data or {})
+		except Exception:
+			data = {}
+		scalar_changes = data.get("changed") or []
+		valid_changes = [ch for ch in scalar_changes if isinstance(ch, (list, tuple)) and len(ch) >= 3]
+		if not valid_changes:
+			return {
+				"error": "this version has no scalar field changes to revert. Child-table or non-revertible changes are not handled by this tool — use prepare_update_doc to fix specific fields manually.",
+			}
+		# Stage the inverse: for each (field, old, new), set field back to old
+		inverse_pairs = [[ch[0], ch[1]] for ch in valid_changes]
+		token = _stage_action(
+			"revert_doc",
+			{"doctype": dt, "name": dn, "version_id": version_id, "inverse": inverse_pairs},
+		)
+		# Surface a human-readable diff so the user can confirm before /commit
+		diff_preview = [
+			{"field": ch[0], "current": ch[2], "will_revert_to": ch[1]}
+			for ch in valid_changes
+		]
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will revert {dt}/{dn} via Version {version_id}: {len(valid_changes)} scalar field change(s)",
+			"diff": diff_preview,
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
 	# Diagnostics — what's running here? Read-only, no gates.
 	if name == "get_system_info":
 		info = {
@@ -1364,6 +1480,32 @@ def commit_prepared(token):
 			doc = _R()
 			doc.doctype = doctype
 			doc.name = docname
+		elif action == "rename_doc":
+			if not frappe.has_permission(payload["doctype"], "write", doc=payload["old_name"]):
+				return {"ok": False, "error": "no write permission at commit time"}
+			# frappe.rename_doc returns the resolved final name (Frappe may
+			# normalise it). It also handles autoname constraints and merge mode.
+			new_name = frappe.rename_doc(
+				payload["doctype"],
+				payload["old_name"],
+				payload["new_name"],
+				merge=bool(payload.get("merge", False)),
+				ignore_permissions=False,
+			)
+			class _R:
+				pass
+			doc = _R()
+			doc.doctype = payload["doctype"]
+			doc.name = new_name
+		elif action == "revert_doc":
+			if not frappe.has_permission(payload["doctype"], "write", doc=payload["name"]):
+				return {"ok": False, "error": "no write permission at commit time"}
+			doc = frappe.get_doc(payload["doctype"], payload["name"])
+			# Re-fetch the version and apply the inverse so a stale token can't
+			# revert against a doc that's moved further. inverse is [[field, old], ...].
+			for fieldname, old_value in payload.get("inverse", []):
+				doc.set(fieldname, old_value)
+			doc.save(ignore_permissions=False)
 		elif action == "share_doc":
 			if not frappe.has_permission(payload["doctype"], "share", doc=payload["name"]):
 				return {"ok": False, "error": "no share permission at commit time"}

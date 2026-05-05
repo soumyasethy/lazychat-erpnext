@@ -512,6 +512,64 @@ TOOL_SCHEMAS = [
 		},
 	},
 	{
+		"name": "prepare_rename_doc",
+		"description": (
+			"STAGE renaming a document. Wraps Frappe's rename tool. Returns "
+			"{preview_token, summary, confirm_with}. After staging, ask the user "
+			"to '/commit TOKEN' to apply. If new_name already exists and merge=true, "
+			"records linking to the old name will point at the merged doc instead. "
+			"Requires Write permission on the source doc."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"doctype": {"type": "string"},
+				"name": {"type": "string", "description": "Current doc name"},
+				"new_name": {"type": "string"},
+				"merge": {"type": "boolean", "default": False, "description": "If new_name exists, merge into it instead of failing."},
+			},
+			"required": ["doctype", "name", "new_name"],
+		},
+	},
+	{
+		"name": "list_doc_versions",
+		"description": (
+			"List the change-history (Version doctype rows) for a single document, "
+			"newest first. Each entry includes the version_id, who made the change, "
+			"when, and which scalar field values were modified (with old/new). Use "
+			"before prepare_revert_doc to let the user pick which version to undo. "
+			"Read-only."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"doctype": {"type": "string"},
+				"name": {"type": "string"},
+				"limit": {"type": "integer", "default": 20, "description": "Max versions returned (cap 50)."},
+			},
+			"required": ["doctype", "name"],
+		},
+	},
+	{
+		"name": "prepare_revert_doc",
+		"description": (
+			"STAGE reverting a document to its state BEFORE a specific version was "
+			"recorded. Returns {preview_token, summary, diff, confirm_with}. The "
+			"`diff` shows current value vs. revert-target so the user can confirm. "
+			"Only handles scalar field changes — child-table revisions need a manual "
+			"prepare_update_doc. After staging, ask the user to '/commit TOKEN' to apply."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"doctype": {"type": "string"},
+				"name": {"type": "string"},
+				"version_id": {"type": "string", "description": "From list_doc_versions[].version_id."},
+			},
+			"required": ["doctype", "name", "version_id"],
+		},
+	},
+	{
 		"name": "get_system_info",
 		"description": (
 			"Return what's running on this site: Frappe version, ERPNext version (if installed), "
