@@ -708,6 +708,43 @@ TOOL_SCHEMAS = [
 		},
 	},
 	{
+		"name": "prepare_create_kb",
+		"description": (
+			"STAGE creating a new Lazychat Knowledge Base. Returns "
+			"{preview_token, summary, confirm_with}. After staging, ask the user to "
+			"'/commit TOKEN' to apply. is_public=true is System Manager only. If "
+			"`slug` is omitted it's auto-derived from `title` (lowercase, kebab-case)."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"title": {"type": "string", "description": "Human-friendly name."},
+				"slug": {"type": "string", "description": "Optional kebab-case slug. Auto-derived from title if omitted."},
+				"description": {"type": "string"},
+				"is_public": {"type": "boolean", "default": False},
+			},
+			"required": ["title"],
+		},
+	},
+	{
+		"name": "prepare_add_file_to_kb",
+		"description": (
+			"STAGE re-attaching an existing File doctype row to a Lazychat Knowledge "
+			"Base. Use when the file is already uploaded somewhere in Frappe (got its "
+			"file_url from list_attachments, get_doc, or a manual upload) and the user "
+			"wants to add it to a KB. Two-phase via /commit. To upload a NEW file, use "
+			"the Desk attachment sidebar on the KB doc directly (no chat-side upload yet)."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"kb_name": {"type": "string", "description": "Slug of the target KB."},
+				"file_url": {"type": "string", "description": "/files/... or /private/files/... — must already exist as a File doctype row."},
+			},
+			"required": ["kb_name", "file_url"],
+		},
+	},
+	{
 		"name": "list_skills",
 		"description": (
 			"List the user's installed skills (own + public). Each skill is a focused "

@@ -1537,6 +1537,73 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		max_chunks = min(int(args.get("max_chunks") or 8), 20)
 		return _kb.search(query, kb_name=kb_name, max_chunks=max_chunks)
 
+	# KB write tools (Tier H3) — create a Lazychat Knowledge Base or attach an
+	# existing File to one. Two-phase via /commit because they mutate state.
+	if name == "prepare_create_kb":
+		title = (args.get("title") or "").strip()
+		slug = (args.get("slug") or args.get("kb_name") or "").strip()
+		description = (args.get("description") or "").strip()
+		is_public = bool(args.get("is_public", False))
+		if not title:
+			return {"error": "title required"}
+		if not slug:
+			# Auto-derive from title — kebab-case, alphanumeric only, capped 64.
+			slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:64]
+		if not slug:
+			return {"error": "could not derive slug from title — pass `slug` explicitly"}
+		if frappe.db.exists("Lazychat Knowledge Base", slug):
+			return {"error": f"knowledge base already exists: {slug}"}
+		if is_public and "System Manager" not in frappe.get_roles():
+			return {"error": "only System Manager can publish a knowledge base (is_public=true)"}
+		if not frappe.has_permission("Lazychat Knowledge Base", "create"):
+			return {"error": "no permission to create knowledge bases"}
+		token = _stage_action(
+			"create_kb",
+			{
+				"kb_name": slug,
+				"title": title,
+				"description": description,
+				"is_public": 1 if is_public else 0,
+			},
+		)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will create knowledge base '{slug}' titled '{title}'" + (" (public)" if is_public else ""),
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "prepare_add_file_to_kb":
+		kb_name = (args.get("kb_name") or "").strip()
+		file_url = (args.get("file_url") or "").strip()
+		if not kb_name or not file_url:
+			return {"error": "kb_name and file_url required"}
+		if not frappe.db.exists("Lazychat Knowledge Base", kb_name):
+			return {"error": f"knowledge base not found: {kb_name}"}
+		# Find File doctype row by file_url
+		matches = frappe.get_all("File", filters={"file_url": file_url}, fields=["name", "file_name"], limit=1)
+		if not matches:
+			return {"error": f"file not found: {file_url}"}
+		file_doc_name = matches[0]["name"]
+		display_name = matches[0]["file_name"] or file_url
+		# Permission: user must be able to write the KB AND read the file
+		if not frappe.has_permission("Lazychat Knowledge Base", "write", doc=kb_name):
+			return {"error": "no write permission on this knowledge base"}
+		if not frappe.has_permission("File", "read", doc=file_doc_name):
+			return {"error": "no read permission on this file"}
+		token = _stage_action(
+			"add_file_to_kb",
+			{"kb_name": kb_name, "file_name": file_doc_name, "file_url": file_url},
+		)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will attach '{display_name}' to knowledge base '{kb_name}'",
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
 	# Skills (Tier E) — runtime activation/deactivation of agent personas.
 	# Implementation in desk_assistant/skills.py. The active set is stored in
 	# Redis per user; mcp.handle reads it on every tools/list to filter the
@@ -1727,6 +1794,30 @@ def commit_prepared(token):
 			doc = _R()
 			doc.doctype = doctype
 			doc.name = docname
+		elif action == "create_kb":
+			if not frappe.has_permission("Lazychat Knowledge Base", "create"):
+				return {"ok": False, "error": "no permission at commit time"}
+			kb_doc = frappe.get_doc({
+				"doctype": "Lazychat Knowledge Base",
+				"kb_name": payload["kb_name"],
+				"title": payload["title"],
+				"description": payload.get("description") or "",
+				"enabled": 1,
+				"is_public": payload.get("is_public", 0),
+			}).insert(ignore_permissions=False)
+			doc = kb_doc
+		elif action == "add_file_to_kb":
+			if not frappe.has_permission("Lazychat Knowledge Base", "write", doc=payload["kb_name"]):
+				return {"ok": False, "error": "no permission on KB at commit time"}
+			file_doc = frappe.get_doc("File", payload["file_name"])
+			file_doc.attached_to_doctype = "Lazychat Knowledge Base"
+			file_doc.attached_to_name = payload["kb_name"]
+			file_doc.save(ignore_permissions=False)
+			class _R:
+				pass
+			doc = _R()
+			doc.doctype = "Lazychat Knowledge Base"
+			doc.name = payload["kb_name"]
 		elif action == "rename_doc":
 			if not frappe.has_permission(payload["doctype"], "write", doc=payload["old_name"]):
 				return {"ok": False, "error": "no write permission at commit time"}

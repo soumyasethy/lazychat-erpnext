@@ -6,7 +6,7 @@ A reference for what the agent can do **today**, what's **shipping next**, and w
 
 ## TL;DR — current state
 
-- **54 permission-scoped tools** (read, write, workflow, analytics, reports, files, ERPNext domain, gated power tools, skills, knowledge base, system diagnostics, admin (rename + version history + revert), **audit trail, file exports (CSV / PDF), background-job control**)
+- **56 permission-scoped tools** (read, write, workflow, analytics, reports, files, ERPNext domain, gated power tools, skills, knowledge base **+ chat-ui management + citations**, system diagnostics, admin, audit trail, file exports (CSV / PDF), background-job control)
 - **2 chat paths** — Browser-LLM (BYO key in browser) or Backend-LLM (shared key in `LLM Provider` doctype)
 - **Multi-provider LLM** — Anthropic native + any OpenAI-compatible endpoint (OpenAI, NVIDIA, OpenRouter, LM Studio, Groq, Together, Vercel AI Gateway, …)
 - **Two-phase mutations** — `prepare_*` → `/commit TOKEN` so the LLM can never silently mutate
@@ -100,7 +100,13 @@ The agent emits a clickable Desk link — click to SPA-navigate. Cmd-click opens
 > *"Which SKUs are tagged 'Premium' in the catalog?"* (answered from a Product Master XLSX)
 > *"Summarise the contract clauses about late-payment penalties."* (answered from contract PDFs)
 
-**Setup:**
+**Setup (in chat — recommended):**
+1. Open the `/` palette → scroll to **Knowledge Bases** → click **+ Create knowledge base**.
+2. Fill title + (optional) description, click **Save** — slug auto-derives from the title (kebab-case). The KB appears in the list immediately.
+3. Click the ↗ icon on the new KB row → opens the KB doc in the Desk so you can drop files into the **Attachments** sidebar.
+4. Ask the agent — it'll call `search_kb` automatically when the question looks answerable from internal docs and **cite each source with a clickable link** like `[hr-handbook.pdf](/files/hr-handbook.pdf)` (Tier-A interceptor opens it in a new tab).
+
+**Setup (Desk admin path):**
 1. `Desk → New Lazychat Knowledge Base` (System Manager). Set the slug, title, description; check `is_public` if everyone in the org should be able to query it.
 2. Save the doc. The standard Frappe **Attachments** sidebar appears — upload your files there. Supported formats:
    - **Text** — `.txt`, `.md`, `.csv`, `.tsv`, `.json`, `.yaml`, `.log`, `.html`, `.xml`, `.sql`, `.py`, `.js`, `.ts`
@@ -167,7 +173,8 @@ Open the `/` command palette (or Cmd+K). The **Skills** section lists everything
 | **Audit Trail** | `get_audit_trail` | 1 |
 | **File exports** | `export_list_to_csv`, `export_doc_pdf` | 2 |
 | **Background jobs** | `list_my_jobs`, `cancel_job` | 2 |
-| **Total** | | **54** |
+| **KB management** *(write)* | `prepare_create_kb`, `prepare_add_file_to_kb` | 2 |
+| **Total** | | **56** |
 
 Every tool runs as `frappe.session.user`. `frappe.has_permission(...)` is checked **before** any DB access. There is no god-mode bypass.
 
@@ -221,6 +228,7 @@ Coverage map for the standard admin/dev surface in Frappe + ERPNext. Most items 
 | **Tier E — Skills system (COMPLETE)** | ✅ shipped | All 4 slices: `Lazychat Skill` doctype + 3 backend tools + Redis active set + system-prompt composer + `tools/list` filter + chat-ui Skills palette + **inline + Create skill form** + **active-skill chips above InputBar with one-click deactivate** + 4 starter skills seeded (AR Collections, Item Onboarding, Stock Reconciliation, Approval Bot). |
 | **H1 — Knowledge Base (slice 1)** | ✅ shipped | New `Lazychat Knowledge Base` doctype + multi-format extractor (txt/md/csv/json/yaml/pdf/xlsx/docx) + 3 backend tools (`list_knowledge_bases`, `get_kb_files`, `search_kb`). Keyword paragraph search MVP, no embeddings yet. KB creation + file attachment via Desk. |
 | **System diagnostics** | ✅ shipped | `get_system_info` (Frappe + ERPNext + installed apps + site config) and `get_user_info` (current user profile + roles). Agent can now self-introspect. |
+| **H3 — KB chat-ui palette + citations** | ✅ shipped | New `Lazychat Knowledge Bases` section in `/` palette (mirrors Skills). Inline `+ Create knowledge base` form chains `prepare_create_kb` + commit in one round-trip. Each KB row has an ↗ button that navigates the parent ERPNext window (Tier A) to the KB doc so you can drop files into the standard Attachments sidebar. New `prepare_add_file_to_kb` tool re-attaches an existing File doctype row to a KB. Both system prompts teach the citation format: `[<file_name>](<file_url>)` with verbatim quotes. |
 
 ---
 
@@ -288,6 +296,8 @@ Renderer: extend the existing `[[lazychat:artifact]]` marker support so `kind="c
 ### Tier H — Knowledge Base with vector embeddings (✅ slice 1 shipped, slice 2 planned)
 
 **Slice 1 (shipped May 5):** keyword paragraph search across attached files. New `Lazychat Knowledge Base` doctype + multi-format extractor (txt/md/csv/json/yaml/pdf/xlsx/docx) + 3 backend tools. KB creation + file attachment via Desk's standard sidebar.
+
+**Slice 3 (shipped May 5):** chat-ui Knowledge Bases palette section (mirrors Skills) + inline `+ Create knowledge base` form (`prepare_create_kb` + commit in one round-trip) + `prepare_add_file_to_kb` for re-attaching existing files + per-row ↗ to open the KB in Desk for upload. Both system prompts teach the `[file](/files/file)` citation format with verbatim quoting and forbid path fabrication.
 
 **Slice 2 (planned, ~3–4 days):** vector embeddings for semantic search.
 

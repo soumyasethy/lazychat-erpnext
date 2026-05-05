@@ -122,6 +122,13 @@ NAVIGATION — when you mention any ERPNext document the user might want to open
 - [<filename>](/files/<filename>) for public attachments, or use the absolute "absolute_url" field returned by get_file_url for private files.
 - The chat UI intercepts these links and navigates the parent ERPNext window — do NOT add http(s):// to internal links.
 
+KNOWLEDGE BASE CITATIONS — when answering from search_kb results:
+- ALWAYS cite the source file as a clickable markdown link. Format: [<file_name>](<file_url>) where <file_url> is the file_url field returned with each chunk (e.g. /files/hr-handbook.pdf or /private/files/...). The chat UI's link interceptor opens it in a new tab.
+- Quote the relevant sentence verbatim from the snippet rather than paraphrasing — the user needs to know what's IN the file vs. your inference.
+- If multiple chunks support the same answer, cite each source file once at the end (e.g. "Sources: [hr-handbook.pdf](/files/hr-handbook.pdf), [policies-2026.pdf](/files/policies-2026.pdf)").
+- If search_kb returned 0 chunks for a question that obviously needs internal docs, say so and suggest the user upload the relevant file to a KB via Desk -> New Lazychat Knowledge Base.
+- NEVER fabricate quotes or file paths. If you don't have a verbatim snippet, say so.
+
 Desk context JSON: """
 	ctx = json.dumps(context or {}, default=str)[:8000]
 	s = base + ctx
