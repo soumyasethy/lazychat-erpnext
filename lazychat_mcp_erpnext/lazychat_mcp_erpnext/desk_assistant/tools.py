@@ -130,7 +130,67 @@ def _trim_doc(doc_dict, max_child_rows=25):
 	return trimmed
 
 
+def _coerce_args(args):
+	"""Normalize stringified JSON values to their native types.
+
+	Models that aren't fully tool-trained (seed-oss-36b, smaller open-weight
+	models, some OpenAI-compatible gateways) routinely emit `tool_calls.
+	function.arguments` with EVERYTHING stringified — `filters: "{}"`,
+	`fields: "['name', 'foo']"`, `limit: "1"`, etc. — even when the schema
+	declares them as objects/arrays/integers. The system prompt explicitly
+	asks them not to (see lazychat.ai/.../routerSystemPrompt.ts) but
+	enforcement on the model side is unreliable.
+
+	Rather than make every tool's impl handle every stringified-vs-native
+	combination, normalize at the dispatch boundary. Common-shape keys are
+	probed: if the value is a string that looks like JSON, json.loads it;
+	if int-coercible, int it. Unknown keys pass through untouched.
+
+	Idempotent — already-typed values pass through.
+	"""
+	if not isinstance(args, dict):
+		return args
+	out = dict(args)
+	# Object / array fields the schemas expect as JSON.
+	for k in ("filters", "fields", "values", "patch", "spec", "extra_payload",
+	          "extraHeaders", "headers", "tools", "params", "data"):
+		v = out.get(k)
+		if isinstance(v, str) and v:
+			s = v.strip()
+			# Only attempt parse if it LOOKS like JSON — otherwise the string is
+			# a real string the schema expects (e.g. `query` text, `code` body).
+			# Single-quote pseudo-JSON ("['name', 'customer_name']") is the most
+			# common offender from non-tool-trained models; convert before parse.
+			if (s.startswith("[") and s.endswith("]")) or (s.startswith("{") and s.endswith("}")):
+				try:
+					out[k] = json.loads(s)
+				except Exception:
+					try:
+						# seed-oss-36b emits Python-literal-looking lists with
+						# single quotes — JSON requires double quotes. Swap and retry.
+						out[k] = json.loads(s.replace("'", '"'))
+					except Exception:
+						pass  # leave as-is; downstream will surface the issue
+	# Integer fields the schemas expect as ints.
+	for k in ("limit", "max_chunks", "max_tokens", "temperature_x100", "depth"):
+		v = out.get(k)
+		if isinstance(v, str) and v.strip():
+			try:
+				out[k] = int(v.strip())
+			except ValueError:
+				try:
+					out[k] = float(v.strip())
+				except ValueError:
+					pass
+		elif isinstance(v, float) and k == "limit":
+			out[k] = int(v)
+	return out
+
+
 def execute_tool(name, args, *, allow_writes=False, desk_context=None):
+	# Defensive: many models stringify their tool args. Normalize before
+	# dispatch so each tool's impl can rely on native types.
+	args = _coerce_args(args)
 	if name == "get_list":
 		dt = args.get("doctype")
 		if not dt or not frappe.db.exists("DocType", dt):
