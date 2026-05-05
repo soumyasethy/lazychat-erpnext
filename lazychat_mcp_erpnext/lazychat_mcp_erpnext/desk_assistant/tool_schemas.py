@@ -512,6 +512,42 @@ TOOL_SCHEMAS = [
 		},
 	},
 	{
+		"name": "list_attachments",
+		"description": (
+			"List the File doctype rows attached to a parent document. Returns rows with "
+			"{name, file_name, file_url, absolute_url, is_private, file_size, file_type, "
+			"owner, creation}. Use when the user asks 'what files are attached to X?' or "
+			"as a step before citing files in a reply (the absolute_url is clickable via "
+			"Tier-A's link interceptor). Permission: Read on the parent doc."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"doctype": {"type": "string"},
+				"name": {"type": "string"},
+			},
+			"required": ["doctype", "name"],
+		},
+	},
+	{
+		"name": "get_file_url",
+		"description": (
+			"Resolve a File doctype row (by name or file_url) to its absolute URL plus "
+			"metadata. Returns {ok, name, file_name, file_url, absolute_url, is_private, "
+			"file_size, attached_to_doctype, attached_to_name}. Use when you have a relative "
+			"file_url (e.g. from get_doc's `image` or `attachment` field) and want to cite "
+			"it as a clickable link in your reply, OR to confirm a file exists + the user "
+			"can access it before referencing it."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"file": {"type": "string", "description": "File doctype name OR file_url (e.g. /files/foo.pdf)"},
+			},
+			"required": ["file"],
+		},
+	},
+	{
 		"name": "make_chart",
 		"description": (
 			"Validate a Vega-Lite v5 chart spec and echo it back. Use this BEFORE emitting "

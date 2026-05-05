@@ -1212,6 +1212,82 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"confirm_with": f"/commit {token}",
 		}
 
+	# Files (Tier B reads) — list attachments on any doc the user can read,
+	# resolve a File doctype row (by name or file_url) to its absolute URL.
+	# These complement extract_file_content (which reads a file's text) and
+	# the KB tools (which search across attached files semantically).
+	if name == "list_attachments":
+		dt = args.get("doctype")
+		dn = args.get("name")
+		if not dt or not dn:
+			return {"error": "doctype and name required"}
+		# Permission gate on the parent doc — File rows inherit visibility from
+		# their attached doc when attached_to_doctype/name are set.
+		if not frappe.has_permission(dt, "read", doc=dn):
+			return {"error": "no read permission on parent doc"}
+		try:
+			rows = frappe.get_all(
+				"File",
+				filters={"attached_to_doctype": dt, "attached_to_name": dn},
+				fields=["name", "file_name", "file_url", "is_private", "file_size", "file_type", "owner", "creation"],
+				order_by="creation desc",
+			)
+			# Inject absolute_url so the agent can cite a clickable link without
+			# guessing the host. Tier-A's <a> interceptor already opens
+			# /files/... and /private/files/... in a new tab.
+			for r in rows:
+				url = r.get("file_url")
+				if url:
+					try:
+						r["absolute_url"] = _frappe_get_url(url)
+					except Exception:
+						r["absolute_url"] = None
+			return {"ok": True, "doctype": dt, "name": dn, "count": len(rows), "files": rows}
+		except Exception as e:
+			return {"error": str(e)}
+
+	if name == "get_file_url":
+		# Accept either the File doctype name OR a raw file_url. Useful when
+		# the agent has a URL from list_attachments / get_doc and wants the
+		# absolute path it can cite to the user.
+		ref = (args.get("file") or args.get("name") or args.get("file_url") or "").strip()
+		if not ref:
+			return {"error": "file (File doctype name or file_url) required"}
+		try:
+			file_doc = None
+			if frappe.db.exists("File", ref):
+				file_doc = frappe.get_doc("File", ref)
+			else:
+				match = frappe.get_all("File", filters={"file_url": ref}, fields=["name"], limit=1)
+				if match:
+					file_doc = frappe.get_doc("File", match[0].name)
+			if not file_doc:
+				return {"error": f"file not found: {ref}"}
+			# Permission: if the file's attached to a doc, user must be able to read that doc.
+			# Public files (no attached_to_doctype) are readable by anyone authenticated.
+			if file_doc.attached_to_doctype and file_doc.attached_to_name:
+				if not frappe.has_permission(file_doc.attached_to_doctype, "read", doc=file_doc.attached_to_name):
+					return {"error": "no read permission on the doc this file is attached to"}
+			absolute = None
+			if file_doc.file_url:
+				try:
+					absolute = _frappe_get_url(file_doc.file_url)
+				except Exception:
+					pass
+			return {
+				"ok": True,
+				"name": file_doc.name,
+				"file_name": file_doc.file_name,
+				"file_url": file_doc.file_url,
+				"absolute_url": absolute,
+				"is_private": bool(file_doc.is_private),
+				"file_size": file_doc.file_size,
+				"attached_to_doctype": file_doc.attached_to_doctype,
+				"attached_to_name": file_doc.attached_to_name,
+			}
+		except Exception as e:
+			return {"error": str(e)}
+
 	# Charts (Tier F) — thin passthrough that validates a Vega-Lite spec and
 	# echoes it back. Purpose: gives the LLM a tool-call so the live mcpTool
 	# card shows "Calling make_chart…" while the chart itself is rendered

@@ -6,7 +6,7 @@ A reference for what the agent can do **today**, what's **shipping next**, and w
 
 ## TL;DR — current state
 
-- **58 permission-scoped tools** (read, write, workflow, analytics, reports, files, ERPNext domain, gated power tools, skills, knowledge base + **vector embeddings + hybrid retrieval** + chat-ui management + citations, system diagnostics, admin, audit trail, file exports (CSV / PDF), background-job control, inline charts (Vega-Lite))
+- **60 permission-scoped tools** (read, write, workflow, analytics, reports, files **+ list/resolve attachments**, ERPNext domain, gated power tools, skills, knowledge base + vector embeddings + hybrid retrieval + chat-ui management + citations, system diagnostics, admin, audit trail, file exports (CSV / PDF), background-job control, inline charts (Vega-Lite))
 - **2 chat paths** — Browser-LLM (BYO key in browser) or Backend-LLM (shared key in `LLM Provider` doctype)
 - **Multi-provider LLM** — Anthropic native + any OpenAI-compatible endpoint (OpenAI, NVIDIA, OpenRouter, LM Studio, Groq, Together, Vercel AI Gateway, …)
 - **Two-phase mutations** — `prepare_*` → `/commit TOKEN` so the LLM can never silently mutate
@@ -64,9 +64,14 @@ Tools: `get_stock_balance`, `get_account_balance`, `get_outstanding`, `get_open_
 
 ### Files (read)
 
+> "What files are attached to SO26001040?"
 > "Read the contents of the attached PDF."
+> "Give me the link to the invoice attached to SI-001."
 
-Tools: `extract_file_content` (returns up to 20k chars of text from any attached File).
+Tools:
+- `list_attachments(doctype, name)` — every File row attached to a parent doc, with absolute URL ready to cite.
+- `get_file_url(file)` — resolve a File doctype name OR a relative `file_url` to its absolute URL with metadata; permission-checked via the parent doc.
+- `extract_file_content` — up to 20k chars of text from any attached File.
 
 ### Mutations & communications (two-phase, always)
 
@@ -180,7 +185,7 @@ Open the `/` command palette (or Cmd+K). The **Skills** section lists everything
 | **Workflow** | `list_workflow_actions`, `get_pending_approvals` | 2 |
 | **Analytics** | `aggregate`, `get_sales_summary`, `dashboard_chart_data`, `number_card_value`, `list_user_dashboards` | 5 |
 | **Reports** | `list_reports`, `report_requirements`, `run_report` | 3 |
-| **Files** | `extract_file_content` | 1 |
+| **Files** | `extract_file_content`, `list_attachments`, `get_file_url` | 3 |
 | **ERPNext domain** | `get_stock_balance`, `get_account_balance`, `get_outstanding`, `get_open_invoices`, `get_item_price`, `get_company_defaults` | 6 |
 | **Mutations / Comms** *(two-phase, `/commit` required)* | `prepare_create_doc`, `prepare_update_doc`, `prepare_submit_doc`, `prepare_delete_doc`, `prepare_workflow_action`, `prepare_add_comment`, `prepare_assign_to`, `prepare_send_email`, `prepare_share_doc` | 9 |
 | **Power tools** *(gated + two-phase)* | `prepare_run_sql`, `prepare_run_python` | 2 |
@@ -194,7 +199,7 @@ Open the `/` command palette (or Cmd+K). The **Skills** section lists everything
 | **KB management** *(write)* | `prepare_create_kb`, `prepare_add_file_to_kb` | 2 |
 | **Charts** *(inline Vega-Lite)* | `make_chart` | 1 |
 | **KB indexing** *(reindex existing files)* | `reindex_kb` | 1 |
-| **Total** | | **58** |
+| **Total** | | **60** |
 
 Every tool runs as `frappe.session.user`. `frappe.has_permission(...)` is checked **before** any DB access. There is no god-mode bypass.
 
@@ -258,16 +263,16 @@ Coverage map for the standard admin/dev surface in Frappe + ERPNext. Most items 
 
 Each tier is independently shippable; the user can stop at any cutpoint.
 
-### Tier B — Files (~3 days)
+### Tier B — Files
 
-> "Show me the attachments on SO26001040." • "Attach this file to SO-001." • "Download the PDF for invoice SI-007."
+> "Show me the attachments on SO26001040." (✅ shipped) • "Download the PDF for invoice SI-007." (✅ via `export_doc_pdf`) • "Attach this file to SO-001." (planned)
 
-| New tool | What it does |
-|---|---|
-| `list_attachments(doctype, name)` | All `File` doctype rows linked to a parent doc, with absolute URLs |
-| `get_file_url(file_name)` | Resolve a File to its public/private URL via `frappe.utils.get_url` |
-| `get_download_url(doctype, name, format?)` | Print-format download URL the user can click |
-| `prepare_upload_file(target_doctype, target_name, accept?)` | Two-phase upload via chat-ui file picker (postMessage roundtrip) |
+| Tool | Status | What it does |
+|---|---|---|
+| `list_attachments(doctype, name)` | ✅ shipped | All `File` doctype rows linked to a parent doc, with absolute URLs ready to cite |
+| `get_file_url(file)` | ✅ shipped | Resolve a File (by name or relative URL) to its public/private absolute URL via `frappe.utils.get_url`, permission-checked through the parent doc |
+| `export_doc_pdf(doctype, name, print_format?)` | ✅ shipped | Renders a doc via Print Format → PDF, returns clickable URL (covers the original "get_download_url" use case) |
+| `prepare_upload_file(target_doctype, target_name, accept?)` | ⏭️ deferred | Two-phase upload via chat-ui file picker — needs new postMessage protocol (`requestUpload`/`uploadComplete` envelopes) + `<input type=file>` integration in the panel shim. Workaround today: user uploads via standard Frappe attachments sidebar, then asks the agent to wire it up via `prepare_add_file_to_kb` or `prepare_update_doc`. |
 
 ### Tier C — Export & Import (~3 days)
 
