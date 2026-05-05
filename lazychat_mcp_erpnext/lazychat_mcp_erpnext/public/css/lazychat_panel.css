@@ -92,6 +92,15 @@
 	background: #1c1f24;
 }
 
+/* Full-width toggle from chat-ui Maximize button (postMessage maximizeChanged).
+ * Wins over the inline width set by the drag handle and over the default 420px. */
+#lazychat-panel.lazychat-maximized {
+	width: 100vw !important;
+}
+#lazychat-panel.lazychat-maximized #lazychat-resize-handle {
+	display: none;
+}
+
 @media (max-width: 640px) {
 	#lazychat-panel {
 		width: 100% !important;
