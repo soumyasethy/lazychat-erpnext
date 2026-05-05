@@ -2,6 +2,8 @@
 
 A **Frappe app** that drops a rich, multi-provider AI chat panel into the right side of your ERPNext desk. Built on top of the [lazychat-ai](https://github.com/soumyasethy/lazychat.ai) React UI embedded as a same-origin iframe, with a tool-calling backend that talks to your real ERPNext data through 38 permission-scoped tools.
 
+> **End-user reference:** see **[CAPABILITIES.md](./CAPABILITIES.md)** for what you can ask the agent today, the full tool catalog with examples, and the roadmap (voice input, clickable Desk navigation, file upload/download, smart CSV/PDF export with field picker, inline charts, user-defined skills, async/scheduled jobs, realtime doc-change watches).
+
 ```
 ┌─────────────────────────────────────────────────┐ ┌──────────┐
 │  ERPNext Desk                                   │ │  Chat    │
