@@ -805,6 +805,35 @@ def run():
 		f"status={r2.get('status')} already_terminal={r2.get('already_terminal')}",
 	))
 
+	# T75: defensive arg coercion — non-tool-trained models stringify args.
+	# All these forms must succeed identically to native-typed args.
+	# This is the regression for the chat-ui mcpCallTool round-trip with
+	# seed-oss-36b emitting filters="{}", fields="['name']", limit="1".
+	r = execute_tool("get_list", {
+		"doctype": "Customer",
+		"filters": "{}",                          # string instead of dict
+		"fields": "['name', 'customer_name']",    # python-literal string
+		"limit": "2",                              # string instead of int
+	})
+	record(_ok(
+		"T75 get_list coerces stringified filters/fields/limit",
+		r.get("ok") is True and isinstance(r.get("rows"), list) and r.get("count", 0) >= 1,
+		f"count={r.get('count')} sample={r.get('rows', [{}])[0].get('name')}",
+	))
+
+	# T76: same coercion on a different tool — aggregate with stringified filters.
+	r = execute_tool("aggregate", {
+		"doctype": "Customer",
+		"function": "count",
+		"field": "name",
+		"filters": "{}",
+	})
+	record(_ok(
+		"T76 aggregate coerces stringified filters",
+		r.get("ok") is True and isinstance(r.get("rows", r.get("count")), (list, int)),
+		f"count={r.get('count')}",
+	))
+
 	# Cleanup
 	cleaned = []
 	if created_note:
