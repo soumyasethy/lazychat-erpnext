@@ -113,6 +113,7 @@ def _print_welcome_banner():
 
 def seed_llm_defaults():
 	# Not under fixtures/ — Frappe migrate auto-imports every fixtures/*.json and requires each doc to have "name".
+	# Now also seeds Lazychat Skill rows (starter pack: ar-collections, item-onboarding).
 	path = os.path.join(os.path.dirname(__file__), "seed_data.json")
 	if not os.path.exists(path):
 		return
@@ -125,6 +126,13 @@ def seed_llm_defaults():
 				continue
 		elif dt == "LLM Model":
 			if frappe.db.exists("LLM Model", {"model_label": row["model_label"]}):
+				continue
+		elif dt == "Lazychat Skill":
+			# Skip seeding if the doctype isn't migrated yet (first install before migrate),
+			# or if a row with this skill_name already exists.
+			if not frappe.db.exists("DocType", "Lazychat Skill"):
+				continue
+			if frappe.db.exists("Lazychat Skill", row["skill_name"]):
 				continue
 		else:
 			continue

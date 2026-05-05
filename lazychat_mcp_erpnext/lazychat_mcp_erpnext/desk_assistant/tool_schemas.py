@@ -511,4 +511,41 @@ TOOL_SCHEMAS = [
 			"required": ["doctype", "name", "user"],
 		},
 	},
+	{
+		"name": "list_skills",
+		"description": (
+			"List the user's installed skills (own + public). Each skill is a focused "
+			"agent persona — system prompt + optional tool subset — that the user can "
+			"activate to specialise the agent. Returns rows with {name, title, description, "
+			"is_public, allowed_tools, active}. Read-only; does not change state."
+		),
+		"input_schema": {"type": "object", "properties": {}},
+	},
+	{
+		"name": "activate_skill",
+		"description": (
+			"Activate a skill so its system prompt is appended to the base prompt "
+			"and (if it declares allowed_tools) the agent's tool view is restricted "
+			"to that subset. Multiple skills can stack. Effect persists for the user "
+			"across tabs and sessions until deactivate_skill or the 7-day TTL expires."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"skill_name": {"type": "string", "description": "Skill slug, e.g. 'ar-collections'"}
+			},
+			"required": ["skill_name"],
+		},
+	},
+	{
+		"name": "deactivate_skill",
+		"description": "Remove a skill from the user's active set. No-op if it wasn't active.",
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"skill_name": {"type": "string"}
+			},
+			"required": ["skill_name"],
+		},
+	},
 ]

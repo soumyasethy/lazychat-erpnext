@@ -6,13 +6,14 @@ A reference for what the agent can do **today**, what's **shipping next**, and w
 
 ## TL;DR — current state
 
-- **38 permission-scoped tools** (read, write, workflow, analytics, reports, files, ERPNext domain, gated power tools)
+- **41 permission-scoped tools** (read, write, workflow, analytics, reports, files, ERPNext domain, gated power tools, **skills**)
 - **2 chat paths** — Browser-LLM (BYO key in browser) or Backend-LLM (shared key in `LLM Provider` doctype)
 - **Multi-provider LLM** — Anthropic native + any OpenAI-compatible endpoint (OpenAI, NVIDIA, OpenRouter, LM Studio, Groq, Together, Vercel AI Gateway, …)
 - **Two-phase mutations** — `prepare_*` → `/commit TOKEN` so the LLM can never silently mutate
 - **Voice input** (Chrome / Edge / Safari) — click the mic, speak, review the transcript, then send
 - **Clickable Desk navigation** — agent emits `[SO26001040](/app/sales-order/SO26001040)` markdown; clicking SPA-navigates the Desk without reloading the chat
 - **Live tool-call cards** — each MCP tool call shows args, ticking elapsed timer, final duration, result preview (pretty-printed JSON, shiki-highlighted)
+- **Skills (Tier E, slice 1)** — focused agent personas with optional tool-subset restriction. Toggle from the `/` palette. Two starter skills seeded: *AR Collections*, *Item Onboarding*. Active set persists per-user across tabs (Redis, 7-day TTL).
 
 ---
 
@@ -95,6 +96,22 @@ The agent emits a clickable Desk link — click to SPA-navigate. Cmd-click opens
 
 Click the mic icon in the input bar. Permission prompt appears once. Speak; the transcript streams into the input bar live. Click the mic again to stop. **You review and edit the text, then press Enter to send.** Works in Chrome, Edge, Safari (Firefox doesn't ship the Web Speech API yet).
 
+### Skills (focus the agent for a workflow)
+
+Open the `/` command palette (or Cmd+K). The **Skills** section lists everything you can activate. Each skill is a packaged persona — a system-prompt snippet plus an optional tool-subset whitelist that restricts what the agent can call while the skill is on. Multiple skills can stack.
+
+**Seeded starter pack:**
+
+- **AR Collections** — receivables follow-up. Restricts the agent to outstanding/invoice reads + email/comment staging. Drafts polite 7-day-out follow-ups; never escalates without you asking.
+- **Item Onboarding** — guides creation of new Items with the right defaults. Restricts to describe/search/list reads + `prepare_create_doc`.
+
+**Manage your own:** `Desk → New Lazychat Skill`. Fields: skill name (slug), title, description, system prompt snippet, optional `allowed_tools` JSON array (e.g. `["get_outstanding", "prepare_send_email"]`), examples, enabled, public flag (System Manager only — public skills appear in everyone's palette).
+
+**How activation works under the hood:**
+- Toggling a skill calls `activate_skill` / `deactivate_skill` over MCP.
+- The active set is stored in Redis under `lazychat:skills:active:<user>` (7-day TTL, refreshed on each touch).
+- Every agent turn re-reads the set: the system prompt gains a `--- Active skill: <Title> ---` block per active skill, and the MCP `tools/list` response is filtered to the union of `allowed_tools` across active skills (server-side enforcement, not client-trusted — the LLM physically cannot see hidden tools).
+
 ---
 
 ## Full tool catalog (38)
@@ -110,7 +127,8 @@ Click the mic icon in the input bar. Permission prompt appears once. Speak; the 
 | **ERPNext domain** | `get_stock_balance`, `get_account_balance`, `get_outstanding`, `get_open_invoices`, `get_item_price`, `get_company_defaults` | 6 |
 | **Mutations / Comms** *(two-phase, `/commit` required)* | `prepare_create_doc`, `prepare_update_doc`, `prepare_submit_doc`, `prepare_delete_doc`, `prepare_workflow_action`, `prepare_add_comment`, `prepare_assign_to`, `prepare_send_email`, `prepare_share_doc` | 9 |
 | **Power tools** *(gated + two-phase)* | `prepare_run_sql`, `prepare_run_python` | 2 |
-| **Total** | | **38** |
+| **Skills** *(meta — configure the agent itself)* | `list_skills`, `activate_skill`, `deactivate_skill` | 3 |
+| **Total** | | **41** |
 
 Every tool runs as `frappe.session.user`. `frappe.has_permission(...)` is checked **before** any DB access. There is no god-mode bypass.
 
@@ -125,6 +143,7 @@ Every tool runs as `frappe.session.user`. `frappe.has_permission(...)` is checke
 | **Voice input** | ✅ shipped | Web Speech API via the mic button; live interim transcript; review-before-send. |
 | **MCP timeouts + observability** | ✅ shipped | 45 s SSE inactivity guard, 30 s tool-call timeout, 15 s tools/list timeout, live `mcpTool` cards with elapsed timer. |
 | **DATA FAITHFULNESS prompt** | ✅ shipped | Forces enumeration of every row, markdown tables for tabular data, verbatim numerics. |
+| **E1 — Skills system (slice 1)** | ✅ shipped | New `Lazychat Skill` doctype + 3 backend tools (`list_skills`, `activate_skill`, `deactivate_skill`) + per-user Redis active set + system-prompt composer + `tools/list` filter. Chat-ui Skills section in `/` palette. Two starter skills seeded. Skill creation via `Desk → New Lazychat Skill` (System Manager). Inline skill creation form deferred to slice 2. |
 
 ---
 
@@ -167,16 +186,17 @@ Each tier is independently shippable; the user can stop at any cutpoint.
 
 Plus: chat-ui SSE subscriber + new `useRealtime` store + extended `mcpTool` cards that subscribe to job_ids and tick to "Job complete".
 
-### Tier E — Skills / extensions system (NEW, planned)
+### Tier E — Skills / extensions system (✅ slice 1 shipped, slices 2+ planned)
 
-Inspired by Claude Code's *superpowers* — let users **package an instruction + tool subset + examples** as a reusable skill, surfaced via the `/` command palette in chat-ui. The agent loads active skills into its system prompt.
+**Slice 1 (shipped May 5):** new `Lazychat Skill` doctype, 3 backend tools (list/activate/deactivate), per-user Redis active set with system-prompt composition + `tools/list` filtering, chat-ui Skills section in `/` palette with optimistic toggles, 2 starter skills seeded (`ar-collections`, `item-onboarding`). Skill creation today via `Desk → New Lazychat Skill` (System Manager).
 
-Design (draft):
-- **Storage** — new `Lazychat Skill` doctype (name, description, system_prompt, allowed_tools[], examples[], enabled).
-- **Discovery** — type `/skills` in chat to list installed skills; `/skills create` opens a form; `/skills add <name>` activates one for the current conversation.
-- **Composition** — multiple skills can stack; their `system_prompt` snippets append to the base prompt.
-- **Built-in starter pack** — *Approval Bot* (only workflow + comment tools, focused prompt), *AR Collections* (outstanding + email tools), *Stock Reconciliation* (stock + SQL tools, gated), *Item Onboarding* (smart-export + create-doc).
-- **Marketplace path** (future) — JSON manifest + GitHub repo distribution.
+**Slice 2 (planned, ~2 days):** inline skill creation in chat-ui — `/skills create` opens a form (title + description + prompt + tool checklist) without leaving the chat; `prepare_create_skill` + `prepare_update_skill` two-phase tools.
+
+**Slice 3 (planned, ~1 day):** active-skill chips above InputBar (similar to existing `EditingChip`/`QueuedChip`), one-click deactivate from the chip.
+
+**Slice 4 (planned, ~1 day):** expand the starter pack with *Stock Reconciliation* (stock + gated SQL) and *Approval Bot* (workflow + comment).
+
+**Future:** marketplace-style discovery (JSON manifest + GitHub repo distribution); per-skill memory (skill-scoped session state); skill-driven custom slash commands.
 
 ### Tier F — Charts / data exploration (NEW, planned)
 
@@ -229,7 +249,7 @@ Next steps:
 - **No file upload** from chat → backend yet (Tier B).
 - **No CSV/PDF export** beyond the gated `prepare_run_python` workaround (Tier C).
 - **No async jobs / scheduled tasks / realtime subscriptions** (Tier D).
-- **No user-defined skills** (Tier E).
+- **Skills slice 1 only** — skill creation today is via `Desk → New Lazychat Skill`; inline `/skills create` form ships in slice 2 (Tier E).
 - **No inline charts** — agent can describe data but can't draw it (Tier F).
 - **`get_doc` truncates child tables to 25 rows** server-side; for full data the agent uses `get_list`. The `_note` field tells it when truncation happened.
 - **Browser-LLM tool result cap is 60 KB** (after May 5 bump from 12 KB). For very large docs the result still gets truncated with a notice.

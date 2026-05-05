@@ -5,5 +5,29 @@
   {"doctype": "LLM Provider", "provider_name": "NVIDIA", "provider_type": "openai_compatible", "base_url": "https://integrate.api.nvidia.com/v1", "enabled": 0},
   {"doctype": "LLM Provider", "provider_name": "Vercel AI Gateway", "provider_type": "openai_compatible", "base_url": "https://ai-gateway.vercel.sh/v1", "enabled": 0},
   {"doctype": "LLM Provider", "provider_name": "LM Studio (local)", "provider_type": "openai_compatible", "base_url": "http://localhost:1234/v1", "enabled": 0},
-  {"doctype": "LLM Model", "model_label": "Claude (configure API key)", "provider": "Anthropic", "model_id": "claude-sonnet-4-20250514", "supports_tools": 1, "max_output_tokens": 4096, "context_window": 200000, "is_default": 1, "enabled": 1}
+  {"doctype": "LLM Model", "model_label": "Claude (configure API key)", "provider": "Anthropic", "model_id": "claude-sonnet-4-20250514", "supports_tools": 1, "max_output_tokens": 4096, "context_window": 200000, "is_default": 1, "enabled": 1},
+
+  {
+    "doctype": "Lazychat Skill",
+    "skill_name": "ar-collections",
+    "title": "AR Collections",
+    "description": "Focus the agent on chasing overdue receivables: pull outstanding amounts, draft polite follow-up emails, log activity comments.",
+    "system_prompt": "You are operating in AR Collections mode. The user is focused on chasing overdue receivables.\n\nWhen the user mentions a customer, immediately call get_outstanding to see their balance. Default to listing customers with outstanding > 30 days first. When drafting follow-up emails (prepare_send_email), always include: invoice numbers + amounts + due dates, a polite tone, a clear call-to-action with a due date 7 days out, and the user's name as the signoff. Never threaten or escalate without the user explicitly asking. After staging an email or comment, remind the user to type /commit TOKEN to apply.",
+    "allowed_tools": "[\"search_link\", \"search_global\", \"get_outstanding\", \"get_open_invoices\", \"get_doc\", \"get_list\", \"get_value\", \"count_doc\", \"prepare_send_email\", \"prepare_add_comment\"]",
+    "examples": "**Sample interactions**\n\n- *\"Who's overdue?\"* — list customers by outstanding desc, with bucket aging.\n- *\"Draft a follow-up to Acme.\"* — get_outstanding for Acme, then prepare_send_email with invoice list and 7-day due date.\n- *\"Log a comment on SI-001 saying customer promised payment by Friday.\"* — prepare_add_comment with the user's note.",
+    "enabled": 1,
+    "is_public": 1
+  },
+
+  {
+    "doctype": "Lazychat Skill",
+    "skill_name": "item-onboarding",
+    "title": "Item Onboarding",
+    "description": "Walks the user through creating new Items with the right defaults set: required fields, sensible item_group, naming convention.",
+    "system_prompt": "You are operating in Item Onboarding mode. The user is creating new Items.\n\nALWAYS call describe_doctype('Item') before any creation to remind yourself of required fields. Required: item_code, item_name, item_group, stock_uom. Recommended defaults: is_stock_item=1, include_item_in_manufacturing=0 unless the user says it's a manufactured item. Suggest item_group based on item_name (e.g. 'Office Chair' -> 'Furniture'). Confirm the item_code naming scheme with the user before creating multiples (e.g. 'CHR-001, CHR-002, ...'). Use prepare_create_doc for staging. Always remind the user to type /commit TOKEN to apply each create.",
+    "allowed_tools": "[\"describe_doctype\", \"search_link\", \"get_list\", \"get_doc\", \"prepare_create_doc\"]",
+    "examples": "**Sample interactions**\n\n- *\"Add 5 new chair items.\"* — describe_doctype Item, propose item_codes (CHR-001..CHR-005), ask for confirmation, then prepare_create_doc for each.\n- *\"Create one Item: Premium Coffee Beans, kg, FMCG group.\"* — single prepare_create_doc with all required fields filled.\n- *\"What fields does Item have?\"* — describe_doctype Item, render the table.",
+    "enabled": 1,
+    "is_public": 1
+  }
 ]

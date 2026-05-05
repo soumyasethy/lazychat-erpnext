@@ -127,6 +127,17 @@ Desk context JSON: """
 	s = base + ctx
 	if not supports_tools:
 		s += TOOLLESS_PROMPT_SUFFIX
+	# Tier E — append active skill snippets (per-user, Redis-backed). No-op when
+	# the user has no skills active. compose_active_prompt is defensive: filters
+	# out stale / disabled / inaccessible skill names automatically.
+	try:
+		from lazychat_mcp_erpnext.desk_assistant import skills as _skills
+
+		s = _skills.compose_active_prompt(s)
+	except Exception:
+		# Never let skill-prompt composition break the agent loop; log and
+		# fall through to the unmodified base prompt.
+		frappe.log_error(frappe.get_traceback(), "lazychat skills.compose_active_prompt")
 	return s
 
 

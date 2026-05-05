@@ -48,7 +48,12 @@ def _jsonrpc_err(req_id, code, message, data=None):
 
 
 def _tool_schemas_mcp():
-	"""Translate our internal tool defs (input_schema) to MCP wire format (inputSchema)."""
+	"""Translate our internal tool defs (input_schema) to MCP wire format (inputSchema).
+
+	When the calling user has any Skill active that declares an `allowed_tools`
+	whitelist, the result is filtered to that union. Skills without
+	allowed_tools restrict nothing. See desk_assistant/skills.py.
+	"""
 	out = []
 	for t in TOOL_SCHEMAS:
 		out.append(
@@ -58,7 +63,18 @@ def _tool_schemas_mcp():
 				"inputSchema": t.get("input_schema") or {"type": "object", "properties": {}},
 			}
 		)
-	return out
+	try:
+		from lazychat_mcp_erpnext.desk_assistant import skills as _skills
+
+		return _skills.filter_tools_for_user(out)
+	except Exception:
+		# Never let a skill-config error blank out the tool list; log + return
+		# the unfiltered list so the agent stays usable.
+		try:
+			frappe.log_error(frappe.get_traceback(), "lazychat skills.filter_tools_for_user")
+		except Exception:
+			pass
+		return out
 
 
 def _content_text(obj):

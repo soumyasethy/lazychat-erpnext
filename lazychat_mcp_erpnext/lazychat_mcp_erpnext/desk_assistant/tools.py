@@ -1096,6 +1096,27 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		except Exception as e:
 			return {"error": str(e)}
 
+	# Skills (Tier E) — runtime activation/deactivation of agent personas.
+	# Implementation in desk_assistant/skills.py. The active set is stored in
+	# Redis per user; mcp.handle reads it on every tools/list to filter the
+	# tool universe, and claude_bridge._system_prompt reads it to compose the
+	# active skill snippets onto the base prompt.
+	if name in ("list_skills", "activate_skill", "deactivate_skill"):
+		from lazychat_mcp_erpnext.desk_assistant import skills
+
+		if name == "list_skills":
+			return {"ok": True, "skills": skills.list_skills_for_user()}
+		if name == "activate_skill":
+			skill_name = args.get("skill_name")
+			if not skill_name:
+				return {"error": "skill_name required"}
+			return skills.activate_skill(skill_name)
+		if name == "deactivate_skill":
+			skill_name = args.get("skill_name")
+			if not skill_name:
+				return {"error": "skill_name required"}
+			return skills.deactivate_skill(skill_name)
+
 	return {"error": f"unknown tool {name}"}
 
 

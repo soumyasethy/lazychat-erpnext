@@ -1,0 +1,143 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:skill_name",
+ "creation": "2026-05-05 09:30:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_identity",
+  "skill_name",
+  "title",
+  "description",
+  "section_behaviour",
+  "system_prompt",
+  "allowed_tools",
+  "examples",
+  "section_meta",
+  "enabled",
+  "is_public",
+  "section_help",
+  "help_html"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_identity",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "fieldname": "skill_name",
+   "fieldtype": "Data",
+   "label": "Skill Name (slug)",
+   "in_list_view": 1,
+   "reqd": 1,
+   "unique": 1,
+   "description": "Stable identifier (kebab-case). Used as the doctype 'name' and in /skills toggle commands. Example: 'ar-collections'."
+  },
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "label": "Title",
+   "in_list_view": 1,
+   "reqd": 1,
+   "description": "Human-friendly name shown in the chat-ui Skills palette."
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description",
+   "description": "One-paragraph summary of what this skill does. Surfaced in the chat-ui under the title."
+  },
+  {
+   "fieldname": "section_behaviour",
+   "fieldtype": "Section Break",
+   "label": "Behaviour"
+  },
+  {
+   "fieldname": "system_prompt",
+   "fieldtype": "Long Text",
+   "label": "System Prompt Snippet",
+   "reqd": 1,
+   "description": "Appended to the base system prompt when this skill is active. Tells the LLM how to behave inside this skill (focus, tone, decision rules, examples)."
+  },
+  {
+   "fieldname": "allowed_tools",
+   "fieldtype": "Code",
+   "options": "JSON",
+   "label": "Allowed Tools (JSON array)",
+   "description": "Optional. JSON array of tool names. When set, the agent's tools/list response is filtered to this subset for the active conversation, so the LLM physically cannot use anything else. Leave empty to allow all 38 tools. Example: [\"get_outstanding\", \"prepare_send_email\"]"
+  },
+  {
+   "fieldname": "examples",
+   "fieldtype": "Long Text",
+   "label": "Examples (markdown)",
+   "description": "Optional sample interactions shown in the skill's detail view. Plain markdown."
+  },
+  {
+   "fieldname": "section_meta",
+   "fieldtype": "Section Break",
+   "label": "Visibility"
+  },
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled",
+   "description": "When unchecked, the skill is hidden from the Skills palette."
+  },
+  {
+   "default": "0",
+   "fieldname": "is_public",
+   "fieldtype": "Check",
+   "label": "Public (visible to all users)",
+   "description": "When checked, every authenticated user sees this skill in the palette. Otherwise only the owner does. System Manager only."
+  },
+  {
+   "fieldname": "section_help",
+   "fieldtype": "Section Break",
+   "label": "Help"
+  },
+  {
+   "fieldname": "help_html",
+   "fieldtype": "HTML",
+   "options": "<div class=\"text-muted\" style=\"line-height:1.6\"><p>A <b>Skill</b> packages a focused agent persona — a system prompt + an optional restricted tool subset + examples — that the user can activate from the chat-ui's <code>/</code> palette.</p><p>When active, the skill's system prompt appends to the base prompt, and (if <code>allowed_tools</code> is set) the LLM only sees that subset for the rest of the conversation. Multiple skills can stack.</p><h5>Examples</h5><ul><li><b>AR Collections</b> — receivables follow-up; tools restricted to outstanding + email + comment.</li><li><b>Item Onboarding</b> — guides the user through creating Items with the right defaults.</li></ul><p>Both are seeded as <code>is_public = 1</code> on install. Add your own via <i>New Lazychat Skill</i>.</p></div>"
+  }
+ ],
+ "issingle": 0,
+ "links": [],
+ "modified": "2026-05-05 09:30:00.000000",
+ "modified_by": "Administrator",
+ "module": "Desk Assistant",
+ "name": "Lazychat Skill",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 0,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 0,
+   "export": 0,
+   "print": 0,
+   "read": 1,
+   "report": 0,
+   "role": "All",
+   "share": 0,
+   "write": 0
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1
+}
