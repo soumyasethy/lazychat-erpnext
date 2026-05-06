@@ -518,31 +518,43 @@
 		root.appendChild(panel);
 		document.body.appendChild(root);
 
-		/* Width drag */
-		let startX = 0, startW = 0, dragging = false;
+		/* Width drag — rAF-coalesced; iframe pointer-events disabled during drag so
+		 * mousemove keeps reaching the parent window once the cursor enters the iframe. */
+		let startX = 0, startW = 0, dragging = false, pendingW = 0, rafId = 0;
 		const savedW = parseInt(localStorage.getItem(STORAGE_WIDTH) || "0", 10);
 		if (savedW >= WIDTH_MIN) panel.style.width = savedW + "px";
 		else panel.style.width = WIDTH_DEFAULT + "px";
+
+		const applyPending = () => {
+			rafId = 0;
+			panel.style.width = pendingW + "px";
+		};
 
 		handle.addEventListener("mousedown", (e) => {
 			dragging = true;
 			startX = e.clientX;
 			startW = panel.getBoundingClientRect().width;
-			document.body.style.userSelect = "none";
+			pendingW = startW;
+			document.body.classList.add("lazychat-resizing");
 			e.preventDefault();
 		});
 		window.addEventListener("mousemove", (e) => {
 			if (!dragging) return;
 			const max = Math.floor(window.innerWidth * WIDTH_MAX_RATIO);
-			const w = Math.max(WIDTH_MIN, Math.min(max, startW + (startX - e.clientX)));
-			panel.style.width = w + "px";
-		});
-		window.addEventListener("mouseup", () => {
+			pendingW = Math.max(WIDTH_MIN, Math.min(max, startW + (startX - e.clientX)));
+			if (!rafId) rafId = requestAnimationFrame(applyPending);
+		}, { passive: true });
+		const endDrag = () => {
 			if (!dragging) return;
 			dragging = false;
-			document.body.style.userSelect = "";
-			localStorage.setItem(STORAGE_WIDTH, String(panel.getBoundingClientRect().width));
-		});
+			if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+			panel.style.width = pendingW + "px";
+			document.body.classList.remove("lazychat-resizing");
+			localStorage.setItem(STORAGE_WIDTH, String(pendingW));
+		};
+		window.addEventListener("mouseup", endDrag);
+		window.addEventListener("mouseleave", endDrag);
+		window.addEventListener("blur", endDrag);
 
 		/* Open/close */
 		const isOpen = () => root.classList.contains("lazychat-open");
@@ -609,6 +621,14 @@
 		 * chat-ui ignores unknown init keys, so this is harmless even when the bundled
 		 * dist hasn't been rebuilt with Phase B (mcp-client.ts) yet. */
 		const csrf = (window.frappe && window.frappe.csrf_token) || "";
+		// Resolve to absolute URL so the iframe can reach Frappe even when it's loaded
+		// cross-origin (HMR dev: iframe @ localhost:5173, Frappe @ localhost:8000).
+		// In production the iframe is same-origin, so this is a no-op transformation.
+		const _abs = (p) => {
+			if (!p) return p;
+			if (/^https?:\/\//i.test(p)) return p;
+			return window.location.origin + (p.startsWith("/") ? p : "/" + p);
+		};
 		const initPayload = {
 			theme: (frappe.boot.user && frappe.boot.user.desk_theme === "Dark") ? "dark" : "light",
 			mode: "edit-auto",
@@ -616,12 +636,12 @@
 			frame: "sidebar",
 			hostOrigin: window.location.origin,
 			chatPath: settings.chatPath,
-			mcpEndpoint: settings.mcpEndpoint,
+			mcpEndpoint: _abs(settings.mcpEndpoint),
 			mcpAuth: { csrf: csrf },
-			saveEndpoint: "/api/method/lazychat_mcp_erpnext.desk_assistant.api.save_conversation",
+			saveEndpoint: _abs("/api/method/lazychat_mcp_erpnext.desk_assistant.api.save_conversation"),
 			// Server-side LLM proxy for cross-origin custom-model calls (NVIDIA, OpenAI, etc).
 			// chat-ui's resolveFetchTarget routes here instead of the dev-only /llm-proxy.
-			llmProxyUrl: "/api/method/lazychat_mcp_erpnext.desk_assistant.llm_proxy.handle",
+			llmProxyUrl: _abs("/api/method/lazychat_mcp_erpnext.desk_assistant.llm_proxy.handle"),
 		};
 		iframe.addEventListener("load", () => {
 			bridge.send("init", initPayload);

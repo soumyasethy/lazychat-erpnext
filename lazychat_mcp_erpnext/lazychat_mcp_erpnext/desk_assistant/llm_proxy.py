@@ -128,7 +128,10 @@ def _make_response(generator, *, status: int = 200, mimetype: str | None = None,
 	# succeeds in milliseconds. Keep-alive on a streaming proxy buys you
 	# nothing — every LLM turn opens a fresh connection anyway.
 	resp.headers["Connection"] = "close"
-	resp.headers["Access-Control-Allow-Origin"] = "*"
+	# CORS is handled by Frappe's `allow_cors` middleware (site_config). Setting
+	# ACAO=* here would duplicate the header (`*, <origin>`) and the browser
+	# rejects the response — only one ACAO value is allowed when credentials
+	# are involved. Same-origin (production) needs no CORS header at all.
 	if extra_headers:
 		for k, v in extra_headers.items():
 			resp.headers[k] = v

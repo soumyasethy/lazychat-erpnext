@@ -68,7 +68,6 @@ def get_lazychat_settings():
 	# Map legacy site_config keys → settings keys
 	site_config_overrides = {
 		"lazychat_panel_enabled": "enabled",
-		"lazychat_iframe_src": "iframe_base_url",
 		"lazychat_legacy_widget_enabled": "legacy_widget_enabled",
 		"lazychat_allow_email": "allow_email",
 		"lazychat_allow_dangerous_tools": "allow_dangerous_tools",
@@ -80,6 +79,14 @@ def get_lazychat_settings():
 				out[settings_key] = bool(value)
 			elif value:
 				out[settings_key] = value
+	# `lazychat_iframe_src` is a full URL — may include a query string. Split it
+	# so the shim's `iframe_base_url + iframe_query_params` composition doesn't
+	# double-append the query (e.g. ".../?frame=sidebar?frame=sidebar").
+	if conf.get("lazychat_iframe_src"):
+		full = str(conf["lazychat_iframe_src"])
+		base, sep, qs = full.partition("?")
+		out["iframe_base_url"] = base
+		out["iframe_query_params"] = (sep + qs) if sep else ""
 	return out
 
 

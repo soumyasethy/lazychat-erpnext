@@ -54,6 +54,50 @@ bench --site your.site install-app lazychat_mcp_erpnext
 
 The `after_install` hook auto-seeds default LLM Provider/Model rows, prints a welcome banner with next steps, and verifies the bundled dist is in place.
 
+### Fresh bench, no Node/pnpm required (recommended for non-dev installs)
+
+The `release` branch is force-pushed by CI on every tag (`.github/workflows/release.yml`)
+and ships with `public/lazychat_dist/` already built. Installers don't need Node, pnpm,
+or this `code-chat` workspace:
+
+```bash
+cd /path/to/your/frappe-bench
+bench get-app https://github.com/soumyasethy/lazychat-mcp-erpnext --branch release
+bench --site your.site install-app lazychat_mcp_erpnext
+```
+
+To pull a later release:
+
+```bash
+cd /path/to/your/frappe-bench
+bench update --pull --apps lazychat_mcp_erpnext
+bench --site your.site clear-cache
+```
+
+### Push to a remote bench you own (SSH)
+
+For staging boxes / teammate machines you can SSH to. Run from your dev machine:
+
+```bash
+# One-time, on the remote bench
+ssh user@host "cd /home/frappe/frappe-bench && \
+  bench get-app https://github.com/soumyasethy/lazychat-mcp-erpnext --branch release && \
+  bench --site site.example install-app lazychat_mcp_erpnext"
+
+# Subsequent updates from your dev workspace
+cd ~/Desktop/code-chat
+sh build.sh --remote user@host:/home/frappe/frappe-bench --remote-site site.example
+# Or fan out
+for h in stage1.example stage2.example; do
+  sh build.sh --remote "deploy@$h:/home/frappe/frappe-bench" --remote-site "$h"
+done
+```
+
+`build.sh --remote` builds the dist locally, `rsync`s the app to the remote bench, runs
+`bench build --app lazychat_mcp_erpnext` and `bench --site … clear-cache` over SSH.
+See [scripts/deploy-remote.sh](./scripts/deploy-remote.sh) for env knobs (`SSH_OPTS`,
+`REMOTE_RESTART`, etc).
+
 ### Configure (pick a chat path)
 
 Open `Desk → Lazychat Settings` (or `/app/lazychat-settings`). Set **Chat Path**:
