@@ -63,13 +63,38 @@
 	left: -3px;
 	top: 0;
 	bottom: 0;
-	width: 6px;
+	width: 8px;
 	cursor: ew-resize;
 	background: transparent;
 	z-index: 2;
+	touch-action: none;
 }
 #lazychat-resize-handle:hover {
 	background: rgba(217, 119, 87, 0.25);
+}
+
+/* While dragging the resize handle:
+ *  - iframe stops capturing mousemove (otherwise drag dies once cursor enters it)
+ *  - body gets a global ew-resize cursor (no flicker as pointer crosses elements)
+ *  - text selection is suppressed everywhere
+ *  - any incidental width transition is overridden so the panel tracks the cursor 1:1
+ */
+body.lazychat-resizing,
+body.lazychat-resizing * {
+	cursor: ew-resize !important;
+	user-select: none !important;
+	-webkit-user-select: none !important;
+}
+/* Iframe stops capturing mousemove during drag — without this, the drag
+ * stalls the moment the cursor crosses into the iframe. Content stays
+ * visible (no overlay/flash), so resize feels live. */
+body.lazychat-resizing #lazychat-iframe {
+	pointer-events: none;
+}
+body.lazychat-resizing #lazychat-panel {
+	transition: none !important;
+	will-change: width;
+	contain: layout paint;
 }
 
 #lazychat-iframe {
