@@ -1116,6 +1116,180 @@ def run():
 		not r.get("ok") and "not found" in (r.get("error") or ""),
 	))
 
+	# ----------------------------------------------------------------
+	# Commit 2 — Alerts / Newsletter / Automation typed wrappers
+	# ----------------------------------------------------------------
+
+	# T106: prepare_create_notification happy
+	r = execute_tool("prepare_create_notification", {
+		"subject": f"_lazychat_smoke_notif_{frappe.generate_hash(length=4)}",
+		"document_type": "Customer",
+		"event": "New",
+		"channel": "Email",
+		"recipients": [{"receiver_by_role": "System Manager"}],
+	})
+	record(_ok(
+		"T106 prepare_create_notification New/Email stages preview_token",
+		r.get("ok") is True and bool(r.get("preview_token")),
+		f"summary={r.get('summary')!r}",
+	))
+
+	# T107: Days Before without date_changed errors
+	r = execute_tool("prepare_create_notification", {
+		"subject": "_lazychat_smoke_notif_bad",
+		"document_type": "Customer",
+		"event": "Days Before",
+		"channel": "Email",
+		"recipients": [{"receiver_by_role": "System Manager"}],
+	})
+	record(_ok(
+		"T107 prepare_create_notification Days Before without date_changed errors",
+		not r.get("ok") and "date_changed" in (r.get("error") or ""),
+	))
+
+	# T108: invalid condition expression
+	r = execute_tool("prepare_create_notification", {
+		"subject": "_lazychat_smoke_notif_cond",
+		"document_type": "Customer",
+		"event": "New",
+		"channel": "Email",
+		"recipients": [{"receiver_by_role": "System Manager"}],
+		"condition": "import os",
+	})
+	record(_ok(
+		"T108 prepare_create_notification rejects condition with imports",
+		not r.get("ok") and "condition" in (r.get("error") or "").lower(),
+	))
+
+	# T109: empty recipients on channel=Email
+	r = execute_tool("prepare_create_notification", {
+		"subject": "_lazychat_smoke_notif_no_rec",
+		"document_type": "Customer",
+		"event": "New",
+		"channel": "Email",
+		"recipients": [],
+	})
+	record(_ok(
+		"T109 prepare_create_notification rejects empty recipients on Email",
+		not r.get("ok") and "recipient" in (r.get("error") or "").lower(),
+	))
+
+	# T110: prepare_create_auto_email_report rejects nonexistent Report
+	r = execute_tool("prepare_create_auto_email_report", {
+		"report": "_lazychat_smoke_no_report",
+		"email_to": "smoke@example.com",
+	})
+	record(_ok(
+		"T110 prepare_create_auto_email_report rejects nonexistent Report",
+		not r.get("ok") and "does not exist" in (r.get("error") or ""),
+	))
+
+	# T111: update_notification_settings happy (direct, no /commit)
+	r = execute_tool("update_notification_settings", {"send_email_alerts": True})
+	record(_ok(
+		"T111 update_notification_settings updates session user prefs",
+		r.get("ok") is True and r.get("user") == frappe.session.user
+		and "send_email_alerts" in (r.get("updated_fields") or {}),
+	))
+
+	# T112: update_notification_settings with no fields errors
+	r = execute_tool("update_notification_settings", {})
+	record(_ok(
+		"T112 update_notification_settings rejects empty patch",
+		not r.get("ok") and "supply at least one" in (r.get("error") or ""),
+	))
+
+	# T113: prepare_create_milestone_tracker happy
+	r = execute_tool("prepare_create_milestone_tracker", {
+		"document_type": "Customer",
+		"track_field": "customer_group",
+	})
+	record(_ok(
+		"T113 prepare_create_milestone_tracker stages preview_token",
+		r.get("ok") is True and bool(r.get("preview_token")),
+		f"summary={r.get('summary')!r}",
+	))
+
+	# T114: prepare_create_milestone_tracker rejects non-Link/Select field
+	r = execute_tool("prepare_create_milestone_tracker", {
+		"document_type": "Customer",
+		"track_field": "customer_name",  # Data field, not Link/Select
+	})
+	record(_ok(
+		"T114 prepare_create_milestone_tracker rejects non-Link/Select field",
+		not r.get("ok") and "Link or Select" in (r.get("error") or ""),
+	))
+
+	# T115: prepare_create_auto_repeat rejects nonexistent ref doc
+	r = execute_tool("prepare_create_auto_repeat", {
+		"reference_doctype": "Sales Order",
+		"reference_document": "_lazychat_smoke_no_so",
+		"frequency": "Monthly",
+		"start_date": "2030-01-01",
+	})
+	record(_ok(
+		"T115 prepare_create_auto_repeat rejects nonexistent ref doc",
+		not r.get("ok") and "does not exist" in (r.get("error") or ""),
+	))
+
+	# T116: prepare_create_auto_repeat rejects end_date <= start_date
+	r = execute_tool("prepare_create_auto_repeat", {
+		"reference_doctype": "Sales Order",
+		"reference_document": "_lazychat_smoke_no_so2",
+		"frequency": "Monthly",
+		"start_date": "2030-01-01",
+		"end_date":   "2029-12-31",
+	})
+	record(_ok(
+		"T116 prepare_create_auto_repeat rejects end_date <= start_date",
+		not r.get("ok") and "end_date" in (r.get("error") or ""),
+	))
+
+	# T117: prepare_create_email_group happy
+	group_title = f"_lazychat_smoke_grp_{frappe.generate_hash(length=4)}"
+	r = execute_tool("prepare_create_email_group", {"title": group_title})
+	record(_ok(
+		"T117 prepare_create_email_group stages preview_token",
+		r.get("ok") is True and bool(r.get("preview_token")),
+		f"summary={r.get('summary')!r}",
+	))
+
+	# T118: prepare_add_to_email_group rejects unknown group
+	r = execute_tool("prepare_add_to_email_group", {
+		"email_group": "_lazychat_smoke_no_group",
+		"email": "smoke@example.com",
+	})
+	record(_ok(
+		"T118 prepare_add_to_email_group rejects unknown group",
+		not r.get("ok") and "not found" in (r.get("error") or ""),
+	))
+
+	# T119: prepare_add_to_email_group rejects malformed email
+	# (Use a real-looking group title; existence check fires first if no group,
+	# so we accept that fail-mode too.)
+	r = execute_tool("prepare_add_to_email_group", {
+		"email_group": "_no_such_group_for_email_check",
+		"email": "not-an-email",
+	})
+	record(_ok(
+		"T119 prepare_add_to_email_group rejects malformed email or unknown group",
+		(not r.get("ok")) and (
+			"valid email" in (r.get("error") or "")
+			or "not found" in (r.get("error") or "")
+		),
+	))
+
+	# T120: prepare_create_newsletter rejects unknown email_group
+	r = execute_tool("prepare_create_newsletter", {
+		"subject": "_lazychat_smoke_newsletter",
+		"message": "<p>body</p>",
+		"email_group": "_lazychat_smoke_no_group",
+	})
+	record(_ok(
+		"T120 prepare_create_newsletter rejects unknown email_group",
+		not r.get("ok") and "not found" in (r.get("error") or ""),
+	))
+
 	# T85–T89: acceptance smoke for already-working features routed through
 	# generic prepare_create_doc. We only verify the dispatch + permission path
 	# returns a preview_token (committing real Custom Fields / Server Scripts /

@@ -113,9 +113,25 @@ WRITE / WORKFLOW / COMMS (always two-phase via prepare_* + /commit):
     System Manager only. Diff is shown in the preview.
   · prepare_create_email_template — Jinja-validated subject + body. Templates are inert until
     referenced by send tools (no `lazychat_allow_email` gate needed to STAGE a template).
+  · prepare_create_notification — for Notification (alert templates). event=Days Before/After
+    requires date_changed (a Date field on document_type). event=Value Change requires
+    value_changed. event=Method requires method (server-side import path). channel=Email/Slack/SMS
+    require at least one recipient row. Optional condition expression is AST-validated against
+    imports/lambdas/dunder access.
+  · prepare_create_auto_email_report — schedule a Report to email itself. Validates the Report
+    exists and the user has report perm on its ref_doctype.
+  · prepare_create_milestone_tracker — auto-create Milestones whenever a Link/Select field on
+    a doctype changes. track_field must be a Link or Select fieldtype.
+  · prepare_create_auto_repeat — recurring document creation. Refuses (preview AND commit) if
+    a non-Cancelled Auto Repeat already targets the same (reference_doctype, reference_document).
+  · prepare_create_email_group — mailing list bucket. Refuses if title already exists.
+  · prepare_add_to_email_group(email_group, email) — append a member; idempotent at commit.
+  · prepare_create_newsletter — staged ONLY; sending is admin-driven from the Desk by design.
 - DIRECT (no /commit) — these are reversible / single-doc / low-risk:
   · restore_deleted_doc(deleted_document_name) — restore from Frappe's recycle bin. Re-checks
     `create` permission on the original doctype.
+  · update_notification_settings — per-user prefs (channels, seen, email subject filter).
+    Always limited to frappe.session.user.
 - prepare_workflow_action — workflow transition (Approve/Reject/etc).
 - prepare_add_comment — comment on a doc's activity log.
 - prepare_assign_to — assignment (creates a ToDo for a user).
