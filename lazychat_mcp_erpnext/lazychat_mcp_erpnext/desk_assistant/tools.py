@@ -398,6 +398,19 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		text = args.get("text")
 		if not dt or not dn or not text:
 			return {"error": "doctype, name, and text required"}
+		# Fail-fast existence check. Many doctypes (Note, ToDo, Comment, …) use
+		# autoname=hash so the document name is NOT the title the model just
+		# created — passing the title here used to stage successfully and only
+		# fail on /commit. Catch it now with a hint the model can act on.
+		if not frappe.db.exists(dt, dn):
+			return {
+				"error": (
+					f"{dt} '{dn}' not found. The document name is the Frappe "
+					f"primary key, which for autoname=hash doctypes (Note, "
+					f"ToDo, Comment, …) is NOT the title. Use search_global "
+					f"or get_list to find the actual name."
+				)
+			}
 		if not frappe.has_permission(dt, "read", doc=dn):
 			return {"error": "no read permission"}
 		token = _stage_action("add_comment", {"doctype": dt, "name": dn, "text": text})
