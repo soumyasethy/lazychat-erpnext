@@ -198,6 +198,33 @@ TOOL_ARGS: dict[str, dict[str, Any]] = {
     "list_skills": {},
     "activate_skill": {"skill_name": "_lazychat_smoke_no_skill"},  # EXPECT_ERROR_OK
     "deactivate_skill": {"skill_name": "_lazychat_smoke_no_skill"},  # EXPECT_ERROR_OK
+
+    # --- Typed wrappers (added 2026-05-06) ---
+    # Each one stages a preview_token; nothing is actually committed by the harness.
+    "prepare_create_report": {
+        "report_name": "_lazychat_smoke_report_probe",
+        "ref_doctype": "Customer",
+        "report_type": "Report Builder",
+    },
+    # Scheduled Job Type creation requires System Manager — when the smoke
+    # runs as that role, expect a token; otherwise expect a permission error
+    # (still validates the dispatch path).
+    "prepare_create_scheduled_job": {
+        "method": "frappe.utils.background_jobs.show_pending_jobs",
+        "frequency": "Daily",
+    },
+    "prepare_create_number_card": {
+        "label": "_lazychat_smoke_card_probe",
+        "doctype": "Customer",
+        "function": "Count",
+    },
+    # Dashboard requires existing chart/card refs — the smoke should NOT mutate
+    # data, so we pass a deliberately-bogus chart name and rely on the wrapper's
+    # exists-check to return a graceful error (EXPECT_ERROR_OK).
+    "prepare_create_dashboard": {
+        "dashboard_name": "_lazychat_smoke_dashboard_probe",
+        "charts": ["_lazychat_smoke_no_chart"],
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -219,6 +246,10 @@ EXPECT_ERROR_OK: set[str] = {
     "prepare_create_kb",         # KB slug already exists
     "activate_skill",            # nonexistent skill
     "deactivate_skill",          # nonexistent skill
+    "prepare_create_dashboard",  # references nonexistent chart on purpose
+    # prepare_create_scheduled_job is conditionally OK_ERROR — the harness
+    # may or may not have System Manager. Treat permission-deny as graceful.
+    "prepare_create_scheduled_job",
 }
 
 # Empty now — every tool has args. Kept for shape compat / future fixtures.
@@ -538,6 +569,12 @@ VALIDATORS: dict[str, Callable[[dict], tuple[bool, str]]] = {
     "prepare_assign_to": _v_prepare_token,
     "prepare_share_doc": _v_prepare_token,
     "prepare_upload_file": _v_prepare_token,  # also returns file_picker:true
+    "prepare_create_report": _v_prepare_token,
+    "prepare_create_scheduled_job": _v_prepare_token,
+    "prepare_create_number_card": _v_prepare_token,
+    # prepare_create_dashboard is EXPECT_ERROR_OK so it doesn't run through
+    # this validator — kept here for symmetry if a future smoke seeds a real chart.
+    "prepare_create_dashboard": _v_prepare_token,
     "export_list_to_csv": _v_field_picker_or_token,
     "export_doc_pdf": _v_export_pdf,
     "list_knowledge_bases": _v_list_kbs,

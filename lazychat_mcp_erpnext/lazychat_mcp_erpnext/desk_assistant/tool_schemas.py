@@ -1,7 +1,15 @@
 TOOL_SCHEMAS = [
 	{
 		"name": "get_list",
-		"description": "List documents with filters. Read-only.",
+		"description": (
+			"List documents with filters. Read-only. Default limit 20 (cheap schema "
+			"probes). Pass an explicit limit when the user wants more rows — there is "
+			"NO upper bound; the chat-ui truncates display at ~250 KB if the result "
+			"won't fit your context window (with a clear notice). For TOTALS/COUNTS "
+			"NEVER trust len(rows): always call count_doc or aggregate. For TRUE BULK "
+			"that exceeds your context, use export_list_to_csv (writes a file, no "
+			"context cost). Pass limit=0 (or negative) for unbounded fetch."
+		),
 		"input_schema": {
 			"type": "object",
 			"properties": {
@@ -12,7 +20,11 @@ TOOL_SCHEMAS = [
 					"items": {"type": "string"},
 					"description": "Fields to return",
 				},
-				"limit": {"type": "integer", "default": 20},
+				"limit": {
+					"type": "integer",
+					"default": 20,
+					"description": "Rows to fetch. Default 20. Pass a larger explicit value (e.g. 5000) for analytics. Use <= 0 for unbounded.",
+				},
 			},
 			"required": ["doctype"],
 		},
@@ -934,6 +946,86 @@ TOOL_SCHEMAS = [
 				"skill_name": {"type": "string"}
 			},
 			"required": ["skill_name"],
+		},
+	},
+	{
+		"name": "prepare_create_report",
+		"description": (
+			"Stage a new Frappe Report (Report Builder / Query Report / Script Report). Use this "
+			"INSTEAD of prepare_create_doc({doctype:'Report'}) — it validates ref_doctype, report_type, "
+			"and Query-Report SQL up front so the model gets actionable errors at preview time. "
+			"Two-phase: returns preview_token + open_url; the user runs `/commit TOKEN` to apply."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"report_name": {"type": "string", "description": "Title for the new report"},
+				"ref_doctype": {"type": "string", "description": "DocType the report runs against (must exist + user must have report permission)"},
+				"report_type": {"type": "string", "enum": ["Report Builder", "Query Report", "Script Report"], "default": "Report Builder"},
+				"query": {"type": "string", "description": "SELECT-only SQL for Query Report. Validated by the same regex as prepare_run_sql. Required iff report_type=Query Report."},
+				"columns": {"type": "array", "items": {"type": "object"}, "description": "Optional column definitions (Report Builder)"},
+				"filters": {"type": "object", "description": "Optional default filter values"},
+			},
+			"required": ["report_name", "ref_doctype", "report_type"],
+		},
+	},
+	{
+		"name": "prepare_create_scheduled_job",
+		"description": (
+			"Stage a new Scheduled Job Type (Frappe's cron). Requires System Manager role + create permission. "
+			"frequency=Cron requires cron_format (e.g. '0 */6 * * *'). Two-phase: returns preview_token; "
+			"user runs `/commit TOKEN` to apply."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"method": {"type": "string", "description": "Importable Python path of the job function, e.g. 'erpnext.tasks.send_overdue_reminder'"},
+				"frequency": {
+					"type": "string",
+					"enum": ["All", "Hourly", "Daily", "Daily Long", "Weekly", "Weekly Long", "Monthly", "Monthly Long", "Cron", "Annual"],
+					"default": "Daily",
+				},
+				"cron_format": {"type": "string", "description": "Required when frequency=Cron. Standard 5-field cron expression."},
+			},
+			"required": ["method"],
+		},
+	},
+	{
+		"name": "prepare_create_number_card",
+		"description": (
+			"Stage a new Number Card (single-stat tile for the dashboard). function=Count needs no aggregate_field; "
+			"Sum/Avg/Min/Max require aggregate_field. filters_json is the same JSON-string shape Number Card stores. "
+			"Two-phase: returns preview_token; user runs `/commit TOKEN` to apply."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"label": {"type": "string", "description": "Display label (also doc name)"},
+				"doctype": {"type": "string", "description": "Source doctype to count/aggregate over"},
+				"function": {"type": "string", "enum": ["Count", "Sum", "Average", "Minimum", "Maximum"], "default": "Count"},
+				"aggregate_function_based_on": {"type": "string", "description": "Field to aggregate (required iff function != Count)"},
+				"filters_json": {"type": "string", "description": "JSON-encoded filter list, e.g. '[[\"Sales Invoice\",\"status\",\"=\",\"Paid\"]]'. Default '[]'."},
+				"color": {"type": "string", "description": "Optional hex/CSS color"},
+			},
+			"required": ["label", "doctype"],
+		},
+	},
+	{
+		"name": "prepare_create_dashboard",
+		"description": (
+			"Stage a new Dashboard composed of existing Dashboard Charts and Number Cards. Each entry can be a "
+			"plain string (chart/card name) or {chart|card, width: 'Half'|'Full'}. Two-phase: returns preview_token; "
+			"user runs `/commit TOKEN` to apply. Use after make_chart / prepare_create_number_card."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"dashboard_name": {"type": "string"},
+				"charts": {"type": "array", "items": {}, "description": "List of Dashboard Chart names or {chart, width} objects"},
+				"cards": {"type": "array", "items": {}, "description": "List of Number Card names or {card, width} objects"},
+				"module": {"type": "string", "description": "Optional Frappe Module to associate"},
+			},
+			"required": ["dashboard_name"],
 		},
 	},
 ]

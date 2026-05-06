@@ -834,6 +834,139 @@ def run():
 		f"count={r.get('count')}",
 	))
 
+	# T77–T84: typed wrapper tools (added 2026-05-06). Stage-only — never commit.
+
+	# T77: prepare_create_report (Report Builder, no SQL needed)
+	r = execute_tool("prepare_create_report", {
+		"report_name": f"_lazychat_smoke_report_{frappe.generate_hash(length=4)}",
+		"ref_doctype": "Customer",
+		"report_type": "Report Builder",
+	})
+	record(_ok(
+		"T77 prepare_create_report Report Builder stages preview_token",
+		r.get("ok") is True and bool(r.get("preview_token")),
+		f"summary={r.get('summary')!r}",
+	))
+
+	# T78: prepare_create_report Query Report rejects invalid SQL
+	r = execute_tool("prepare_create_report", {
+		"report_name": "_lazychat_smoke_query_report",
+		"ref_doctype": "Customer",
+		"report_type": "Query Report",
+		"query": "DROP TABLE tabCustomer",
+	})
+	record(_ok(
+		"T78 prepare_create_report rejects non-SELECT query",
+		not r.get("ok") and "error" in r,
+		f"error={(r.get('error') or '')[:80]!r}",
+	))
+
+	# T79: prepare_create_report rejects bad ref_doctype
+	r = execute_tool("prepare_create_report", {
+		"report_name": "_lazychat_smoke_bad_ref",
+		"ref_doctype": "_NoSuchDocType_",
+		"report_type": "Report Builder",
+	})
+	record(_ok(
+		"T79 prepare_create_report rejects non-existent ref_doctype",
+		not r.get("ok") and "does not exist" in (r.get("error") or ""),
+	))
+
+	# T80: prepare_create_scheduled_job stages a Daily job
+	r = execute_tool("prepare_create_scheduled_job", {
+		"method": "frappe.utils.background_jobs.show_pending_jobs",
+		"frequency": "Daily",
+	})
+	# Administrator has System Manager role in standard installs.
+	record(_ok(
+		"T80 prepare_create_scheduled_job Daily stages preview_token",
+		r.get("ok") is True and bool(r.get("preview_token")),
+		f"summary={r.get('summary')!r}",
+	))
+
+	# T81: prepare_create_scheduled_job rejects Cron without cron_format
+	r = execute_tool("prepare_create_scheduled_job", {
+		"method": "frappe.utils.background_jobs.show_pending_jobs",
+		"frequency": "Cron",
+	})
+	record(_ok(
+		"T81 prepare_create_scheduled_job Cron without cron_format errors",
+		not r.get("ok") and "cron_format" in (r.get("error") or ""),
+	))
+
+	# T82: prepare_create_number_card Count
+	r = execute_tool("prepare_create_number_card", {
+		"label": f"_lazychat_smoke_card_{frappe.generate_hash(length=4)}",
+		"doctype": "Customer",
+		"function": "Count",
+	})
+	record(_ok(
+		"T82 prepare_create_number_card Count stages preview_token",
+		r.get("ok") is True and bool(r.get("preview_token")),
+	))
+
+	# T83: prepare_create_number_card Sum requires aggregate_field
+	r = execute_tool("prepare_create_number_card", {
+		"label": "_lazychat_smoke_card_sum",
+		"doctype": "Sales Invoice",
+		"function": "Sum",
+	})
+	record(_ok(
+		"T83 prepare_create_number_card Sum without aggregate_field errors",
+		not r.get("ok") and "aggregate_field" in (r.get("error") or ""),
+	))
+
+	# T84: prepare_create_dashboard rejects nonexistent chart
+	r = execute_tool("prepare_create_dashboard", {
+		"dashboard_name": "_lazychat_smoke_dashboard",
+		"charts": ["_lazychat_smoke_no_chart"],
+	})
+	record(_ok(
+		"T84 prepare_create_dashboard rejects missing chart ref",
+		not r.get("ok") and "not found" in (r.get("error") or ""),
+	))
+
+	# T85–T89: acceptance smoke for already-working features routed through
+	# generic prepare_create_doc. We only verify the dispatch + permission path
+	# returns a preview_token (committing real Custom Fields / Server Scripts /
+	# Notifications would mutate the bench beyond what the smoke should do).
+	for label, dt, values in [
+		("T85 Custom Field create stages token", "Custom Field", {
+			"dt": "Customer", "fieldname": "lazychat_smoke_field",
+			"label": "Lazychat Smoke", "fieldtype": "Data",
+		}),
+		("T86 Server Script create stages token", "Server Script", {
+			"name": "_lazychat_smoke_server_script",
+			"script_type": "DocType Event",
+			"reference_doctype": "Customer",
+			"doctype_event": "Before Save",
+			"script": "# noop",
+		}),
+		("T87 Client Script create stages token", "Client Script", {
+			"name": "_lazychat_smoke_client_script",
+			"dt": "Customer", "view": "Form",
+			"script": "// noop",
+		}),
+		("T88 Notification template create stages token", "Notification", {
+			"name": "_lazychat_smoke_notification",
+			"document_type": "Customer",
+			"event": "New",
+			"subject": "Lazychat smoke",
+			"channel": "Email",
+		}),
+		("T89 Print Format create stages token", "Print Format", {
+			"name": "_lazychat_smoke_print_format",
+			"doc_type": "Customer",
+			"html": "<div>smoke</div>",
+		}),
+	]:
+		r = execute_tool("prepare_create_doc", {"doctype": dt, "values": values})
+		record(_ok(
+			label,
+			r.get("ok") is True and bool(r.get("preview_token")),
+			f"doctype={dt}",
+		))
+
 	# Cleanup
 	cleaned = []
 	if created_note:

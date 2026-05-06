@@ -201,7 +201,22 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		if isinstance(filters, str):
 			filters = json.loads(filters)
 		fields = args.get("fields") or ["name"]
-		limit = min(int(args.get("limit") or 20), 50)
+		# Intent-aware sizing (2026-05-06, revised):
+		# - No `limit` ⇒ default 20 (cheap schema probes).
+		# - Explicit `limit` ⇒ honored verbatim. NO HARDCODED CEILING — enterprise
+		#   queries legitimately need tens of thousands of rows, and any number
+		#   we pick here becomes another wall the model hits and apologizes for.
+		# - `limit <= 0` ⇒ unbounded (Frappe accepts limit_page_length=0 = no limit).
+		# Physical safety: the chat-ui's mcpResultToText byte budget (250k chars)
+		# truncates oversized results before they overflow the LLM context, and
+		# Frappe's own DB query timeout protects against runaway queries.
+		raw_limit = args.get("limit")
+		if raw_limit is None:
+			limit = 20
+		else:
+			limit = int(raw_limit)
+			if limit < 0:
+				limit = 0  # Frappe: 0 = no limit
 		try:
 			rows = frappe.get_list(dt, filters=filters, fields=fields, limit_page_length=limit)
 			return {"ok": True, "count": len(rows), "rows": rows}
@@ -1014,7 +1029,19 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 
 	if name == "extract_file_content":
 		ref = (args.get("file") or args.get("name") or "").strip()
-		max_chars = min(int(args.get("max_chars") or 20000), 100000)
+		# Intent-aware sizing: default 20k for quick scans, NO hardcoded cap.
+		# A 5MB invoice PDF legitimately needs all of it. The chat-ui's
+		# mcpResultToText byte budget (250k chars) governs what fits in the
+		# LLM context — anything beyond is summarized client-side.
+		raw = args.get("max_chars")
+		if raw is None:
+			max_chars = 20000
+		else:
+			max_chars = int(raw)
+			if max_chars <= 0:
+				# Sentinel for "give me everything you can read" — read the
+				# entire file. Pure-Python io.read() handles this fine.
+				max_chars = None  # interpreted below as "no cap"
 		if not ref:
 			return {"error": "file (File doctype name or file_url) required"}
 		try:
@@ -1054,7 +1081,13 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 					}
 			else:
 				text = str(content_bytes)
-			truncated = len(text) > max_chars
+			# max_chars is None => no cap (return whole file)
+			if max_chars is None:
+				truncated = False
+				out_text = text
+			else:
+				truncated = len(text) > max_chars
+				out_text = text[:max_chars]
 			return {
 				"ok": True,
 				"name": file_doc.name,
@@ -1062,7 +1095,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				"file_url": file_doc.file_url,
 				"file_size": file_doc.file_size,
 				"truncated": truncated,
-				"content": text[:max_chars],
+				"content": out_text,
 			}
 		except Exception as e:
 			return {"error": str(e)}
@@ -1667,7 +1700,16 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		# --- Direct export when fields supplied ---
 		if not isinstance(fields, list) or not all(isinstance(f, str) for f in fields):
 			return {"error": "fields must be a list of strings"}
-		limit = min(int(args.get("limit") or 1000), 5000)
+		# CSV export is the enterprise-bulk path — file output, no LLM-context
+		# concern. Default 5000 (typical), honor explicit limit verbatim, NO
+		# hardcoded ceiling. Pass <= 0 for unbounded (Frappe limit_page_length=0).
+		raw_csv_limit = args.get("limit")
+		if raw_csv_limit is None:
+			limit = 5000
+		else:
+			limit = int(raw_csv_limit)
+			if limit < 0:
+				limit = 0  # Frappe: 0 = no limit
 		try:
 			import csv as _csv
 			rows = frappe.get_list(dt, filters=filters, fields=fields, limit_page_length=limit)
@@ -1680,11 +1722,18 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			csv_bytes = buf.getvalue().encode("utf-8")
 			ts = frappe.utils.now_datetime().strftime("%Y-%m-%d-%H%M%S")
 			fname = f"{frappe.scrub(dt)}-{ts}.csv"
+			# Attach the export to the user's User row so Frappe's File-permission
+			# resolver grants /private/files access on click. Without an
+			# attached_to_doctype/attached_to_name, the File defaults to
+			# owner-only semantics and the request session can fail the check
+			# (yields 403 on click).
 			file_doc = frappe.get_doc({
 				"doctype": "File",
 				"file_name": fname,
 				"is_private": 1,
 				"content": csv_bytes,
+				"attached_to_doctype": "User",
+				"attached_to_name": frappe.session.user,
 			}).insert(ignore_permissions=False)
 			return {
 				"ok": True,
@@ -1692,7 +1741,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				"absolute_url": _frappe_get_url(file_doc.file_url),
 				"file_name": fname,
 				"row_count": len(rows),
-				"truncated": len(rows) >= limit,
+				"truncated": (limit > 0 and len(rows) >= limit),
 			}
 		except Exception as e:
 			return {"error": str(e)}
@@ -1951,6 +2000,182 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"ok": True,
 			"preview_token": token,
 			"summary": f"Will attach '{display_name}' to knowledge base '{kb_name}'",
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	# Typed wrappers for doctypes where prepare_create_doc is too generic
+	# (the model can supply structurally-valid but semantically-broken values
+	# that only fail when the user opens the resulting record).
+	#
+	# 2026-05-06: added Report, Scheduled Job Type, Number Card, Dashboard
+	# wrappers. These coexist with prepare_create_doc — they validate
+	# doctype-specific fields up front so the model gets actionable errors
+	# at preview time, not at /commit + open time.
+	if name == "prepare_create_report":
+		report_name = args.get("report_name") or args.get("name")
+		ref_dt = args.get("ref_doctype")
+		report_type = args.get("report_type") or "Report Builder"
+		query = (args.get("query") or "").strip()
+		columns = args.get("columns") or []
+		filters = args.get("filters") or {}
+		if not report_name or not ref_dt:
+			return {"error": "report_name and ref_doctype required"}
+		if report_type not in ("Report Builder", "Query Report", "Script Report"):
+			return {"error": "report_type must be one of: Report Builder, Query Report, Script Report"}
+		if not frappe.db.exists("DocType", ref_dt):
+			return {"error": f"ref_doctype '{ref_dt}' does not exist"}
+		if not frappe.has_permission("Report", "create"):
+			return {"error": "no create permission on Report"}
+		if not frappe.has_permission(ref_dt, "report"):
+			return {"error": f"no report permission on {ref_dt}"}
+		if report_type == "Query Report":
+			if not query:
+				return {"error": "query is required for Query Report"}
+			validation_error = _validate_select_sql(query)
+			if validation_error:
+				return {"error": validation_error}
+		token = _stage_action(
+			"create_report",
+			{
+				"report_name": report_name,
+				"ref_doctype": ref_dt,
+				"report_type": report_type,
+				"query": query,
+				"columns": columns,
+				"filters": filters,
+			},
+		)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will create {report_type} '{report_name}' on {ref_dt}",
+			"preview": {
+				"name": report_name,
+				"ref_doctype": ref_dt,
+				"report_type": report_type,
+				"query": query[:500] if query else None,
+				"columns": columns[:20] if isinstance(columns, list) else columns,
+				"filters": filters,
+				"open_url": f"/app/query-report/{report_name}" if report_type == "Query Report" else f"/app/report/{report_name}",
+			},
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "prepare_create_scheduled_job":
+		method = args.get("method")
+		frequency = args.get("frequency") or "Daily"
+		cron_format = args.get("cron_format") or ""
+		if not method:
+			return {"error": "method required (e.g. 'app.module.fn' — must be a server-side import path)"}
+		valid_freqs = ("All", "Hourly", "Daily", "Daily Long", "Weekly", "Weekly Long", "Monthly", "Monthly Long", "Cron", "Annual")
+		if frequency not in valid_freqs:
+			return {"error": f"frequency must be one of: {', '.join(valid_freqs)}"}
+		if frequency == "Cron" and not cron_format:
+			return {"error": "cron_format required when frequency=Cron (e.g. '0 */6 * * *')"}
+		# Scheduled Job Type creation is restricted to System Manager — re-check.
+		if "System Manager" not in frappe.get_roles(frappe.session.user):
+			return {"error": "System Manager role required to schedule jobs"}
+		if not frappe.has_permission("Scheduled Job Type", "create"):
+			return {"error": "no create permission on Scheduled Job Type"}
+		token = _stage_action(
+			"create_scheduled_job",
+			{"method": method, "frequency": frequency, "cron_format": cron_format},
+		)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will schedule '{method}' to run {frequency.lower()}{f' (cron: {cron_format})' if cron_format else ''}",
+			"preview": {"method": method, "frequency": frequency, "cron_format": cron_format or None},
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "prepare_create_number_card":
+		label = args.get("label") or args.get("name")
+		dt = args.get("doctype")
+		function = args.get("function") or "Count"
+		aggregate_field = args.get("aggregate_function_based_on") or args.get("aggregate_field") or ""
+		filters_json = args.get("filters_json") or "[]"
+		color = args.get("color") or ""
+		if not label or not dt:
+			return {"error": "label and doctype required"}
+		if function not in ("Count", "Sum", "Average", "Minimum", "Maximum"):
+			return {"error": "function must be one of: Count, Sum, Average, Minimum, Maximum"}
+		if function != "Count" and not aggregate_field:
+			return {"error": f"aggregate_field required when function={function}"}
+		if not frappe.db.exists("DocType", dt):
+			return {"error": f"doctype '{dt}' does not exist"}
+		if not frappe.has_permission(dt, "read"):
+			return {"error": f"no read permission on {dt}"}
+		if not frappe.has_permission("Number Card", "create"):
+			return {"error": "no create permission on Number Card"}
+		if isinstance(filters_json, (list, dict)):
+			filters_json = json.dumps(filters_json)
+		token = _stage_action(
+			"create_number_card",
+			{
+				"label": label,
+				"doctype": dt,
+				"function": function,
+				"aggregate_function_based_on": aggregate_field,
+				"filters_json": filters_json,
+				"color": color,
+			},
+		)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will create Number Card '{label}' ({function} of {dt})",
+			"preview": {
+				"label": label,
+				"doctype": dt,
+				"function": function,
+				"aggregate_field": aggregate_field or None,
+				"filters_json": filters_json,
+				"open_url": f"/app/number-card/{label}",
+			},
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "prepare_create_dashboard":
+		dashboard_name = args.get("dashboard_name") or args.get("name")
+		charts = args.get("charts") or []
+		cards = args.get("cards") or []
+		module = args.get("module") or ""
+		if not dashboard_name:
+			return {"error": "dashboard_name required"}
+		if not isinstance(charts, list) or not isinstance(cards, list):
+			return {"error": "charts and cards must be lists"}
+		if not charts and not cards:
+			return {"error": "supply at least one chart or card to embed"}
+		if not frappe.has_permission("Dashboard", "create"):
+			return {"error": "no create permission on Dashboard"}
+		# Verify each referenced chart / card exists and is readable.
+		for c in charts:
+			cname = c.get("chart") if isinstance(c, dict) else c
+			if not cname or not frappe.db.exists("Dashboard Chart", cname):
+				return {"error": f"Dashboard Chart '{cname}' not found"}
+		for c in cards:
+			cname = c.get("card") if isinstance(c, dict) else c
+			if not cname or not frappe.db.exists("Number Card", cname):
+				return {"error": f"Number Card '{cname}' not found"}
+		token = _stage_action(
+			"create_dashboard",
+			{"dashboard_name": dashboard_name, "charts": charts, "cards": cards, "module": module},
+		)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will create Dashboard '{dashboard_name}' with {len(charts)} chart(s) + {len(cards)} card(s)",
+			"preview": {
+				"name": dashboard_name,
+				"charts": [c.get("chart") if isinstance(c, dict) else c for c in charts],
+				"cards": [c.get("card") if isinstance(c, dict) else c for c in cards],
+				"open_url": f"/app/dashboard-view/{dashboard_name}",
+			},
 			"expires_in_sec": PREP_TTL_SEC,
 			"confirm_with": f"/commit {token}",
 		}
@@ -2311,6 +2536,88 @@ def commit_prepared(token, **extras):
 				notify=1,
 			)
 			doc = frappe.get_doc(payload["doctype"], payload["name"])
+		elif action == "create_report":
+			if not frappe.has_permission("Report", "create"):
+				return {"ok": False, "error": "no create permission on Report at commit time"}
+			ref_dt = payload["ref_doctype"]
+			if not frappe.has_permission(ref_dt, "report"):
+				return {"ok": False, "error": f"no report permission on {ref_dt} at commit time"}
+			rep_values = {
+				"doctype": "Report",
+				"report_name": payload["report_name"],
+				"ref_doctype": ref_dt,
+				"report_type": payload["report_type"],
+				"is_standard": "No",
+			}
+			if payload["report_type"] == "Query Report":
+				rep_values["query"] = payload["query"]
+			# Re-validate Query Report SQL at commit time — the staging machinery
+			# already validated it, but defense-in-depth is cheap.
+			if rep_values.get("query"):
+				err = _validate_select_sql(rep_values["query"])
+				if err:
+					return {"ok": False, "error": f"query failed validation at commit: {err}"}
+			doc = frappe.get_doc(rep_values).insert(ignore_permissions=False)
+			# Persist columns / filters as JSON on the report's `json` field
+			# (Report Builder convention) when supplied. Query Report renders
+			# columns from the SELECT itself.
+			if payload.get("columns") or payload.get("filters"):
+				doc.json = json.dumps({
+					"columns": payload.get("columns") or [],
+					"filters": payload.get("filters") or {},
+				})
+				doc.save(ignore_permissions=False)
+		elif action == "create_scheduled_job":
+			if "System Manager" not in frappe.get_roles(frappe.session.user):
+				return {"ok": False, "error": "System Manager role required to schedule jobs"}
+			if not frappe.has_permission("Scheduled Job Type", "create"):
+				return {"ok": False, "error": "no create permission on Scheduled Job Type at commit time"}
+			values = {
+				"doctype": "Scheduled Job Type",
+				"method": payload["method"],
+				"frequency": payload["frequency"],
+			}
+			if payload.get("cron_format"):
+				values["cron_format"] = payload["cron_format"]
+			doc = frappe.get_doc(values).insert(ignore_permissions=False)
+		elif action == "create_number_card":
+			if not frappe.has_permission("Number Card", "create"):
+				return {"ok": False, "error": "no create permission on Number Card at commit time"}
+			if not frappe.has_permission(payload["doctype"], "read"):
+				return {"ok": False, "error": f"no read permission on {payload['doctype']} at commit time"}
+			values = {
+				"doctype": "Number Card",
+				"label": payload["label"],
+				"document_type": payload["doctype"],
+				"function": payload["function"],
+				"filters_json": payload.get("filters_json") or "[]",
+				"is_public": 0,
+			}
+			if payload.get("aggregate_function_based_on"):
+				values["aggregate_function_based_on"] = payload["aggregate_function_based_on"]
+			if payload.get("color"):
+				values["color"] = payload["color"]
+			doc = frappe.get_doc(values).insert(ignore_permissions=False)
+		elif action == "create_dashboard":
+			if not frappe.has_permission("Dashboard", "create"):
+				return {"ok": False, "error": "no create permission on Dashboard at commit time"}
+			values = {
+				"doctype": "Dashboard",
+				"dashboard_name": payload["dashboard_name"],
+				"is_standard": 0,
+			}
+			if payload.get("module"):
+				values["module"] = payload["module"]
+			doc = frappe.get_doc(values)
+			for c in payload.get("charts") or []:
+				cname = c.get("chart") if isinstance(c, dict) else c
+				width = (c.get("width") if isinstance(c, dict) else None) or "Half"
+				doc.append("charts", {"chart": cname, "width": width})
+			for c in payload.get("cards") or []:
+				cname = c.get("card") if isinstance(c, dict) else c
+				width = (c.get("width") if isinstance(c, dict) else None) or "Half"
+				doc.append("cards", {"card": cname, "width": width})
+			doc.insert(ignore_permissions=False)
 		else:
 			return {"ok": False, "error": f"Unknown action: {action}"}
 		frappe.db.commit()

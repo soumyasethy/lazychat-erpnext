@@ -80,7 +80,7 @@ bench --site site.example install-app lazychat_mcp_erpnext
 
 **Defaults work without any site_config edits.** Boot extension reads `lazychat_iframe_src` from `site_config.json` if set; otherwise defaults to bundled dist.
 
-## Tool registry — 65 tools (all permission-scoped to `frappe.session.user`)
+## Tool registry — 69 tools (all permission-scoped to `frappe.session.user`)
 
 The registry has grown well past the original 38 documented in earlier
 revisions. **Treat `tool_schemas.py:TOOL_SCHEMAS` as the source of truth**;
@@ -96,7 +96,7 @@ T54 in the smoke test compares `len(TOOL_SCHEMAS)` to the live MCP
 | ERPNext domain | 7 | get_stock_balance, get_account_balance, get_outstanding, get_item_price, get_company_defaults, get_user_info, get_audit_trail |
 | Files | 3 | list_attachments, get_file_url, extract_file_content |
 | Subscriptions / charts / jobs | 5 | subscribe_doc_changes, unsubscribe_doc_changes, list_my_subscriptions, make_chart, cancel_job |
-| Mutations (`prepare_*`) | 15 | create / update / submit / delete / comment / assign / share / upload / import_csv / rename / revert / send_email / workflow / run_sql / run_python |
+| Mutations (`prepare_*`) | 19 | create / update / submit / delete / comment / assign / share / upload / import_csv / rename / revert / send_email / workflow / run_sql / run_python / **create_report / create_scheduled_job / create_number_card / create_dashboard** (typed wrappers, 2026-05-06) |
 | Exports | 2 | export_list_to_csv, export_doc_pdf |
 | Knowledge Base (Tier H) | 6 | list_knowledge_bases, get_kb_files, search_kb, reindex_kb, prepare_create_kb, prepare_add_file_to_kb |
 | Skills (Tier E) | 3 | list_skills, activate_skill, deactivate_skill |
@@ -411,6 +411,80 @@ After all three fixes are deployed, the canonical test is:
    preview. Backend curl, in-process smoke, AND the panel UI all work.
 
 Evidence: `lazychat-mcp-erpnext/test/evidence/05-chat-ui-tool-call-success-21ms.png`.
+
+## Production triage (2026-05-06) — caps removed + typed report/dashboard wrappers + /commit cross-path fix
+
+Three production bugs surfaced by real-user testing on `erp.local`:
+
+### 1. `get_list` row caps caused wrong totals
+
+User asked "list paid PIs in December 2025" expecting ~774 rows; model
+returned 50 (the silent cap), then 169, then 110 across iterations as it
+hunted for filter shapes. Same issue: ANY hardcoded ceiling becomes a wall
+the model hits and apologizes for. Resolution: removed the cap entirely
+([tools.py:204](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py)).
+
+- `limit` not provided → 20 (cheap schema probes)
+- explicit `limit` → honored verbatim, no upper bound
+- `limit ≤ 0` → unbounded (`limit_page_length=0` in Frappe)
+
+Same shape on `extract_file_content` (default 20k chars, no cap, `<=0` reads
+the whole file) and `export_list_to_csv` (default 5000 rows, no cap, `<=0`
+unbounded). The chat-ui's `mcpResultToText` 250 KB byte budget is the only
+remaining truncation point — and it emits a clear `[Result truncated to N
+chars]` notice so the model knows to pivot to `count_doc` / `aggregate` /
+`export_list_to_csv` for bulk work. System prompt updated to drill in:
+*"NEVER trust len(rows) from get_list — always count_doc first."*
+
+### 2. Report creation looped with `getdoctype()` errors
+
+Generic `prepare_create_doc({doctype:"Report"})` let the model store an
+incomplete Report row (no `ref_doctype`, wrong `report_type`,
+`is_standard:"Yes"` by accident). Frappe's report-loader exploded at open
+time with `TypeError: getdoctype() missing 1 required positional argument:
+'doctype'` — by which point the model had no way to recover.
+
+Resolution: 4 new typed wrappers that validate fields BEFORE staging:
+
+- **`prepare_create_report`** — validates ref_doctype exists, report_type is
+  one of the 3 enum values, Query Reports' `query` passes the same SELECT
+  regex as `prepare_run_sql`. Always sets `is_standard:"No"`.
+- **`prepare_create_scheduled_job`** — validates frequency enum + cron_format
+  shape; requires System Manager.
+- **`prepare_create_number_card`** — validates function enum + requires
+  `aggregate_field` for non-Count functions.
+- **`prepare_create_dashboard`** — validates each referenced chart/card
+  exists before staging.
+
+Each has a matching commit handler in `commit_prepared`. System prompt
+documents the wrappers as the preferred path for those four doctypes
+([claude_bridge.py § WRITE / WORKFLOW / COMMS](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/claude_bridge.py)).
+
+### 3. `/commit TOKEN` silently failed on the browser-LLM path
+
+Original symptom in user transcript: model staged `prepare_create_*` →
+returned token → user typed `/commit TOKEN` → model narrated *"✅ created!"*
+→ but the URL gave a 404 / `getdoctype()` because nothing was actually
+written.
+
+Root cause: the panel-shim's `/commit` regex
+([lazychat_panel.bundle.js:343](lazychat_mcp_erpnext/lazychat_mcp_erpnext/public/js/lazychat_panel.bundle.js))
+only fires on the **backend-LLM `agentRequest` path** (line 660). On the
+**browser-LLM path** (any custom model — seed-oss-36b, claude-haiku via
+API key, NVIDIA), `/commit TOKEN` was a regular user message routed to the
+LLM as plain text. The LLM has no `commit_prepared_action` tool in the
+registry (intentional — server-side gate), so it just hallucinated success.
+
+Fix lives chat-ui side, not here:
+[lazychat.ai/apps/chat-ui/src/lib/commitSlash.ts](../lazychat.ai/apps/chat-ui/src/lib/commitSlash.ts)
+intercepts `/commit TOKEN` in `App.tsx:onSend` BEFORE LLM routing, POSTs
+directly to `commit_prepared_action` with the CSRF token, renders the
+result as a `Done`/`error` message bubble. Now `/commit` works identically
+on either path.
+
+When debugging *"my report URL gave 404 even though the chat said it was
+created"*: confirm the chat-ui bundle was rebuilt after this fix landed
+(`?v=` query in iframe URL should be > `1778066844`).
 
 ## Where to go next
 
