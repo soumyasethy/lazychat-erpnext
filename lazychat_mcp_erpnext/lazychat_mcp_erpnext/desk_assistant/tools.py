@@ -50,6 +50,30 @@ def _validate_select_sql(sql):
 	return None  # OK
 
 
+def _validate_frappe_expression(expr):
+	"""Validate a Frappe condition expression via Python AST (used by
+	Notification + Assignment Rule). AST-only — catches ~95% of typo errors
+	without invoking the Frappe runtime; the runtime itself will surface the
+	rest at the first trigger. Returns None on success, an error string on
+	failure.
+	"""
+	import ast
+	expr = (expr or "").strip()
+	if not expr:
+		return None  # empty is fine — Frappe treats as 'always true'
+	try:
+		tree = ast.parse(expr, mode="eval")
+	except SyntaxError as e:
+		return f"condition syntax error: {e.msg}"
+	forbidden = (ast.Import, ast.ImportFrom, ast.Lambda, ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)
+	for node in ast.walk(tree):
+		if isinstance(node, forbidden):
+			return "condition cannot contain imports / lambdas / function definitions"
+		if isinstance(node, ast.Attribute) and isinstance(node.attr, str) and node.attr.startswith("_"):
+			return f"condition cannot access dunder/private attributes ({node.attr!r})"
+	return None
+
+
 def _stage_action(action, payload):
 	"""Cache an action payload bound to the current user; return a one-time token."""
 	token = secrets.token_urlsafe(16)
@@ -2533,6 +2557,420 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"confirm_with": f"/commit {token}",
 		}
 
+	# ------------------------------------------------------------------
+	# 2026-05-06 (Commit 2) — Alerts / Newsletter / Automation surface.
+	# ------------------------------------------------------------------
+
+	if name == "prepare_create_notification":
+		subject = (args.get("subject") or "").strip()
+		document_type = args.get("document_type")
+		event = args.get("event")
+		channel = args.get("channel") or "Email"
+		recipients = args.get("recipients") or []
+		message = args.get("message") or ""
+		condition = args.get("condition") or ""
+		date_changed = args.get("date_changed")
+		value_changed = args.get("value_changed")
+		method = args.get("method")
+		days_in_advance = args.get("days_in_advance")
+		slack_webhook = args.get("slack_webhook_url")
+		property_value = args.get("property_value")
+
+		if not subject:
+			return {"error": "subject required"}
+		if not document_type:
+			return {"error": "document_type required"}
+		if not event:
+			return {"error": "event required"}
+		valid_events = ("New", "Save", "Submit", "Cancel", "Days After", "Days Before", "Value Change", "Method", "Custom")
+		if event not in valid_events:
+			return {"error": f"event must be one of: {', '.join(valid_events)}"}
+		valid_channels = ("Email", "Slack", "System Notification", "SMS")
+		if channel not in valid_channels:
+			return {"error": f"channel must be one of: {', '.join(valid_channels)}"}
+		if not frappe.db.exists("DocType", document_type):
+			return {"error": f"document_type '{document_type}' does not exist"}
+		if not frappe.has_permission("Notification", "create"):
+			return {"error": "no create permission on Notification"}
+		# Conditional required fields per event.
+		if event in ("Days Before", "Days After"):
+			if not date_changed:
+				return {"error": f"date_changed (a Date/Datetime fieldname on {document_type}) is required when event='{event}'"}
+		if event == "Value Change":
+			if not value_changed:
+				return {"error": f"value_changed (a fieldname on {document_type}) is required when event='Value Change'"}
+		if event == "Method":
+			if not method:
+				return {"error": "method (server-side import path) is required when event='Method'"}
+		if channel == "Slack" and not slack_webhook:
+			return {"error": "slack_webhook_url is required when channel='Slack'"}
+		# Existential checks on referenced fieldnames.
+		try:
+			meta = frappe.get_meta(document_type)
+		except Exception as e:
+			return {"error": f"could not load meta for {document_type}: {e}"}
+		field_map = {df.fieldname: df for df in meta.fields}
+		if date_changed and date_changed not in field_map:
+			return {"error": f"date_changed='{date_changed}' is not a fieldname on {document_type}"}
+		if date_changed and field_map[date_changed].fieldtype not in ("Date", "Datetime"):
+			return {"error": f"date_changed='{date_changed}' must be a Date or Datetime field (got {field_map[date_changed].fieldtype})"}
+		if value_changed and value_changed not in field_map:
+			return {"error": f"value_changed='{value_changed}' is not a fieldname on {document_type}"}
+		# Recipients shape — at least one row for Email/Slack/SMS channels.
+		if channel != "System Notification":
+			if not isinstance(recipients, list) or not recipients:
+				return {"error": f"at least one recipient row is required for channel='{channel}'"}
+			for i, row in enumerate(recipients):
+				if not isinstance(row, dict):
+					return {"error": f"recipients[{i}] must be an object/dict"}
+				keys = ("receiver_by_role", "receiver_by_document_field", "receiver")
+				if not any(row.get(k) for k in keys):
+					return {"error": f"recipients[{i}] needs at least one of: {', '.join(keys)}"}
+				if row.get("receiver_by_role") and not frappe.db.exists("Role", row["receiver_by_role"]):
+					return {"error": f"recipients[{i}].receiver_by_role='{row['receiver_by_role']}' does not exist"}
+		# Condition syntax + safety.
+		cond_err = _validate_frappe_expression(condition)
+		if cond_err:
+			return {"error": cond_err}
+		token = _stage_action(
+			"create_notification",
+			{
+				"subject": subject,
+				"document_type": document_type,
+				"event": event,
+				"channel": channel,
+				"recipients": recipients,
+				"message": message,
+				"condition": condition,
+				"date_changed": date_changed,
+				"value_changed": value_changed,
+				"method": method,
+				"days_in_advance": days_in_advance,
+				"slack_webhook_url": slack_webhook,
+				"property_value": property_value,
+			},
+		)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will create Notification '{subject}' on {document_type} (event={event}, channel={channel})",
+			"preview": {
+				"subject": subject,
+				"document_type": document_type,
+				"event": event,
+				"channel": channel,
+				"recipient_count": len(recipients),
+				"condition": condition or None,
+			},
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "prepare_create_auto_email_report":
+		report = args.get("report")
+		email_to = (args.get("email_to") or "").strip()
+		frequency = args.get("frequency") or "Weekly"
+		fmt = args.get("format") or "HTML"
+		day_of_week = args.get("day_of_week") or ""
+		description = args.get("description") or ""
+		enabled = args.get("enabled")
+		enabled = True if enabled is None else bool(enabled)
+		if not report:
+			return {"error": "report required"}
+		if not email_to:
+			return {"error": "email_to required (newline-separated email addresses)"}
+		if not frappe.db.exists("Report", report):
+			return {"error": f"Report '{report}' does not exist"}
+		valid_freq = ("Daily", "Weekdays", "Weekly", "Monthly")
+		if frequency not in valid_freq:
+			return {"error": f"frequency must be one of: {', '.join(valid_freq)}"}
+		valid_fmt = ("HTML", "XLSX", "CSV")
+		if fmt not in valid_fmt:
+			return {"error": f"format must be one of: {', '.join(valid_fmt)}"}
+		# Re-check the user can actually read the report.
+		try:
+			rep = frappe.get_doc("Report", report)
+			if not frappe.has_permission(rep.ref_doctype, "report"):
+				return {"error": f"no report permission on {rep.ref_doctype} (the Report's ref_doctype)"}
+		except Exception as e:
+			return {"error": f"could not load Report/{report}: {e}"}
+		if not frappe.has_permission("Auto Email Report", "create"):
+			return {"error": "no create permission on Auto Email Report"}
+		token = _stage_action(
+			"create_auto_email_report",
+			{
+				"report": report,
+				"email_to": email_to,
+				"frequency": frequency,
+				"format": fmt,
+				"day_of_week": day_of_week,
+				"description": description,
+				"enabled": 1 if enabled else 0,
+			},
+		)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will email Report '{report}' to {len(email_to.splitlines())} address(es) {frequency.lower()}",
+			"preview": {
+				"report": report,
+				"email_to": email_to,
+				"frequency": frequency,
+				"format": fmt,
+			},
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "update_notification_settings":
+		# Direct (no /commit) — per-user prefs, fully reversible.
+		user = frappe.session.user
+		if user == "Guest":
+			return {"error": "must be logged in"}
+		try:
+			cur = frappe.get_doc("Notification Settings", user)
+		except Exception:
+			# First-time accessing user — Frappe creates on demand.
+			cur = frappe.get_doc({"doctype": "Notification Settings", "user": user}).insert(ignore_permissions=True)
+		updatable = {"enabled", "email_message_subject_filter", "send_email_alerts", "seen"}
+		updated = {}
+		for k in updatable:
+			if k in args:
+				v = args[k]
+				if isinstance(v, bool):
+					v = 1 if v else 0
+				cur.set(k, v)
+				updated[k] = v
+		if not updated:
+			return {"error": f"supply at least one of: {sorted(updatable)}"}
+		try:
+			cur.save(ignore_permissions=False)
+			frappe.db.commit()
+		except Exception as e:
+			return {"error": f"save failed: {type(e).__name__}: {e}"}
+		return {
+			"ok": True,
+			"action": "update_notification_settings",
+			"user": user,
+			"updated_fields": updated,
+		}
+
+	if name == "prepare_create_milestone_tracker":
+		dt = args.get("document_type")
+		track_field = args.get("track_field")
+		disabled = bool(args.get("disabled"))
+		if not dt or not track_field:
+			return {"error": "document_type and track_field required"}
+		if not frappe.db.exists("DocType", dt):
+			return {"error": f"document_type '{dt}' does not exist"}
+		if not frappe.has_permission("Milestone Tracker", "create"):
+			return {"error": "no create permission on Milestone Tracker"}
+		try:
+			meta = frappe.get_meta(dt)
+		except Exception as e:
+			return {"error": f"could not load meta for {dt}: {e}"}
+		fld = next((df for df in meta.fields if df.fieldname == track_field), None)
+		if not fld:
+			return {"error": f"track_field='{track_field}' is not a fieldname on {dt}"}
+		if fld.fieldtype not in ("Link", "Select"):
+			return {"error": f"track_field='{track_field}' must be a Link or Select field (got {fld.fieldtype})"}
+		token = _stage_action(
+			"create_milestone_tracker",
+			{"document_type": dt, "track_field": track_field, "disabled": 1 if disabled else 0},
+		)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will track milestones on {dt}.{track_field}",
+			"preview": {"document_type": dt, "track_field": track_field, "disabled": disabled},
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "prepare_create_auto_repeat":
+		ref_dt = args.get("reference_doctype")
+		ref_name = args.get("reference_document")
+		frequency = args.get("frequency") or "Monthly"
+		start_date = args.get("start_date")
+		end_date = args.get("end_date")
+		submit_on_creation = bool(args.get("submit_on_creation"))
+		notify_by_email = bool(args.get("notify_by_email"))
+		recipients = args.get("recipients") or ""
+		if not ref_dt or not ref_name:
+			return {"error": "reference_doctype and reference_document required"}
+		valid_freq = ("Daily", "Weekly", "Monthly", "Quarterly", "Half-yearly", "Yearly")
+		if frequency not in valid_freq:
+			return {"error": f"frequency must be one of: {', '.join(valid_freq)}"}
+		if not start_date:
+			return {"error": "start_date required (ISO date, e.g. '2026-05-10')"}
+		try:
+			from frappe.utils import getdate
+			sd = getdate(start_date)
+		except Exception as e:
+			return {"error": f"start_date is not a valid date: {e}"}
+		ed = None
+		if end_date:
+			try:
+				from frappe.utils import getdate
+				ed = getdate(end_date)
+			except Exception as e:
+				return {"error": f"end_date is not a valid date: {e}"}
+			if ed <= sd:
+				return {"error": "end_date must be > start_date"}
+		if not frappe.db.exists(ref_dt, ref_name):
+			return {"error": f"{ref_dt} '{ref_name}' does not exist"}
+		# Idempotency at preview — refuse if a non-Cancelled Auto Repeat
+		# already targets this exact pair.
+		dup = frappe.get_all(
+			"Auto Repeat",
+			filters={
+				"reference_doctype": ref_dt,
+				"reference_document": ref_name,
+				"status": ["!=", "Cancelled"],
+			},
+			fields=["name", "status", "frequency"],
+			limit=1,
+		)
+		if dup:
+			return {
+				"error": (
+					f"Auto Repeat already exists for {ref_dt}/{ref_name} "
+					f"(name={dup[0].name}, status={dup[0].status}, frequency={dup[0].frequency})."
+				)
+			}
+		if notify_by_email and not recipients:
+			return {"error": "recipients required when notify_by_email=True"}
+		if not frappe.has_permission("Auto Repeat", "create"):
+			return {"error": "no create permission on Auto Repeat"}
+		if submit_on_creation and not frappe.has_permission(ref_dt, "submit"):
+			return {"error": f"submit_on_creation=True requires submit permission on {ref_dt}"}
+		token = _stage_action(
+			"create_auto_repeat",
+			{
+				"reference_doctype": ref_dt,
+				"reference_document": ref_name,
+				"frequency": frequency,
+				"start_date": str(sd),
+				"end_date": str(ed) if ed else None,
+				"submit_on_creation": 1 if submit_on_creation else 0,
+				"notify_by_email": 1 if notify_by_email else 0,
+				"recipients": recipients,
+			},
+		)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will Auto-Repeat {ref_dt}/{ref_name} {frequency.lower()} starting {sd}",
+			"preview": {
+				"reference_doctype": ref_dt,
+				"reference_document": ref_name,
+				"frequency": frequency,
+				"start_date": str(sd),
+				"end_date": str(ed) if ed else None,
+				"submit_on_creation": submit_on_creation,
+			},
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "prepare_create_email_group":
+		title = (args.get("title") or "").strip()
+		description = args.get("description") or ""
+		public = bool(args.get("public"))
+		if not title:
+			return {"error": "title required"}
+		# Email Group autonames from title — refuse if the same title
+		# already has a row.
+		if frappe.db.exists("Email Group", {"title": title}):
+			return {"error": f"Email Group with title '{title}' already exists"}
+		if not frappe.has_permission("Email Group", "create"):
+			return {"error": "no create permission on Email Group"}
+		token = _stage_action(
+			"create_email_group",
+			{"title": title, "description": description, "public": 1 if public else 0},
+		)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will create {'public ' if public else ''}Email Group '{title}'",
+			"preview": {"title": title, "public": public},
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "prepare_add_to_email_group":
+		group = args.get("email_group")
+		email = (args.get("email") or "").strip()
+		if not group or not email:
+			return {"error": "email_group and email required"}
+		# Email Group autonames hash so look up by title.
+		row = frappe.db.get_value("Email Group", {"title": group}, "name") if not frappe.db.exists("Email Group", group) else group
+		if not row:
+			return {"error": f"Email Group '{group}' not found"}
+		# Cheap email well-formedness probe — a `@` somewhere with at least
+		# one char on each side. Frappe's own validate_email_address kicks
+		# in at insert anyway.
+		if "@" not in email or email.startswith("@") or email.endswith("@"):
+			return {"error": f"'{email}' does not look like a valid email address"}
+		if not frappe.has_permission("Email Group Member", "create"):
+			return {"error": "no create permission on Email Group Member"}
+		token = _stage_action(
+			"add_to_email_group",
+			{"email_group": row, "email": email},
+		)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will add '{email}' to Email Group '{row}'",
+			"preview": {"email_group": row, "email": email},
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "prepare_create_newsletter":
+		subject = (args.get("subject") or "").strip()
+		message = args.get("message") or ""
+		email_group = args.get("email_group")
+		send_from = args.get("send_from") or ""
+		send_unsubscribe_link = args.get("send_unsubscribe_link")
+		send_unsubscribe_link = True if send_unsubscribe_link is None else bool(send_unsubscribe_link)
+		if not subject:
+			return {"error": "subject required"}
+		if not message.strip():
+			return {"error": "message (body) required"}
+		if not email_group:
+			return {"error": "email_group required"}
+		# Email Group autonames hash; resolve by title fallback.
+		group_row = email_group if frappe.db.exists("Email Group", email_group) else (
+			frappe.db.get_value("Email Group", {"title": email_group}, "name") or None
+		)
+		if not group_row:
+			return {"error": f"Email Group '{email_group}' not found"}
+		if not frappe.has_permission("Newsletter", "create"):
+			return {"error": "no create permission on Newsletter"}
+		token = _stage_action(
+			"create_newsletter",
+			{
+				"subject": subject,
+				"message": message,
+				"email_group": group_row,
+				"send_from": send_from,
+				"send_unsubscribe_link": 1 if send_unsubscribe_link else 0,
+			},
+		)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will draft Newsletter '{subject}' for Email Group '{group_row}' (sending is admin-driven from the Desk)",
+			"preview": {
+				"subject": subject,
+				"email_group": group_row,
+				"body_preview": (message[:300] + "…") if len(message) > 300 else message,
+			},
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
 	if name == "restore_deleted_doc":
 		# Direct (no /commit) — restoring is single-doc, fully reversible.
 		dd_name = args.get("deleted_document_name")
@@ -3145,6 +3583,138 @@ def commit_prepared(token, **extras):
 				"response": payload["response"],
 				"use_html": payload.get("use_html") or 0,
 			}).insert(ignore_permissions=False)
+		elif action == "create_notification":
+			if not frappe.has_permission("Notification", "create"):
+				return {"ok": False, "error": "no create permission on Notification at commit time"}
+			values = {
+				"doctype": "Notification",
+				"subject": payload["subject"],
+				"document_type": payload["document_type"],
+				"event": payload["event"],
+				"channel": payload["channel"],
+				"message": payload.get("message") or "",
+				"condition": payload.get("condition") or "",
+			}
+			for k in ("date_changed", "value_changed", "method", "days_in_advance", "slack_webhook_url", "property_value"):
+				if payload.get(k) is not None:
+					values[k] = payload[k]
+			doc = frappe.get_doc(values)
+			for r in payload.get("recipients") or []:
+				if isinstance(r, dict):
+					doc.append("recipients", {
+						k: r.get(k) for k in (
+							"receiver_by_role", "receiver_by_document_field",
+							"receiver", "cc", "bcc",
+						) if r.get(k)
+					})
+			doc.insert(ignore_permissions=False)
+		elif action == "create_auto_email_report":
+			if not frappe.has_permission("Auto Email Report", "create"):
+				return {"ok": False, "error": "no create permission on Auto Email Report at commit time"}
+			rep = frappe.get_doc("Report", payload["report"])
+			if not frappe.has_permission(rep.ref_doctype, "report"):
+				return {"ok": False, "error": f"no report permission on {rep.ref_doctype} at commit time"}
+			values = {
+				"doctype": "Auto Email Report",
+				"report": payload["report"],
+				"email_to": payload["email_to"],
+				"frequency": payload["frequency"],
+				"format": payload["format"],
+				"description": payload.get("description") or "",
+				"enabled": payload.get("enabled") or 0,
+			}
+			if payload.get("day_of_week"):
+				values["day_of_week"] = payload["day_of_week"]
+			doc = frappe.get_doc(values).insert(ignore_permissions=False)
+		elif action == "create_milestone_tracker":
+			if not frappe.has_permission("Milestone Tracker", "create"):
+				return {"ok": False, "error": "no create permission on Milestone Tracker at commit time"}
+			doc = frappe.get_doc({
+				"doctype": "Milestone Tracker",
+				"document_type": payload["document_type"],
+				"track_field": payload["track_field"],
+				"disabled": payload.get("disabled") or 0,
+			}).insert(ignore_permissions=False)
+		elif action == "create_auto_repeat":
+			if not frappe.has_permission("Auto Repeat", "create"):
+				return {"ok": False, "error": "no create permission on Auto Repeat at commit time"}
+			# Re-check the duplicate guard at commit — a token created
+			# in one preview might land after a sibling has filled the slot.
+			dup = frappe.get_all(
+				"Auto Repeat",
+				filters={
+					"reference_doctype": payload["reference_doctype"],
+					"reference_document": payload["reference_document"],
+					"status": ["!=", "Cancelled"],
+				},
+				limit=1,
+			)
+			if dup:
+				return {
+					"ok": False,
+					"error": f"Auto Repeat already exists for {payload['reference_doctype']}/{payload['reference_document']} (race with another preview).",
+				}
+			values = {
+				"doctype": "Auto Repeat",
+				"reference_doctype": payload["reference_doctype"],
+				"reference_document": payload["reference_document"],
+				"frequency": payload["frequency"],
+				"start_date": payload["start_date"],
+				"submit_on_creation": payload.get("submit_on_creation") or 0,
+				"notify_by_email": payload.get("notify_by_email") or 0,
+			}
+			if payload.get("end_date"):
+				values["end_date"] = payload["end_date"]
+			if payload.get("recipients"):
+				values["recipients"] = payload["recipients"]
+			doc = frappe.get_doc(values).insert(ignore_permissions=False)
+		elif action == "create_email_group":
+			if not frappe.has_permission("Email Group", "create"):
+				return {"ok": False, "error": "no create permission on Email Group at commit time"}
+			# Idempotency at commit — title may have been claimed in the
+			# 5-min preview window.
+			if frappe.db.exists("Email Group", {"title": payload["title"]}):
+				return {"ok": False, "error": f"Email Group with title '{payload['title']}' already exists"}
+			doc = frappe.get_doc({
+				"doctype": "Email Group",
+				"title": payload["title"],
+				"description": payload.get("description") or "",
+				"public": payload.get("public") or 0,
+			}).insert(ignore_permissions=False)
+		elif action == "add_to_email_group":
+			if not frappe.has_permission("Email Group Member", "create"):
+				return {"ok": False, "error": "no create permission on Email Group Member at commit time"}
+			# Idempotent — existing membership is a graceful no-op.
+			existing = frappe.db.exists(
+				"Email Group Member",
+				{"email_group": payload["email_group"], "email": payload["email"]},
+			)
+			if existing:
+				class _R:
+					doctype = "Email Group Member"
+					name = existing
+				doc = _R()
+			else:
+				doc = frappe.get_doc({
+					"doctype": "Email Group Member",
+					"email_group": payload["email_group"],
+					"email": payload["email"],
+				}).insert(ignore_permissions=False)
+		elif action == "create_newsletter":
+			if not frappe.has_permission("Newsletter", "create"):
+				return {"ok": False, "error": "no create permission on Newsletter at commit time"}
+			values = {
+				"doctype": "Newsletter",
+				"subject": payload["subject"],
+				"message": payload["message"],
+				"send_unsubscribe_link": payload.get("send_unsubscribe_link") or 0,
+			}
+			if payload.get("send_from"):
+				values["send_from"] = payload["send_from"]
+			doc = frappe.get_doc(values)
+			# Newsletter's email_group is a child table.
+			doc.append("email_group", {"email_group": payload["email_group"]})
+			doc.insert(ignore_permissions=False)
 		else:
 			return {"ok": False, "error": f"Unknown action: {action}"}
 		frappe.db.commit()

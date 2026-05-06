@@ -1188,4 +1188,179 @@ TOOL_SCHEMAS = [
 			"required": ["deleted_document_name"],
 		},
 	},
+	# ------------------------------------------------------------------
+	# 2026-05-06 (Commit 2) — Alerts / Newsletter / Automation surface.
+	# ------------------------------------------------------------------
+	{
+		"name": "prepare_create_notification",
+		"description": (
+			"Stage a new Frappe Notification (alert template). Validates event/channel enums, conditional "
+			"required fields (Days Before/After → date_changed; Value Change → value_changed; Method → method), "
+			"that document_type exists, that referenced fieldnames live on the doctype, and that the optional "
+			"`condition` expression parses + is free of imports/lambdas. Two-phase: returns preview_token."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"subject": {"type": "string", "description": "Email subject (Jinja-templated)"},
+				"document_type": {"type": "string", "description": "DocType the notification fires on"},
+				"event": {
+					"type": "string",
+					"enum": ["New", "Save", "Submit", "Cancel", "Days After", "Days Before", "Value Change", "Method", "Custom"],
+				},
+				"channel": {
+					"type": "string",
+					"enum": ["Email", "Slack", "System Notification", "SMS"],
+					"default": "Email",
+				},
+				"recipients": {
+					"type": "array",
+					"items": {"type": "object"},
+					"description": "List of {receiver_by_role | receiver_by_document_field | receiver, cc?, bcc?}. At least one row required for channel=Email.",
+				},
+				"message": {"type": "string", "description": "Body (Jinja-templated)"},
+				"condition": {"type": "string", "description": "Optional Python-style condition, e.g. 'doc.status == \"Overdue\"'. Validated for syntax + safety."},
+				"date_changed": {"type": "string", "description": "Required when event ∈ {Days Before, Days After}. Fieldname on document_type."},
+				"value_changed": {"type": "string", "description": "Required when event=Value Change. Fieldname on document_type."},
+				"method": {"type": "string", "description": "Required when event=Method. Server-side method import path."},
+				"days_in_advance": {"type": "integer", "description": "Used with event=Days Before/After."},
+				"slack_webhook_url": {"type": "string", "description": "Required when channel=Slack — name of a Slack Webhook URL doctype row."},
+				"property_value": {"type": "string", "description": "Compared-to value when event=Value Change."},
+			},
+			"required": ["subject", "document_type", "event"],
+		},
+	},
+	{
+		"name": "prepare_create_auto_email_report",
+		"description": (
+			"Stage a new Auto Email Report — schedule a Report to email itself on a frequency. Validates the "
+			"Report exists and is readable, enum frequencies, and at least one recipient. Two-phase: returns "
+			"preview_token."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"report": {"type": "string", "description": "Report name (must exist + user must have report perm)"},
+				"email_to": {"type": "string", "description": "Newline-separated email addresses to receive the report"},
+				"frequency": {"type": "string", "enum": ["Daily", "Weekdays", "Weekly", "Monthly"], "default": "Weekly"},
+				"format": {"type": "string", "enum": ["HTML", "XLSX", "CSV"], "default": "HTML"},
+				"day_of_week": {"type": "string", "enum": ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]},
+				"description": {"type": "string"},
+				"enabled": {"type": "boolean", "default": True},
+			},
+			"required": ["report", "email_to"],
+		},
+	},
+	{
+		"name": "update_notification_settings",
+		"description": (
+			"DIRECT — no /commit. Update the calling user's per-user Notification Settings (channels, seen/unseen, "
+			"email subject filtering). Always limited to frappe.session.user (a System Manager calling for someone "
+			"else is rejected — use the Desk for that). Returns {ok, updated_fields}."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"enabled": {"type": "boolean"},
+				"email_message_subject_filter": {"type": "string"},
+				"send_email_alerts": {"type": "boolean"},
+				"seen": {"type": "boolean"},
+			},
+		},
+	},
+	{
+		"name": "prepare_create_milestone_tracker",
+		"description": (
+			"Stage a new Milestone Tracker — auto-creates Milestones whenever a particular field on a doctype "
+			"changes. Validates ref_doctype + track_field exist and that the field is a Link/Select. Two-phase: "
+			"returns preview_token."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"document_type": {"type": "string", "description": "DocType to track"},
+				"track_field": {"type": "string", "description": "Fieldname (Link or Select) to watch"},
+				"disabled": {"type": "boolean", "default": False},
+			},
+			"required": ["document_type", "track_field"],
+		},
+	},
+	{
+		"name": "prepare_create_auto_repeat",
+		"description": (
+			"Stage a new Auto Repeat — recurring document creation against a reference doc. Validates the "
+			"reference document exists and that no non-Cancelled Auto Repeat already targets the same "
+			"(reference_doctype, reference_document) pair (idempotency). Commit re-checks the duplicate guard. "
+			"Two-phase: returns preview_token."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"reference_doctype": {"type": "string"},
+				"reference_document": {"type": "string"},
+				"frequency": {
+					"type": "string",
+					"enum": ["Daily", "Weekly", "Monthly", "Quarterly", "Half-yearly", "Yearly"],
+					"default": "Monthly",
+				},
+				"start_date": {"type": "string", "description": "ISO date, e.g. '2026-05-10'"},
+				"end_date": {"type": "string", "description": "ISO date — must be > start_date if given."},
+				"submit_on_creation": {"type": "boolean", "default": False},
+				"notify_by_email": {"type": "boolean", "default": False},
+				"recipients": {"type": "string", "description": "Comma-separated emails (used iff notify_by_email=True)"},
+			},
+			"required": ["reference_doctype", "reference_document", "start_date"],
+		},
+	},
+	{
+		"name": "prepare_create_email_group",
+		"description": (
+			"Stage a new Email Group (mailing list bucket). Refuses if an Email Group with the same title "
+			"already exists. Two-phase: returns preview_token."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"title": {"type": "string"},
+				"description": {"type": "string"},
+				"public": {"type": "boolean", "default": False},
+			},
+			"required": ["title"],
+		},
+	},
+	{
+		"name": "prepare_add_to_email_group",
+		"description": (
+			"Stage adding an email address as a member of an existing Email Group. Validates the group exists "
+			"and the email is well-formed. Idempotent at commit (existing membership is a graceful no-op). "
+			"Two-phase: returns preview_token."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"email_group": {"type": "string", "description": "Title of the Email Group (must exist)"},
+				"email": {"type": "string", "description": "Subscriber email address"},
+			},
+			"required": ["email_group", "email"],
+		},
+	},
+	{
+		"name": "prepare_create_newsletter",
+		"description": (
+			"Stage a new Newsletter (mass-mail draft). Validates the referenced Email Group exists. Newsletter "
+			"itself is inert until manually sent from the Desk — staging here does NOT send. Two-phase: returns "
+			"preview_token. (Sending is admin-driven, not LLM-driven, by design.)"
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"subject": {"type": "string"},
+				"message": {"type": "string", "description": "Newsletter HTML body"},
+				"email_group": {"type": "string", "description": "Title of an existing Email Group"},
+				"send_from": {"type": "string", "description": "From-name + email, e.g. 'Acme <noreply@acme.com>'"},
+				"send_unsubscribe_link": {"type": "boolean", "default": True},
+			},
+			"required": ["subject", "message", "email_group"],
+		},
+	},
 ]

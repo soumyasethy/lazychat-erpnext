@@ -261,6 +261,43 @@ TOOL_ARGS: dict[str, dict[str, Any]] = {
     # restore_deleted_doc is direct (no /commit). Probe with a deliberately
     # non-existent name → graceful error (EXPECT_ERROR_OK).
     "restore_deleted_doc": {"deleted_document_name": "_lazychat_smoke_no_dd"},
+
+    # --- Commit 2 — Alerts / Newsletter / Automation typed wrappers ---
+    "prepare_create_notification": {
+        "subject": "_lazychat_smoke_notif_probe",
+        "document_type": "Customer",
+        "event": "New",
+        "channel": "Email",
+        "recipients": [{"receiver_by_role": "System Manager"}],
+    },
+    # Auto Email Report needs a real Report — probe with a deliberately
+    # non-existent one → graceful error (EXPECT_ERROR_OK).
+    "prepare_create_auto_email_report": {
+        "report": "_lazychat_smoke_no_report",
+        "email_to": "smoke@example.com",
+    },
+    "update_notification_settings": {"send_email_alerts": True},
+    "prepare_create_milestone_tracker": {
+        "document_type": "Customer",
+        "track_field": "customer_group",
+    },
+    # Auto Repeat needs a real ref doc — probe with a non-existent pair.
+    "prepare_create_auto_repeat": {
+        "reference_doctype": "Sales Order",
+        "reference_document": "_lazychat_smoke_no_so",
+        "frequency": "Monthly",
+        "start_date": "2030-01-01",
+    },
+    "prepare_create_email_group": {"title": f"_lazychat_smoke_group_probe"},
+    "prepare_add_to_email_group": {
+        "email_group": "_lazychat_smoke_no_group",
+        "email": "smoke@example.com",
+    },
+    "prepare_create_newsletter": {
+        "subject": "_lazychat_smoke_newsletter_probe",
+        "message": "<p>probe</p>",
+        "email_group": "_lazychat_smoke_no_group",
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -289,6 +326,11 @@ EXPECT_ERROR_OK: set[str] = {
     # Commit 1 additions:
     "prepare_bulk_update",            # gated by lazychat_allow_dangerous_tools
     "restore_deleted_doc",            # nonexistent target on purpose
+    # Commit 2 additions:
+    "prepare_create_auto_email_report",  # nonexistent Report on purpose
+    "prepare_create_auto_repeat",        # nonexistent ref doc on purpose
+    "prepare_add_to_email_group",        # nonexistent group on purpose
+    "prepare_create_newsletter",         # nonexistent group on purpose
 }
 
 # Empty now — every tool has args. Kept for shape compat / future fixtures.
@@ -621,6 +663,13 @@ VALIDATORS: dict[str, Callable[[dict], tuple[bool, str]]] = {
     "prepare_update_print_settings": _v_prepare_token,
     "prepare_create_email_template": _v_prepare_token,
     "prepare_download_backup": _v_prepare_token,
+    # Commit 2 — Alerts / Newsletter / Automation
+    "prepare_create_notification": _v_prepare_token,
+    "prepare_create_milestone_tracker": _v_prepare_token,
+    "prepare_create_email_group": _v_prepare_token,
+    # Auto-email-report / auto-repeat / add_to_email_group / newsletter are
+    # EXPECT_ERROR_OK with their default fixtures (referenced docs don't exist).
+    # update_notification_settings is direct — no preview_token, validated as a no-op.
     # prepare_bulk_update + restore_deleted_doc are EXPECT_ERROR_OK; they
     # never run through a validator on the smoke fixture as configured.
     "export_list_to_csv": _v_field_picker_or_token,
