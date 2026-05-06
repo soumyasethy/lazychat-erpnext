@@ -117,6 +117,13 @@
    "description": "When checked AND caller has System Manager role, the SQL and Python power tools can be staged via /commit. SELECT-only SQL enforced by regex. site_config 'lazychat_allow_dangerous_tools' takes precedence if set."
   },
   {
+   "default": "0",
+   "fieldname": "allow_email_setup",
+   "fieldtype": "Check",
+   "label": "Allow prepare_create_email_account Tool",
+   "description": "When checked AND caller has System Manager role, the prepare_create_email_account tool can stage SMTP/IMAP credentials. Configuring an Email Account is meaningfully more dangerous than sending email — it can exfil mail or DOS upstream servers — so it has its own gate separate from 'Allow prepare_send_email'. site_config 'lazychat_allow_email_setup' takes precedence if set."
+  },
+  {
    "fieldname": "section_help",
    "fieldtype": "Section Break",
    "label": "Help"

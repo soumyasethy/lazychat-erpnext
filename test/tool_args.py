@@ -298,6 +298,22 @@ TOOL_ARGS: dict[str, dict[str, Any]] = {
         "message": "<p>probe</p>",
         "email_group": "_lazychat_smoke_no_group",
     },
+
+    # --- Commit 3 — Email Account setup + Assignment Rule ---
+    # Both are gated by site flags / roles in dev; the harness expects either
+    # a graceful gate error (when flag off) or a preview_token (when flag on).
+    "prepare_create_email_account": {
+        "email_account_name": "_lazychat_smoke_acct_probe",
+        "email_id": "smoke@example.com",
+        "enable_outgoing": False,
+        "enable_incoming": False,
+    },
+    "prepare_create_assignment_rule": {
+        "name": "_lazychat_smoke_rule_probe",
+        "document_type": "ToDo",
+        "rule": "Round Robin",
+        "users": ["Administrator"],
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -331,6 +347,8 @@ EXPECT_ERROR_OK: set[str] = {
     "prepare_create_auto_repeat",        # nonexistent ref doc on purpose
     "prepare_add_to_email_group",        # nonexistent group on purpose
     "prepare_create_newsletter",         # nonexistent group on purpose
+    # Commit 3 additions:
+    "prepare_create_email_account",      # gated by lazychat_allow_email_setup
 }
 
 # Empty now — every tool has args. Kept for shape compat / future fixtures.
@@ -667,6 +685,9 @@ VALIDATORS: dict[str, Callable[[dict], tuple[bool, str]]] = {
     "prepare_create_notification": _v_prepare_token,
     "prepare_create_milestone_tracker": _v_prepare_token,
     "prepare_create_email_group": _v_prepare_token,
+    # Commit 3 — Email Account + Assignment Rule
+    "prepare_create_assignment_rule": _v_prepare_token,
+    # prepare_create_email_account is EXPECT_ERROR_OK by default (gated).
     # Auto-email-report / auto-repeat / add_to_email_group / newsletter are
     # EXPECT_ERROR_OK with their default fixtures (referenced docs don't exist).
     # update_notification_settings is direct — no preview_token, validated as a no-op.

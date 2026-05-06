@@ -1290,6 +1290,143 @@ def run():
 		not r.get("ok") and "not found" in (r.get("error") or ""),
 	))
 
+	# ----------------------------------------------------------------
+	# Commit 3 — Email Account setup + Assignment Rule
+	# ----------------------------------------------------------------
+
+	# T121: prepare_create_email_account — gated unless lazychat_allow_email_setup is set.
+	r = execute_tool("prepare_create_email_account", {
+		"email_account_name": "_lazychat_smoke_acct",
+		"email_id": "smoke@example.com",
+		"enable_outgoing": False,
+		"enable_incoming": False,
+	})
+	err_lc = (r.get("error") or "").lower()
+	gated = (not r.get("ok")) and ("gated" in err_lc or "system manager" in err_lc)
+	staged = r.get("ok") is True and bool(r.get("preview_token"))
+	record(_ok(
+		"T121 prepare_create_email_account gates or stages",
+		gated or staged,
+		f"error={(r.get('error') or '')[:80]!r}",
+	))
+
+	# T122: bad email_id format
+	r = execute_tool("prepare_create_email_account", {
+		"email_account_name": "_lazychat_smoke_acct_bad",
+		"email_id": "not-an-email",
+		"enable_outgoing": False,
+		"enable_incoming": False,
+	})
+	record(_ok(
+		"T122 prepare_create_email_account rejects malformed email_id",
+		not r.get("ok") and "email_id" in (r.get("error") or ""),
+	))
+
+	# T123: enable_outgoing without smtp_server. Gate fires first if the flag
+	# is off, otherwise the conditional-required check fires.
+	r = execute_tool("prepare_create_email_account", {
+		"email_account_name": "_lazychat_smoke_acct_no_smtp",
+		"email_id": "smoke@example.com",
+		"enable_outgoing": True,
+	})
+	err_lc = (r.get("error") or "").lower()
+	record(_ok(
+		"T123 prepare_create_email_account rejects enable_outgoing without smtp_server",
+		not r.get("ok") and (
+			"smtp_server" in err_lc
+			or "gated" in err_lc
+			or "system manager" in err_lc
+		),
+	))
+
+	# T124: prepare_create_assignment_rule happy
+	r = execute_tool("prepare_create_assignment_rule", {
+		"name": f"_lazychat_smoke_rule_{frappe.generate_hash(length=4)}",
+		"document_type": "ToDo",
+		"rule": "Round Robin",
+		"users": ["Administrator"],
+	})
+	record(_ok(
+		"T124 prepare_create_assignment_rule Round Robin stages preview_token",
+		r.get("ok") is True and bool(r.get("preview_token")),
+		f"summary={r.get('summary')!r}",
+	))
+
+	# T125: invalid rule enum
+	r = execute_tool("prepare_create_assignment_rule", {
+		"name": "_lazychat_smoke_rule_bad",
+		"document_type": "ToDo",
+		"rule": "Magic Auto",
+		"users": ["Administrator"],
+	})
+	record(_ok(
+		"T125 prepare_create_assignment_rule rejects bad rule enum",
+		not r.get("ok") and "rule must be" in (r.get("error") or ""),
+	))
+
+	# T126: empty users
+	r = execute_tool("prepare_create_assignment_rule", {
+		"name": "_lazychat_smoke_rule_no_users",
+		"document_type": "ToDo",
+		"rule": "Round Robin",
+		"users": [],
+	})
+	record(_ok(
+		"T126 prepare_create_assignment_rule rejects empty users",
+		not r.get("ok") and "users" in (r.get("error") or ""),
+	))
+
+	# T127: nonexistent user
+	r = execute_tool("prepare_create_assignment_rule", {
+		"name": "_lazychat_smoke_rule_bad_user",
+		"document_type": "ToDo",
+		"rule": "Round Robin",
+		"users": ["_no_such_user@example.com"],
+	})
+	record(_ok(
+		"T127 prepare_create_assignment_rule rejects nonexistent user",
+		not r.get("ok") and "does not exist" in (r.get("error") or ""),
+	))
+
+	# T128: rule=Based on Field without `field`
+	r = execute_tool("prepare_create_assignment_rule", {
+		"name": "_lazychat_smoke_rule_no_field",
+		"document_type": "ToDo",
+		"rule": "Based on Field",
+		"users": ["Administrator"],
+	})
+	record(_ok(
+		"T128 prepare_create_assignment_rule rejects 'Based on Field' without field",
+		not r.get("ok") and "field" in (r.get("error") or ""),
+	))
+
+	# T129: invalid assign_condition (imports rejected)
+	r = execute_tool("prepare_create_assignment_rule", {
+		"name": "_lazychat_smoke_rule_cond",
+		"document_type": "ToDo",
+		"rule": "Round Robin",
+		"users": ["Administrator"],
+		"assign_condition": "import sys",
+	})
+	record(_ok(
+		"T129 prepare_create_assignment_rule rejects condition with imports",
+		not r.get("ok") and "condition" in (r.get("error") or "").lower(),
+	))
+
+	# T130: due_date_based_on must be Date or Datetime
+	# 'description' on ToDo is a Text field — not Date/Datetime.
+	r = execute_tool("prepare_create_assignment_rule", {
+		"name": "_lazychat_smoke_rule_bad_due",
+		"document_type": "ToDo",
+		"rule": "Round Robin",
+		"users": ["Administrator"],
+		"due_date_based_on": "description",
+	})
+	record(_ok(
+		"T130 prepare_create_assignment_rule rejects non-Date due_date_based_on",
+		not r.get("ok") and "due_date_based_on" in (r.get("error") or ""),
+	))
+
 	# T85–T89: acceptance smoke for already-working features routed through
 	# generic prepare_create_doc. We only verify the dispatch + permission path
 	# returns a preview_token (committing real Custom Fields / Server Scripts /

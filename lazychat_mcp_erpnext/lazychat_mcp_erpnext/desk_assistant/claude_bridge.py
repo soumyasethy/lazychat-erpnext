@@ -127,6 +127,15 @@ WRITE / WORKFLOW / COMMS (always two-phase via prepare_* + /commit):
   · prepare_create_email_group — mailing list bucket. Refuses if title already exists.
   · prepare_add_to_email_group(email_group, email) — append a member; idempotent at commit.
   · prepare_create_newsletter — staged ONLY; sending is admin-driven from the Desk by design.
+  · prepare_create_email_account — DOUBLE-GATED: System Manager AND new
+    `lazychat_allow_email_setup` flag (separate from `allow_email` because configuring
+    SMTP/IMAP creds is meaningfully more dangerous than sending mail). Live SMTP/IMAP
+    connection probe at preview time — result lands in preview's test_result. Test failure
+    does NOT refuse staging.
+  · prepare_create_assignment_rule — Round Robin / Load Balancing / Based on Field. users[]
+    must all exist; Based on Field requires a Link-to-User field; assign_condition and
+    unassign_condition are AST-validated against imports/lambdas/dunder. Requires
+    Notification Manager OR System Manager role.
 - DIRECT (no /commit) — these are reversible / single-doc / low-risk:
   · restore_deleted_doc(deleted_document_name) — restore from Frappe's recycle bin. Re-checks
     `create` permission on the original doctype.
