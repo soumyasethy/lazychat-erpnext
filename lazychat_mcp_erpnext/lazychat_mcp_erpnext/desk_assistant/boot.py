@@ -28,6 +28,7 @@ _SETTINGS_DEFAULTS = {
 	"legacy_widget_enabled": False,
 	"allow_email": False,
 	"allow_dangerous_tools": False,
+	"allow_email_setup": False,
 	"llm_proxy_allowed_hosts": list(_DEFAULT_LLM_PROXY_HOSTS),
 }
 
@@ -71,6 +72,7 @@ def get_lazychat_settings():
 		"lazychat_legacy_widget_enabled": "legacy_widget_enabled",
 		"lazychat_allow_email": "allow_email",
 		"lazychat_allow_dangerous_tools": "allow_dangerous_tools",
+		"lazychat_allow_email_setup": "allow_email_setup",
 	}
 	for site_key, settings_key in site_config_overrides.items():
 		if site_key in conf:

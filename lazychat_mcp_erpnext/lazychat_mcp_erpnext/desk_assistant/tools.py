@@ -2971,6 +2971,252 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"confirm_with": f"/commit {token}",
 		}
 
+	# ------------------------------------------------------------------
+	# 2026-05-06 (Commit 3) — Email Account setup + Assignment Rule.
+	# ------------------------------------------------------------------
+
+	if name == "prepare_create_email_account":
+		account_name = (args.get("email_account_name") or "").strip()
+		email_id = (args.get("email_id") or "").strip()
+		password = args.get("password") or ""
+		service = args.get("service") or ""
+		enable_outgoing = bool(args.get("enable_outgoing") if args.get("enable_outgoing") is not None else True)
+		enable_incoming = bool(args.get("enable_incoming"))
+		smtp_server = args.get("smtp_server")
+		smtp_port = args.get("smtp_port")
+		use_tls = bool(args.get("use_tls") if args.get("use_tls") is not None else True)
+		use_ssl = bool(args.get("use_ssl"))
+		email_server = args.get("email_server")
+		incoming_port = args.get("incoming_port")
+		use_imap = bool(args.get("use_imap") if args.get("use_imap") is not None else True)
+		default_outgoing = bool(args.get("default_outgoing"))
+		default_incoming = bool(args.get("default_incoming"))
+		domain_name = args.get("domain_name")
+		auth_method = args.get("auth_method") or "Basic"
+
+		if not account_name:
+			return {"error": "email_account_name required"}
+		if not email_id or "@" not in email_id:
+			return {"error": "email_id required (full mailbox address, e.g. 'noreply@acme.com')"}
+		valid_services = ("", "GMail", "Outlook.com", "Sendgrid", "SparkPost", "Yahoo Mail", "Yandex.Mail", "Frappe Mail")
+		if service not in valid_services:
+			return {"error": f"service must be one of: {', '.join(s or '<custom>' for s in valid_services)}"}
+		if auth_method not in ("Basic", "OAuth"):
+			return {"error": "auth_method must be 'Basic' or 'OAuth'"}
+		# Double gate: System Manager + lazychat_allow_email_setup.
+		if "System Manager" not in frappe.get_roles(frappe.session.user):
+			return {"error": "System Manager role required to configure Email Accounts"}
+		try:
+			from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings as _gls
+			if not _gls().get("allow_email_setup"):
+				return {"error": "prepare_create_email_account is gated: enable Lazychat Settings → Allow prepare_create_email_account Tool"}
+		except Exception as e:
+			return {"error": f"could not read settings: {e}"}
+		if not frappe.has_permission("Email Account", "create"):
+			return {"error": "no create permission on Email Account"}
+		# Conditional required fields.
+		if enable_outgoing:
+			if not smtp_server:
+				return {"error": "smtp_server required when enable_outgoing=True"}
+			if not smtp_port:
+				return {"error": "smtp_port required when enable_outgoing=True"}
+			if auth_method == "Basic" and not password:
+				return {"error": "password required when enable_outgoing=True with auth_method=Basic"}
+		if enable_incoming:
+			if not email_server:
+				return {"error": "email_server required when enable_incoming=True"}
+			if not incoming_port:
+				return {"error": "incoming_port required when enable_incoming=True"}
+			if auth_method == "Basic" and not password:
+				return {"error": "password required when enable_incoming=True with auth_method=Basic"}
+		# Warn (don't refuse) if default_outgoing collides — Frappe enforces uniqueness.
+		default_collision = None
+		if default_outgoing:
+			cur_default = frappe.db.get_value("Email Account", {"default_outgoing": 1}, "name")
+			if cur_default and cur_default != account_name:
+				default_collision = cur_default
+		# Live SMTP/IMAP probe — never refuse staging on test failure (server may
+		# be down right now, but the user might still want to stage the config).
+		test_result = {"smtp": "skipped", "imap": "skipped"}
+		if enable_outgoing and smtp_server and smtp_port and password and auth_method == "Basic":
+			try:
+				import smtplib, ssl
+				if use_ssl:
+					srv = smtplib.SMTP_SSL(smtp_server, int(smtp_port), timeout=8)
+				else:
+					srv = smtplib.SMTP(smtp_server, int(smtp_port), timeout=8)
+					if use_tls:
+						srv.starttls(context=ssl.create_default_context())
+				srv.login(email_id, password)
+				srv.quit()
+				test_result["smtp"] = "ok"
+			except Exception as e:
+				test_result["smtp"] = f"failed: {type(e).__name__}: {str(e)[:120]}"
+		if enable_incoming and email_server and incoming_port and password and auth_method == "Basic":
+			try:
+				if use_imap:
+					import imaplib, ssl
+					if use_ssl:
+						srv2 = imaplib.IMAP4_SSL(email_server, int(incoming_port))
+					else:
+						srv2 = imaplib.IMAP4(email_server, int(incoming_port))
+					srv2.login(email_id, password)
+					srv2.logout()
+				else:
+					import poplib, ssl
+					if use_ssl:
+						srv2 = poplib.POP3_SSL(email_server, int(incoming_port), timeout=8)
+					else:
+						srv2 = poplib.POP3(email_server, int(incoming_port), timeout=8)
+					srv2.user(email_id)
+					srv2.pass_(password)
+					srv2.quit()
+				test_result["imap"] = "ok"
+			except Exception as e:
+				test_result["imap"] = f"failed: {type(e).__name__}: {str(e)[:120]}"
+		token = _stage_action(
+			"create_email_account",
+			{
+				"email_account_name": account_name,
+				"email_id": email_id,
+				"password": password,
+				"service": service,
+				"enable_outgoing": 1 if enable_outgoing else 0,
+				"smtp_server": smtp_server,
+				"smtp_port": smtp_port,
+				"use_tls": 1 if use_tls else 0,
+				"use_ssl": 1 if use_ssl else 0,
+				"enable_incoming": 1 if enable_incoming else 0,
+				"email_server": email_server,
+				"incoming_port": incoming_port,
+				"use_imap": 1 if use_imap else 0,
+				"default_outgoing": 1 if default_outgoing else 0,
+				"default_incoming": 1 if default_incoming else 0,
+				"domain_name": domain_name,
+				"auth_method": auth_method,
+			},
+		)
+		summary_bits = []
+		if enable_outgoing:
+			summary_bits.append(f"SMTP {smtp_server}:{smtp_port} ({test_result['smtp']})")
+		if enable_incoming:
+			summary_bits.append(f"{'IMAP' if use_imap else 'POP3'} {email_server}:{incoming_port} ({test_result['imap']})")
+		preview = {
+			"email_account_name": account_name,
+			"email_id": email_id,
+			"service": service or "<custom>",
+			"enable_outgoing": enable_outgoing,
+			"enable_incoming": enable_incoming,
+			"test_result": test_result,
+		}
+		if default_collision:
+			preview["default_outgoing_collision"] = (
+				f"Email Account '{default_collision}' is currently default_outgoing — committing this will REPLACE it."
+			)
+		if domain_name:
+			preview["domain_name"] = domain_name
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will create Email Account '{account_name}' for {email_id}" + (f" — {'; '.join(summary_bits)}" if summary_bits else ""),
+			"preview": preview,
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "prepare_create_assignment_rule":
+		rule_name = (args.get("name") or "").strip()
+		document_type = args.get("document_type")
+		rule = args.get("rule") or "Round Robin"
+		users = args.get("users") or []
+		field = args.get("field")
+		assign_condition = args.get("assign_condition") or ""
+		unassign_condition = args.get("unassign_condition") or ""
+		due_date_based_on = args.get("due_date_based_on")
+		priority = args.get("priority")
+		description = args.get("description") or ""
+		disabled = bool(args.get("disabled"))
+
+		if not rule_name:
+			return {"error": "name required"}
+		if not document_type:
+			return {"error": "document_type required"}
+		valid_rules = ("Round Robin", "Load Balancing", "Based on Field")
+		if rule not in valid_rules:
+			return {"error": f"rule must be one of: {', '.join(valid_rules)}"}
+		if not isinstance(users, list) or not users:
+			return {"error": "users required (non-empty list of User names)"}
+		if not frappe.db.exists("DocType", document_type):
+			return {"error": f"document_type '{document_type}' does not exist"}
+		if not frappe.has_permission("Assignment Rule", "create"):
+			return {"error": "no create permission on Assignment Rule"}
+		# Role gate — Notification Manager OR System Manager.
+		caller_roles = frappe.get_roles(frappe.session.user)
+		if not ({"Notification Manager", "System Manager"} & set(caller_roles)):
+			return {"error": "Assignment Rule create requires 'Notification Manager' or 'System Manager' role"}
+		# Existential check on each user.
+		for u in users:
+			if not frappe.db.exists("User", u):
+				return {"error": f"user '{u}' does not exist"}
+		# rule=Based on Field requires `field` to be a Link to User on document_type.
+		try:
+			meta = frappe.get_meta(document_type)
+		except Exception as e:
+			return {"error": f"could not load meta for {document_type}: {e}"}
+		field_map = {df.fieldname: df for df in meta.fields}
+		if rule == "Based on Field":
+			if not field:
+				return {"error": "field required when rule='Based on Field'"}
+			if field not in field_map:
+				return {"error": f"field='{field}' is not a fieldname on {document_type}"}
+			if field_map[field].fieldtype != "Link" or field_map[field].options != "User":
+				return {"error": f"field='{field}' must be a Link field pointing to User (got fieldtype={field_map[field].fieldtype}, options={field_map[field].options})"}
+		# due_date_based_on must be a Date/Datetime fieldname on document_type.
+		if due_date_based_on:
+			if due_date_based_on not in field_map:
+				return {"error": f"due_date_based_on='{due_date_based_on}' is not a fieldname on {document_type}"}
+			if field_map[due_date_based_on].fieldtype not in ("Date", "Datetime"):
+				return {"error": f"due_date_based_on='{due_date_based_on}' must be Date or Datetime (got {field_map[due_date_based_on].fieldtype})"}
+		# Conditions go through the shared Frappe-expression validator.
+		err = _validate_frappe_expression(assign_condition)
+		if err:
+			return {"error": f"assign_condition: {err}"}
+		err = _validate_frappe_expression(unassign_condition)
+		if err:
+			return {"error": f"unassign_condition: {err}"}
+		token = _stage_action(
+			"create_assignment_rule",
+			{
+				"name": rule_name,
+				"document_type": document_type,
+				"rule": rule,
+				"users": users,
+				"field": field,
+				"assign_condition": assign_condition,
+				"unassign_condition": unassign_condition,
+				"due_date_based_on": due_date_based_on,
+				"priority": int(priority) if priority not in (None, "") else 0,
+				"description": description,
+				"disabled": 1 if disabled else 0,
+			},
+		)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will create {rule} Assignment Rule '{rule_name}' on {document_type} ({len(users)} user(s))",
+			"preview": {
+				"name": rule_name,
+				"document_type": document_type,
+				"rule": rule,
+				"users": users,
+				"field": field,
+				"assign_condition": assign_condition or None,
+				"open_url": f"/app/assignment-rule/{rule_name}",
+			},
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
 	if name == "restore_deleted_doc":
 		# Direct (no /commit) — restoring is single-doc, fully reversible.
 		dd_name = args.get("deleted_document_name")
@@ -3714,6 +3960,74 @@ def commit_prepared(token, **extras):
 			doc = frappe.get_doc(values)
 			# Newsletter's email_group is a child table.
 			doc.append("email_group", {"email_group": payload["email_group"]})
+			doc.insert(ignore_permissions=False)
+		elif action == "create_email_account":
+			# Re-check both gates at commit (admin may have flipped flag off).
+			if "System Manager" not in frappe.get_roles(frappe.session.user):
+				return {"ok": False, "error": "System Manager role required to configure Email Accounts"}
+			from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings as _gls
+			if not _gls().get("allow_email_setup"):
+				return {"ok": False, "error": "allow_email_setup flag is now off"}
+			if not frappe.has_permission("Email Account", "create"):
+				return {"ok": False, "error": "no create permission on Email Account at commit time"}
+			# Idempotent Email Domain create when domain_name supplied.
+			if payload.get("domain_name"):
+				dn = payload["domain_name"]
+				if not frappe.db.exists("Email Domain", dn):
+					try:
+						frappe.get_doc({
+							"doctype": "Email Domain",
+							"domain_name": dn,
+							"email_server": payload.get("email_server") or "",
+							"smtp_server": payload.get("smtp_server") or "",
+							"smtp_port": payload.get("smtp_port") or "",
+							"use_tls": payload.get("use_tls") or 0,
+							"use_ssl": payload.get("use_ssl") or 0,
+							"use_imap": payload.get("use_imap") or 0,
+							"incoming_port": payload.get("incoming_port") or "",
+						}).insert(ignore_permissions=False)
+					except Exception as e:
+						# Domain creation is best-effort — don't fail the whole flow if it conflicts.
+						frappe.local.flags.lazychat_commit_extras = {"email_domain_warning": f"Email Domain '{dn}' insert failed: {type(e).__name__}: {e}"}
+			values = {
+				"doctype": "Email Account",
+				"email_account_name": payload["email_account_name"],
+				"email_id": payload["email_id"],
+				"password": payload.get("password") or "",
+				"enable_outgoing": payload.get("enable_outgoing") or 0,
+				"enable_incoming": payload.get("enable_incoming") or 0,
+				"use_tls": payload.get("use_tls") or 0,
+				"use_ssl": payload.get("use_ssl") or 0,
+				"use_imap": payload.get("use_imap") or 0,
+				"default_outgoing": payload.get("default_outgoing") or 0,
+				"default_incoming": payload.get("default_incoming") or 0,
+				"auth_method": payload.get("auth_method") or "Basic",
+			}
+			for k in ("service", "smtp_server", "smtp_port", "email_server", "incoming_port", "domain_name"):
+				if payload.get(k):
+					values[k] = payload[k]
+			doc = frappe.get_doc(values).insert(ignore_permissions=False)
+		elif action == "create_assignment_rule":
+			if not frappe.has_permission("Assignment Rule", "create"):
+				return {"ok": False, "error": "no create permission on Assignment Rule at commit time"}
+			caller_roles = frappe.get_roles(frappe.session.user)
+			if not ({"Notification Manager", "System Manager"} & set(caller_roles)):
+				return {"ok": False, "error": "Assignment Rule create requires 'Notification Manager' or 'System Manager' role"}
+			values = {
+				"doctype": "Assignment Rule",
+				"name": payload["name"],
+				"document_type": payload["document_type"],
+				"rule": payload["rule"],
+				"priority": payload.get("priority") or 0,
+				"disabled": payload.get("disabled") or 0,
+				"description": payload.get("description") or "",
+			}
+			for k in ("field", "assign_condition", "unassign_condition", "due_date_based_on"):
+				if payload.get(k):
+					values[k] = payload[k]
+			doc = frappe.get_doc(values)
+			for u in payload.get("users") or []:
+				doc.append("users", {"user": u})
 			doc.insert(ignore_permissions=False)
 		else:
 			return {"ok": False, "error": f"Unknown action: {action}"}

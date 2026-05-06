@@ -1363,4 +1363,84 @@ TOOL_SCHEMAS = [
 			"required": ["subject", "message", "email_group"],
 		},
 	},
+	# ------------------------------------------------------------------
+	# 2026-05-06 (Commit 3) — Email Account setup + Assignment Rule.
+	# Both wrappers carry meaningful blast radius (SMTP creds; doc auto-
+	# assignment rules) and ship together with the new
+	# `lazychat_allow_email_setup` site flag.
+	# ------------------------------------------------------------------
+	{
+		"name": "prepare_create_email_account",
+		"description": (
+			"Stage a new Email Account (SMTP/IMAP config). DOUBLE-GATED: requires System Manager role AND "
+			"the new `lazychat_allow_email_setup` flag (separate from `lazychat_allow_email` because "
+			"configuring SMTP/IMAP creds is meaningfully more dangerous than sending mail through an existing "
+			"account). Validates service enum, conditional required fields per enable_outgoing/enable_incoming, "
+			"and runs a live SMTP/IMAP connection probe at preview time — the result lands in the preview's "
+			"`test_result.{smtp,imap}` so the user sees connectivity before /commit. Test failure does NOT "
+			"refuse staging (server might be down). Optional `domain_name` triggers idempotent Email Domain "
+			"create at commit time. Two-phase: returns preview_token."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"email_account_name": {"type": "string", "description": "Display name (also doc name)"},
+				"email_id": {"type": "string", "description": "The mailbox address, e.g. 'noreply@acme.com'"},
+				"password": {"type": "string", "description": "Mailbox password / app password. Stored encrypted by Frappe."},
+				"service": {
+					"type": "string",
+					"enum": ["", "GMail", "Outlook.com", "Sendgrid", "SparkPost", "Yahoo Mail", "Yandex.Mail", "Frappe Mail"],
+					"description": "Empty for custom server",
+				},
+				"enable_outgoing": {"type": "boolean", "default": True},
+				"smtp_server": {"type": "string"},
+				"smtp_port": {"type": "integer"},
+				"use_tls": {"type": "boolean", "default": True},
+				"use_ssl": {"type": "boolean", "default": False},
+				"enable_incoming": {"type": "boolean", "default": False},
+				"email_server": {"type": "string", "description": "IMAP/POP3 server"},
+				"incoming_port": {"type": "integer"},
+				"use_imap": {"type": "boolean", "default": True},
+				"default_outgoing": {"type": "boolean", "default": False},
+				"default_incoming": {"type": "boolean", "default": False},
+				"domain_name": {"type": "string", "description": "Optional. Idempotently create Email Domain at commit time if missing."},
+				"auth_method": {"type": "string", "enum": ["Basic", "OAuth"], "default": "Basic"},
+			},
+			"required": ["email_account_name", "email_id"],
+		},
+	},
+	{
+		"name": "prepare_create_assignment_rule",
+		"description": (
+			"Stage a new Assignment Rule (auto-assign docs to users). Validates rule enum (Round Robin / "
+			"Load Balancing / Based on Field), users[] all exist, due_date_based_on is a Date/Datetime field "
+			"on document_type, and assign_condition / unassign_condition are AST-validated against imports/"
+			"lambdas/dunder. Requires Notification Manager OR System Manager role. Two-phase: returns preview_token."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"name": {"type": "string", "description": "Display name (also doc name)"},
+				"document_type": {"type": "string", "description": "DocType the rule applies to"},
+				"rule": {
+					"type": "string",
+					"enum": ["Round Robin", "Load Balancing", "Based on Field"],
+					"default": "Round Robin",
+				},
+				"users": {
+					"type": "array",
+					"items": {"type": "string"},
+					"description": "List of User names to cycle/load-balance across. At least one required.",
+				},
+				"field": {"type": "string", "description": "Required when rule=Based on Field. Must be a Link field on document_type pointing to User."},
+				"assign_condition": {"type": "string", "description": "Optional Frappe expression — when truthy, the rule fires. Empty = always."},
+				"unassign_condition": {"type": "string", "description": "Optional Frappe expression — when truthy, an existing assignment is cleared."},
+				"due_date_based_on": {"type": "string", "description": "Optional fieldname (Date or Datetime) used to compute the assignee's due_date on the auto-created ToDo."},
+				"priority": {"type": "integer", "default": 0},
+				"description": {"type": "string"},
+				"disabled": {"type": "boolean", "default": False},
+			},
+			"required": ["name", "document_type", "rule", "users"],
+		},
+	},
 ]
