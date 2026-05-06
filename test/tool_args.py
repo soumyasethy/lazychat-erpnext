@@ -225,6 +225,42 @@ TOOL_ARGS: dict[str, dict[str, Any]] = {
         "dashboard_name": "_lazychat_smoke_dashboard_probe",
         "charts": ["_lazychat_smoke_no_chart"],
     },
+
+    # --- Commit 1 — ERPNext "Tools" workspace typed wrappers (2026-05-06) ---
+    "prepare_create_calendar_event": {
+        "subject": "_lazychat_smoke_event_probe",
+        "starts_on": "2030-01-01 09:00:00",
+        "ends_on":   "2030-01-01 10:00:00",
+        "event_type": "Private",
+    },
+    "prepare_create_note": {
+        "title": "_lazychat_smoke_note_probe",
+        "content": "Smoke probe — safe to delete.",
+    },
+    # Bulk update is gated by lazychat_allow_dangerous_tools — without the gate
+    # the harness sees a graceful permission error (EXPECT_ERROR_OK).
+    "prepare_bulk_update": {
+        "doctype": "Note",
+        "filters": {"title": "_definitely_no_such_note_for_smoke"},
+        "patch": {"public": 0},
+    },
+    # System-Manager-gated; harness running as Administrator usually has it.
+    "prepare_download_backup": {"with_files": False},
+    "prepare_create_print_format": {
+        "name": "_lazychat_smoke_print_format_probe",
+        "doc_type": "Customer",
+        "print_format_type": "Jinja",
+        "html": "<div>{{ doc.name }}</div>",
+    },
+    "prepare_update_print_settings": {"font_size": 11},
+    "prepare_create_email_template": {
+        "name": "_lazychat_smoke_email_template_probe",
+        "subject": "Hello {{ doc.name or 'world' }}",
+        "response": "<p>Smoke probe template — safe to delete.</p>",
+    },
+    # restore_deleted_doc is direct (no /commit). Probe with a deliberately
+    # non-existent name → graceful error (EXPECT_ERROR_OK).
+    "restore_deleted_doc": {"deleted_document_name": "_lazychat_smoke_no_dd"},
 }
 
 # ---------------------------------------------------------------------------
@@ -250,6 +286,9 @@ EXPECT_ERROR_OK: set[str] = {
     # prepare_create_scheduled_job is conditionally OK_ERROR — the harness
     # may or may not have System Manager. Treat permission-deny as graceful.
     "prepare_create_scheduled_job",
+    # Commit 1 additions:
+    "prepare_bulk_update",            # gated by lazychat_allow_dangerous_tools
+    "restore_deleted_doc",            # nonexistent target on purpose
 }
 
 # Empty now — every tool has args. Kept for shape compat / future fixtures.
@@ -575,6 +614,15 @@ VALIDATORS: dict[str, Callable[[dict], tuple[bool, str]]] = {
     # prepare_create_dashboard is EXPECT_ERROR_OK so it doesn't run through
     # this validator — kept here for symmetry if a future smoke seeds a real chart.
     "prepare_create_dashboard": _v_prepare_token,
+    # Commit 1 — ERPNext "Tools" workspace typed wrappers
+    "prepare_create_calendar_event": _v_prepare_token,
+    "prepare_create_note": _v_prepare_token,
+    "prepare_create_print_format": _v_prepare_token,
+    "prepare_update_print_settings": _v_prepare_token,
+    "prepare_create_email_template": _v_prepare_token,
+    "prepare_download_backup": _v_prepare_token,
+    # prepare_bulk_update + restore_deleted_doc are EXPECT_ERROR_OK; they
+    # never run through a validator on the smoke fixture as configured.
     "export_list_to_csv": _v_field_picker_or_token,
     "export_doc_pdf": _v_export_pdf,
     "list_knowledge_bases": _v_list_kbs,

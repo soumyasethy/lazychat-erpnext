@@ -80,7 +80,7 @@ bench --site site.example install-app lazychat_mcp_erpnext
 
 **Defaults work without any site_config edits.** Boot extension reads `lazychat_iframe_src` from `site_config.json` if set; otherwise defaults to bundled dist.
 
-## Tool registry — 69 tools (all permission-scoped to `frappe.session.user`)
+## Tool registry — 77 tools (all permission-scoped to `frappe.session.user`)
 
 The registry has grown well past the original 38 documented in earlier
 revisions. **Treat `tool_schemas.py:TOOL_SCHEMAS` as the source of truth**;

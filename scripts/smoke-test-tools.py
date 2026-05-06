@@ -926,6 +926,196 @@ def run():
 		not r.get("ok") and "not found" in (r.get("error") or ""),
 	))
 
+	# ----------------------------------------------------------------
+	# Commit 1 — typed wrappers for ERPNext "Tools" workspace
+	# ----------------------------------------------------------------
+
+	# T90: prepare_create_calendar_event happy path
+	r = execute_tool("prepare_create_calendar_event", {
+		"subject": f"_lazychat_smoke_event_{frappe.generate_hash(length=4)}",
+		"starts_on": "2030-01-01 09:00:00",
+		"ends_on": "2030-01-01 10:00:00",
+		"event_type": "Private",
+	})
+	record(_ok(
+		"T90 prepare_create_calendar_event stages preview_token",
+		r.get("ok") is True and bool(r.get("preview_token")),
+		f"summary={r.get('summary')!r}",
+	))
+
+	# T91: ends_on before starts_on errors
+	r = execute_tool("prepare_create_calendar_event", {
+		"subject": "_lazychat_smoke_event_bad",
+		"starts_on": "2030-01-01 10:00:00",
+		"ends_on":   "2030-01-01 09:00:00",
+	})
+	record(_ok(
+		"T91 prepare_create_calendar_event rejects ends_on < starts_on",
+		not r.get("ok") and "ends_on" in (r.get("error") or ""),
+	))
+
+	# T92: repeat_this_event=True without repeat_on errors
+	r = execute_tool("prepare_create_calendar_event", {
+		"subject": "_lazychat_smoke_event_repeat",
+		"starts_on": "2030-01-01 09:00:00",
+		"repeat_this_event": True,
+	})
+	record(_ok(
+		"T92 prepare_create_calendar_event rejects repeat without repeat_on",
+		not r.get("ok") and "repeat_on" in (r.get("error") or ""),
+	))
+
+	# T93: prepare_create_note happy path
+	r = execute_tool("prepare_create_note", {
+		"title": f"_lazychat_smoke_note_{frappe.generate_hash(length=4)}",
+		"content": "Smoke probe content.",
+		"public": False,
+	})
+	record(_ok(
+		"T93 prepare_create_note stages preview_token + autoname hint",
+		r.get("ok") is True and bool(r.get("preview_token"))
+		and "autoname" in str((r.get("preview") or {}).get("note", "")),
+	))
+
+	# T94: prepare_create_note rejects empty content
+	r = execute_tool("prepare_create_note", {
+		"title": "_lazychat_smoke_empty_content",
+		"content": "",
+	})
+	record(_ok(
+		"T94 prepare_create_note rejects empty content",
+		not r.get("ok") and "content" in (r.get("error") or ""),
+	))
+
+	# T95: prepare_bulk_update — gating + count plumbing.
+	r = execute_tool("prepare_bulk_update", {
+		"doctype": "Note",
+		"filters": {"title": "_definitely_no_such_note_for_smoke"},
+		"patch": {"public": 0},
+	})
+	gated_ok = (not r.get("ok")) and "gated" in (r.get("error") or "").lower()
+	matched_zero = (not r.get("ok")) and "no docs matched" in (r.get("error") or "")
+	live_token = r.get("ok") is True and bool(r.get("preview_token"))
+	record(_ok(
+		"T95 prepare_bulk_update gracefully gated OR runs cleanly",
+		gated_ok or matched_zero or live_token,
+		f"error={(r.get('error') or '')[:80]!r} ok={r.get('ok')}",
+	))
+
+	# T96: prepare_bulk_update rejects unknown patch field (when ungated).
+	r = execute_tool("prepare_bulk_update", {
+		"doctype": "Customer",
+		"filters": {"name": "_definitely_no_such_customer"},
+		"patch": {"_definitely_not_a_field_": "x"},
+	})
+	gated_ok = (not r.get("ok")) and "gated" in (r.get("error") or "").lower()
+	bad_field = (not r.get("ok")) and "unknown field" in (r.get("error") or "").lower()
+	record(_ok(
+		"T96 prepare_bulk_update fails on gate or unknown field",
+		gated_ok or bad_field,
+		f"error={(r.get('error') or '')[:80]!r}",
+	))
+
+	# T97: prepare_download_backup — System Manager gated.
+	r = execute_tool("prepare_download_backup", {"with_files": False})
+	either = (r.get("ok") is True and bool(r.get("preview_token"))) or (
+		not r.get("ok") and "System Manager" in (r.get("error") or "")
+	)
+	record(_ok(
+		"T97 prepare_download_backup stages or gates",
+		either,
+		f"summary={r.get('summary')!r} error={(r.get('error') or '')[:60]!r}",
+	))
+
+	# T98: prepare_create_print_format happy
+	r = execute_tool("prepare_create_print_format", {
+		"name": f"_lazychat_smoke_pf_{frappe.generate_hash(length=4)}",
+		"doc_type": "Customer",
+		"print_format_type": "Jinja",
+		"html": "<div>{{ doc.name }}</div>",
+	})
+	record(_ok(
+		"T98 prepare_create_print_format Jinja stages preview_token",
+		r.get("ok") is True and bool(r.get("preview_token")),
+		f"summary={r.get('summary')!r}",
+	))
+
+	# T99: prepare_create_print_format rejects bad Jinja
+	r = execute_tool("prepare_create_print_format", {
+		"name": "_lazychat_smoke_pf_bad",
+		"doc_type": "Customer",
+		"print_format_type": "Jinja",
+		"html": "{% if x %}{% endwhatever %}",
+	})
+	record(_ok(
+		"T99 prepare_create_print_format rejects bad Jinja",
+		not r.get("ok") and "Jinja" in (r.get("error") or ""),
+	))
+
+	# T100: prepare_create_print_format rejects unknown doc_type
+	r = execute_tool("prepare_create_print_format", {
+		"name": "_lazychat_smoke_pf_bad_dt",
+		"doc_type": "_NoSuchDocType_",
+		"html": "<div>x</div>",
+	})
+	record(_ok(
+		"T100 prepare_create_print_format rejects unknown doc_type",
+		not r.get("ok") and "does not exist" in (r.get("error") or ""),
+	))
+
+	# T101: prepare_update_print_settings happy path (System Manager).
+	r = execute_tool("prepare_update_print_settings", {"font_size": 11})
+	either = (r.get("ok") is True and bool(r.get("preview_token"))) or (
+		not r.get("ok") and "System Manager" in (r.get("error") or "")
+	)
+	record(_ok(
+		"T101 prepare_update_print_settings stages or gates",
+		either,
+		f"summary={r.get('summary')!r}",
+	))
+
+	# T102: prepare_update_print_settings empty patch errors
+	r = execute_tool("prepare_update_print_settings", {})
+	record(_ok(
+		"T102 prepare_update_print_settings rejects empty patch",
+		not r.get("ok") and (
+			"supply at least one field" in (r.get("error") or "")
+			or "System Manager" in (r.get("error") or "")
+		),
+	))
+
+	# T103: prepare_create_email_template happy path
+	r = execute_tool("prepare_create_email_template", {
+		"name": f"_lazychat_smoke_tpl_{frappe.generate_hash(length=4)}",
+		"subject": "Hello {{ doc.name or 'world' }}",
+		"response": "<p>Smoke template — {{ doc.name }}</p>",
+	})
+	record(_ok(
+		"T103 prepare_create_email_template stages preview_token",
+		r.get("ok") is True and bool(r.get("preview_token")),
+		f"summary={r.get('summary')!r}",
+	))
+
+	# T104: prepare_create_email_template rejects bad Jinja in subject
+	r = execute_tool("prepare_create_email_template", {
+		"name": "_lazychat_smoke_tpl_bad",
+		"subject": "Hello {% if",
+		"response": "<p>ok</p>",
+	})
+	record(_ok(
+		"T104 prepare_create_email_template rejects bad subject Jinja",
+		not r.get("ok") and "subject Jinja" in (r.get("error") or ""),
+	))
+
+	# T105: restore_deleted_doc graceful error on nonexistent name
+	r = execute_tool("restore_deleted_doc", {
+		"deleted_document_name": "_lazychat_smoke_no_dd",
+	})
+	record(_ok(
+		"T105 restore_deleted_doc returns graceful error on missing name",
+		not r.get("ok") and "not found" in (r.get("error") or ""),
+	))
+
 	# T85–T89: acceptance smoke for already-working features routed through
 	# generic prepare_create_doc. We only verify the dispatch + permission path
 	# returns a preview_token (committing real Custom Fields / Server Scripts /

@@ -2193,6 +2193,378 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"confirm_with": f"/commit {token}",
 		}
 
+	# ------------------------------------------------------------------
+	# 2026-05-06 (Commit 1) — typed wrappers for ERPNext "Tools" workspace.
+	# Each one validates doctype-specific shape at preview time so the
+	# model gets actionable errors in the SAME turn instead of a confusing
+	# /commit failure.
+	# ------------------------------------------------------------------
+
+	if name == "prepare_create_calendar_event":
+		subject = (args.get("subject") or "").strip()
+		starts_on = args.get("starts_on")
+		ends_on = args.get("ends_on")
+		all_day = bool(args.get("all_day"))
+		event_type = args.get("event_type") or "Private"
+		repeat_this_event = bool(args.get("repeat_this_event"))
+		repeat_on = (args.get("repeat_on") or "").strip()
+		participants = args.get("participants") or []
+		description = args.get("description") or ""
+		if not subject:
+			return {"error": "subject required"}
+		if not starts_on:
+			return {"error": "starts_on required (ISO datetime, e.g. '2026-05-10 09:00:00')"}
+		if event_type not in ("Public", "Private"):
+			return {"error": "event_type must be 'Public' or 'Private'"}
+		try:
+			from frappe.utils import get_datetime
+			start_dt = get_datetime(starts_on)
+		except Exception as e:
+			return {"error": f"starts_on is not a valid datetime: {e}"}
+		end_dt = None
+		if ends_on:
+			try:
+				from frappe.utils import get_datetime
+				end_dt = get_datetime(ends_on)
+			except Exception as e:
+				return {"error": f"ends_on is not a valid datetime: {e}"}
+			if end_dt < start_dt:
+				return {"error": "ends_on must be >= starts_on"}
+		if repeat_this_event:
+			if repeat_on not in ("Daily", "Weekly", "Monthly", "Yearly"):
+				return {"error": "repeat_on required when repeat_this_event=True (Daily/Weekly/Monthly/Yearly)"}
+		if not isinstance(participants, list):
+			return {"error": "participants must be a list of {reference_doctype, reference_docname}"}
+		if not frappe.has_permission("Event", "create"):
+			return {"error": "no create permission on Event"}
+		token = _stage_action(
+			"create_calendar_event",
+			{
+				"subject": subject,
+				"starts_on": str(start_dt),
+				"ends_on": str(end_dt) if end_dt else None,
+				"all_day": 1 if all_day else 0,
+				"description": description,
+				"event_type": event_type,
+				"repeat_this_event": 1 if repeat_this_event else 0,
+				"repeat_on": repeat_on or None,
+				"participants": participants,
+			},
+		)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will create {event_type} Event '{subject}' @ {start_dt}",
+			"preview": {
+				"subject": subject,
+				"starts_on": str(start_dt),
+				"ends_on": str(end_dt) if end_dt else None,
+				"event_type": event_type,
+				"repeat": repeat_on if repeat_this_event else None,
+				"participant_count": len(participants),
+			},
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "prepare_create_note":
+		title = (args.get("title") or "").strip()
+		content = args.get("content") or ""
+		public = bool(args.get("public"))
+		if not title:
+			return {"error": "title required"}
+		if not content or not content.strip():
+			return {"error": "content required (HTML/markdown body)"}
+		if not frappe.has_permission("Note", "create"):
+			return {"error": "no create permission on Note"}
+		token = _stage_action(
+			"create_note",
+			{"title": title, "content": content, "public": 1 if public else 0},
+		)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will create {'public ' if public else ''}Note '{title}'",
+			"preview": {
+				"title": title,
+				"public": public,
+				"content_preview": content[:300] + ("…" if len(content) > 300 else ""),
+				"note": "Note autonames as hash; the actual document `name` is returned in the /commit response — pass that to follow-up tools that take `name`, not the title.",
+			},
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "prepare_bulk_update":
+		dt = args.get("doctype")
+		filters = args.get("filters") or {}
+		patch = args.get("patch") or {}
+		caller_max = args.get("max_rows")
+		if not dt:
+			return {"error": "doctype required"}
+		if not frappe.db.exists("DocType", dt):
+			return {"error": f"doctype '{dt}' does not exist"}
+		if not isinstance(filters, dict):
+			return {"error": "filters must be an object/dict"}
+		if not isinstance(patch, dict) or not patch:
+			return {"error": "patch must be a non-empty object/dict of fieldname → new value"}
+		# Gate: bulk update is high-blast-radius; reuse the dangerous-tools flag.
+		ok, err = _dangerous_tools_enabled()
+		if not ok:
+			return {"error": f"prepare_bulk_update is gated: {err}"}
+		if not frappe.has_permission(dt, "write"):
+			return {"error": f"no write permission on {dt}"}
+		# Resolve the configured ceiling. Lazychat Settings → bulk_update_max_rows
+		# (default 500). Site_config can override via lazychat_bulk_update_max_rows.
+		try:
+			from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings as _gls
+			settings_max = int(_gls().get("bulk_update_max_rows") or 500)
+		except Exception:
+			settings_max = 500
+		# Validate patch fieldnames FIRST — cheap, no DB hit. If the patch is
+		# bogus we want the model to see that error before the row-count
+		# check (which can otherwise hide it behind 'no docs matched').
+		try:
+			meta = frappe.get_meta(dt)
+		except Exception as e:
+			return {"error": f"could not load meta for {dt}: {e}"}
+		valid_fields = {df.fieldname for df in meta.fields} | {"name", "owner", "modified_by"}
+		bad = [f for f in patch.keys() if f not in valid_fields]
+		if bad:
+			return {"error": f"unknown field(s) on {dt}: {', '.join(bad)}"}
+		# Live count via Frappe (mirrors count_doc tool semantics).
+		try:
+			affected_count = frappe.db.count(dt, filters=filters)
+		except Exception as e:
+			return {"error": f"count failed for filters {filters}: {e}"}
+		caller_max = int(caller_max) if caller_max not in (None, "") else None
+		effective_max = min(settings_max, caller_max) if caller_max else settings_max
+		if affected_count > effective_max:
+			return {
+				"error": (
+					f"affected_count={affected_count} exceeds the bulk update ceiling "
+					f"({effective_max}). Tighten filters or raise bulk_update_max_rows in "
+					f"Lazychat Settings."
+				),
+				"affected_count": affected_count,
+				"ceiling": effective_max,
+			}
+		if affected_count == 0:
+			return {"error": "no docs matched the filter — nothing to update"}
+		token = _stage_action(
+			"bulk_update",
+			{
+				"doctype": dt,
+				"filters": filters,
+				"patch": patch,
+				"affected_count_at_prepare": affected_count,
+			},
+		)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will update {affected_count} {dt} doc(s) — {len(patch)} field(s)",
+			"preview": {
+				"doctype": dt,
+				"filters": filters,
+				"patch": patch,
+				"affected_count": affected_count,
+				"ceiling": effective_max,
+				"note": "If new docs match the filter between preview and /commit, commit re-counts and refuses if the count grew >1.5×.",
+			},
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "prepare_download_backup":
+		with_files = bool(args.get("with_files"))
+		if "System Manager" not in frappe.get_roles(frappe.session.user):
+			return {"error": "System Manager role required to trigger a backup"}
+		token = _stage_action(
+			"download_backup",
+			{"with_files": 1 if with_files else 0},
+		)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will enqueue site backup{' (with files)' if with_files else ''}; poll progress with list_my_jobs.",
+			"preview": {"with_files": with_files},
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "prepare_create_print_format":
+		pf_name = (args.get("name") or "").strip()
+		doc_type = args.get("doc_type")
+		print_format_type = args.get("print_format_type") or "Jinja"
+		html = args.get("html") or ""
+		format_data = args.get("format_data") or ""
+		standard = bool(args.get("standard"))
+		if not pf_name:
+			return {"error": "name required"}
+		if not doc_type:
+			return {"error": "doc_type required"}
+		if not frappe.db.exists("DocType", doc_type):
+			return {"error": f"doc_type '{doc_type}' does not exist"}
+		if print_format_type not in ("Jinja", "Custom Format"):
+			return {"error": "print_format_type must be 'Jinja' or 'Custom Format'"}
+		if print_format_type == "Jinja" and not html.strip():
+			return {"error": "html is required when print_format_type=Jinja"}
+		if print_format_type == "Custom Format" and not format_data.strip():
+			return {"error": "format_data (JSON) is required when print_format_type='Custom Format'"}
+		if standard and "System Manager" not in frappe.get_roles(frappe.session.user):
+			return {"error": "System Manager role required to mark a Print Format as standard"}
+		if not frappe.has_permission("Print Format", "create"):
+			return {"error": "no create permission on Print Format"}
+		if not frappe.has_permission(doc_type, "print"):
+			return {"error": f"no print permission on {doc_type}"}
+		# Jinja dry-render to catch template syntax errors at preview time.
+		if print_format_type == "Jinja":
+			try:
+				frappe.render_template(html, {"doc": frappe._dict()})
+			except Exception as e:
+				return {"error": f"Jinja template did not render: {type(e).__name__}: {e}"}
+		token = _stage_action(
+			"create_print_format",
+			{
+				"name": pf_name,
+				"doc_type": doc_type,
+				"print_format_type": print_format_type,
+				"html": html,
+				"format_data": format_data,
+				"standard": "Yes" if standard else "No",
+			},
+		)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will create {print_format_type} Print Format '{pf_name}' for {doc_type}",
+			"preview": {
+				"name": pf_name,
+				"doc_type": doc_type,
+				"print_format_type": print_format_type,
+				"html_preview": (html[:300] + "…") if len(html) > 300 else html,
+				"open_url": f"/app/print-format/{pf_name}",
+			},
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "prepare_update_print_settings":
+		if "System Manager" not in frappe.get_roles(frappe.session.user):
+			return {"error": "System Manager role required to update Print Settings"}
+		# Build the patch from supported fields only.
+		supported = {
+			"with_letterhead", "compact_item_print", "print_taxes_with_zero_amount",
+			"font", "font_size", "pdf_page_size", "pdf_page_height", "pdf_page_width",
+		}
+		patch = {k: v for k, v in args.items() if k in supported and v is not None}
+		if not patch:
+			return {"error": f"supply at least one field to update. Supported: {sorted(supported)}"}
+		# Validate enum values.
+		valid_page_sizes = {
+			"A4", "Letter", "A0", "A1", "A2", "A3", "A5", "A6", "A7", "A8", "A9",
+			"B0", "B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B9", "B10",
+			"C5E", "Comm10E", "DLE", "Executive", "Folio", "Ledger", "Legal",
+			"Tabloid", "Custom",
+		}
+		if "pdf_page_size" in patch and patch["pdf_page_size"] not in valid_page_sizes:
+			return {"error": f"pdf_page_size must be one of: {sorted(valid_page_sizes)}"}
+		# Build a from→to diff so the preview is meaningful.
+		try:
+			cur = frappe.get_single("Print Settings")
+		except Exception as e:
+			return {"error": f"could not load Print Settings: {e}"}
+		diff = {f: {"from": cur.get(f), "to": v} for f, v in patch.items()}
+		token = _stage_action("update_print_settings", {"patch": patch})
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will update Print Settings ({len(patch)} field(s))",
+			"diff": diff,
+			"preview": {"patch": patch, "open_url": "/app/print-settings"},
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "prepare_create_email_template":
+		tpl_name = (args.get("name") or "").strip()
+		subject = args.get("subject") or ""
+		response = args.get("response") or ""
+		use_html = bool(args.get("use_html") if args.get("use_html") is not None else True)
+		if not tpl_name:
+			return {"error": "name required"}
+		if not subject.strip():
+			return {"error": "subject required"}
+		if not response.strip():
+			return {"error": "response (body) required"}
+		if not frappe.has_permission("Email Template", "create"):
+			return {"error": "no create permission on Email Template"}
+		# Jinja dry-render against an empty context — catches the bulk of
+		# template typos at preview time so the LLM doesn't have to roundtrip.
+		try:
+			frappe.render_template(subject, {"doc": frappe._dict()})
+		except Exception as e:
+			return {"error": f"subject Jinja did not render: {type(e).__name__}: {e}"}
+		try:
+			frappe.render_template(response, {"doc": frappe._dict()})
+		except Exception as e:
+			return {"error": f"response (body) Jinja did not render: {type(e).__name__}: {e}"}
+		token = _stage_action(
+			"create_email_template",
+			{
+				"name": tpl_name,
+				"subject": subject,
+				"response": response,
+				"use_html": 1 if use_html else 0,
+			},
+		)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will create Email Template '{tpl_name}'",
+			"preview": {
+				"name": tpl_name,
+				"subject": subject[:200],
+				"body_preview": (response[:300] + "…") if len(response) > 300 else response,
+				"open_url": f"/app/email-template/{tpl_name}",
+			},
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
+	if name == "restore_deleted_doc":
+		# Direct (no /commit) — restoring is single-doc, fully reversible.
+		dd_name = args.get("deleted_document_name")
+		if not dd_name:
+			return {"error": "deleted_document_name required"}
+		if not frappe.db.exists("Deleted Document", dd_name):
+			return {"error": f"Deleted Document '{dd_name}' not found"}
+		try:
+			dd = frappe.get_doc("Deleted Document", dd_name)
+		except Exception as e:
+			return {"error": f"could not load Deleted Document/{dd_name}: {e}"}
+		original_dt = dd.deleted_doctype
+		original_name = dd.deleted_name
+		# Re-check the user has create permission on the original doctype —
+		# restore is effectively a re-insert, and the permission model treats
+		# it that way.
+		if not frappe.has_permission(original_dt, "create"):
+			return {"error": f"no create permission on {original_dt} — cannot restore"}
+		try:
+			from frappe.desk.doctype.deleted_document.deleted_document import restore as _restore
+			_restore(dd_name)
+			frappe.db.commit()
+		except Exception as e:
+			return {"error": f"restore failed: {type(e).__name__}: {e}"}
+		return {
+			"ok": True,
+			"action": "restore",
+			"doctype": original_dt,
+			"name": original_name,
+			"link": f"/app/{frappe.scrub(original_dt)}/{original_name}",
+		}
+
 	# Skills (Tier E) — runtime activation/deactivation of agent personas.
 	# Implementation in desk_assistant/skills.py. The active set is stored in
 	# Redis per user; mcp.handle reads it on every tools/list to filter the
@@ -2631,6 +3003,148 @@ def commit_prepared(token, **extras):
 				width = (c.get("width") if isinstance(c, dict) else None) or "Half"
 				doc.append("cards", {"card": cname, "width": width})
 			doc.insert(ignore_permissions=False)
+		elif action == "create_calendar_event":
+			if not frappe.has_permission("Event", "create"):
+				return {"ok": False, "error": "no create permission on Event at commit time"}
+			values = {
+				"doctype": "Event",
+				"subject": payload["subject"],
+				"starts_on": payload["starts_on"],
+				"all_day": payload.get("all_day") or 0,
+				"event_type": payload["event_type"],
+				"description": payload.get("description") or "",
+			}
+			if payload.get("ends_on"):
+				values["ends_on"] = payload["ends_on"]
+			if payload.get("repeat_this_event"):
+				values["repeat_this_event"] = 1
+				values["repeat_on"] = payload.get("repeat_on")
+			doc = frappe.get_doc(values)
+			for p in payload.get("participants") or []:
+				if not isinstance(p, dict):
+					continue
+				ref_dt = p.get("reference_doctype")
+				ref_name = p.get("reference_docname") or p.get("reference_name")
+				if ref_dt and ref_name:
+					doc.append("event_participants", {"reference_doctype": ref_dt, "reference_docname": ref_name})
+			doc.insert(ignore_permissions=False)
+		elif action == "create_note":
+			if not frappe.has_permission("Note", "create"):
+				return {"ok": False, "error": "no create permission on Note at commit time"}
+			doc = frappe.get_doc({
+				"doctype": "Note",
+				"title": payload["title"],
+				"content": payload["content"],
+				"public": payload.get("public") or 0,
+			}).insert(ignore_permissions=False)
+		elif action == "bulk_update":
+			dt = payload["doctype"]
+			filters = payload.get("filters") or {}
+			patch = payload.get("patch") or {}
+			if not frappe.has_permission(dt, "write"):
+				return {"ok": False, "error": f"no write permission on {dt} at commit time"}
+			# Re-check the dangerous-tools gate at commit (admin may have flipped it off).
+			ok2, err2 = _dangerous_tools_enabled()
+			if not ok2:
+				return {"ok": False, "error": err2}
+			# Time-sensitive recheck: refuse if the matched-row count grew >1.5×
+			# since prepare-time (data flooded in during the 5-min preview window).
+			at_prepare = int(payload.get("affected_count_at_prepare") or 0)
+			try:
+				now_count = frappe.db.count(dt, filters=filters)
+			except Exception as e:
+				return {"ok": False, "error": f"recount failed: {e}"}
+			if at_prepare and now_count > int(at_prepare * 1.5):
+				return {
+					"ok": False,
+					"error": (
+						f"matched docs grew from {at_prepare} to {now_count} since preview — "
+						f"re-stage prepare_bulk_update for safety."
+					),
+				}
+			rows = frappe.get_all(dt, filters=filters, pluck="name")
+			updated = []
+			for n in rows:
+				try:
+					d = frappe.get_doc(dt, n)
+					for f, v in patch.items():
+						d.set(f, v)
+					d.save(ignore_permissions=False)
+					updated.append(n)
+				except Exception as e:
+					frappe.local.flags.lazychat_commit_extras = {
+						"updated_count": len(updated),
+						"failed_at": n,
+						"failed_error": str(e),
+						"updated_names": updated[:20],
+					}
+					# Stop on first failure so the savepoint rollback covers it cleanly.
+					raise
+			frappe.local.flags.lazychat_commit_extras = {
+				"updated_count": len(updated),
+				"updated_names": updated[:20],
+			}
+			# Synthesize a "doc" so the response shape matches.
+			class _R:
+				doctype = dt
+				name = f"{len(updated)} {dt}(s)"
+			doc = _R()
+		elif action == "download_backup":
+			if "System Manager" not in frappe.get_roles(frappe.session.user):
+				return {"ok": False, "error": "System Manager role required to trigger a backup"}
+			from frappe.utils.background_jobs import enqueue
+			job = enqueue(
+				"frappe.utils.backups.scheduled_backup",
+				queue="long",
+				timeout=3600,
+				ignore_files=not bool(payload.get("with_files")),
+				now=False,
+				user=frappe.session.user,
+			)
+			job_id = getattr(job, "id", None) or getattr(job, "get_id", lambda: None)()
+			frappe.local.flags.lazychat_commit_extras = {
+				"job_id": job_id,
+				"hint": "Poll progress with list_my_jobs; backups land under /sites/<site>/private/backups/.",
+			}
+			class _R:
+				doctype = "Backup"
+				name = job_id or "queued"
+			doc = _R()
+		elif action == "create_print_format":
+			if not frappe.has_permission("Print Format", "create"):
+				return {"ok": False, "error": "no create permission on Print Format at commit time"}
+			if not frappe.has_permission(payload["doc_type"], "print"):
+				return {"ok": False, "error": f"no print permission on {payload['doc_type']} at commit time"}
+			values = {
+				"doctype": "Print Format",
+				"name": payload["name"],
+				"doc_type": payload["doc_type"],
+				"print_format_type": payload["print_format_type"],
+				"standard": payload.get("standard") or "No",
+			}
+			if payload["print_format_type"] == "Jinja":
+				values["html"] = payload.get("html") or ""
+			else:
+				values["format_data"] = payload.get("format_data") or ""
+			doc = frappe.get_doc(values).insert(ignore_permissions=False)
+		elif action == "update_print_settings":
+			if "System Manager" not in frappe.get_roles(frappe.session.user):
+				return {"ok": False, "error": "System Manager role required to update Print Settings"}
+			cur = frappe.get_single("Print Settings")
+			for f, v in (payload.get("patch") or {}).items():
+				cur.set(f, v)
+			cur.save(ignore_permissions=False)
+			doc = cur
+		elif action == "create_email_template":
+			if not frappe.has_permission("Email Template", "create"):
+				return {"ok": False, "error": "no create permission on Email Template at commit time"}
+			doc = frappe.get_doc({
+				"doctype": "Email Template",
+				"name": payload["name"],
+				"subject": payload["subject"],
+				"response": payload["response"],
+				"use_html": payload.get("use_html") or 0,
+			}).insert(ignore_permissions=False)
 		else:
 			return {"ok": False, "error": f"Unknown action: {action}"}
 		frappe.db.commit()

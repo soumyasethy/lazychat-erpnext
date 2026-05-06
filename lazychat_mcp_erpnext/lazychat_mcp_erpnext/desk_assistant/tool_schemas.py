@@ -1028,4 +1028,164 @@ TOOL_SCHEMAS = [
 			"required": ["dashboard_name"],
 		},
 	},
+	# ------------------------------------------------------------------
+	# 2026-05-06 (Commit 1) — typed wrappers for ERPNext "Tools" workspace:
+	# Calendar, Note, Bulk Update, Backup, Print Format, Print Settings,
+	# Email Template, plus a direct (no /commit) Deleted Document restorer.
+	# ------------------------------------------------------------------
+	{
+		"name": "prepare_create_calendar_event",
+		"description": (
+			"Stage a new Frappe Event (calendar entry). Validates ISO datetime / repeat enum / event_type at "
+			"preview time so the Desk calendar never receives semantically-broken values. Two-phase: returns "
+			"preview_token; user runs `/commit TOKEN` to apply."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"subject": {"type": "string", "description": "Event title"},
+				"starts_on": {"type": "string", "description": "ISO datetime, e.g. '2026-05-10 09:00:00'"},
+				"ends_on": {"type": "string", "description": "ISO datetime; must be >= starts_on. Optional if all_day=True."},
+				"all_day": {"type": "boolean", "default": False},
+				"description": {"type": "string", "description": "Optional long-form description"},
+				"event_type": {"type": "string", "enum": ["Public", "Private"], "default": "Private"},
+				"repeat_this_event": {"type": "boolean", "default": False},
+				"repeat_on": {
+					"type": "string",
+					"enum": ["", "Daily", "Weekly", "Monthly", "Yearly"],
+					"description": "Required when repeat_this_event=True.",
+				},
+				"participants": {
+					"type": "array",
+					"items": {"type": "object"},
+					"description": "Optional list of {reference_doctype, reference_docname} participants.",
+				},
+			},
+			"required": ["subject", "starts_on"],
+		},
+	},
+	{
+		"name": "prepare_create_note",
+		"description": (
+			"Stage a new Frappe Note. Note autonames as hash, so the actual document name is generated at /commit "
+			"time and returned in the response — DO NOT pass the title to follow-up tools that take `name` (e.g. "
+			"prepare_add_comment); use the `name` from the commit response. Two-phase: returns preview_token."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"title": {"type": "string", "description": "Display title (NOT the Frappe primary key — see description)"},
+				"content": {"type": "string", "description": "HTML / markdown body"},
+				"public": {"type": "boolean", "default": False, "description": "True = visible to all users"},
+			},
+			"required": ["title", "content"],
+		},
+	},
+	{
+		"name": "prepare_bulk_update",
+		"description": (
+			"Stage a bulk field update across N docs filtered by criteria. Runs count_doc inside the prepare to "
+			"populate `affected_count` and refuses if N exceeds bulk_update_max_rows (default 500). Use INSTEAD of "
+			"looping prepare_update_doc when the user says 'all overdue invoices'. Gated by lazychat_allow_dangerous_tools "
+			"because of scale. Two-phase: returns preview_token + affected_count; user runs `/commit TOKEN`."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"doctype": {"type": "string"},
+				"filters": {"type": "object", "description": "Frappe filter dict, e.g. {'status': 'Overdue'}"},
+				"patch": {"type": "object", "description": "Field → new value mapping applied to every matched doc"},
+				"max_rows": {"type": "integer", "description": "Optional cap < bulk_update_max_rows; refuses if affected_count > this."},
+			},
+			"required": ["doctype", "filters", "patch"],
+		},
+	},
+	{
+		"name": "prepare_download_backup",
+		"description": (
+			"Stage an asynchronous site-backup job. At commit time enqueues `bench backup` via frappe.enqueue and "
+			"returns a job_id; poll progress with list_my_jobs and cancel with cancel_job. Requires System Manager. "
+			"Two-phase: returns preview_token; commit returns job_id + estimated path under /sites/.../private/backups/."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"with_files": {"type": "boolean", "default": False, "description": "Include public/private file backups (slower, larger)."},
+			},
+		},
+	},
+	{
+		"name": "prepare_create_print_format",
+		"description": (
+			"Stage a new Print Format. Validates doc_type exists and (when print_format_type=Jinja) dry-renders the "
+			"HTML against an empty sample doc to catch Jinja syntax errors at preview time. Two-phase: returns preview_token."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"name": {"type": "string", "description": "Name of the Print Format"},
+				"doc_type": {"type": "string", "description": "Target DocType (must exist + user must have print perm)"},
+				"print_format_type": {"type": "string", "enum": ["Jinja", "Custom Format"], "default": "Jinja"},
+				"html": {"type": "string", "description": "Jinja HTML template body (required for Jinja)"},
+				"format_data": {"type": "string", "description": "JSON for Custom Format builder (required for Custom Format)"},
+				"standard": {"type": "boolean", "default": False, "description": "Mark as standard (System Manager only)"},
+			},
+			"required": ["name", "doc_type"],
+		},
+	},
+	{
+		"name": "prepare_update_print_settings",
+		"description": (
+			"Stage updates to the site-wide Print Settings (Single doctype) — print font, paper size, with-letterhead "
+			"defaults. Requires System Manager. Two-phase so a stray model edit doesn't silently change the look of "
+			"every printed PDF; the diff renders in the preview. Returns preview_token."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"with_letterhead": {"type": "boolean"},
+				"compact_item_print": {"type": "boolean"},
+				"print_taxes_with_zero_amount": {"type": "boolean"},
+				"font": {"type": "string", "description": "e.g. 'Default', 'Inter', 'Roboto'"},
+				"font_size": {"type": "integer"},
+				"pdf_page_size": {"type": "string", "enum": ["A4", "Letter", "A0", "A1", "A2", "A3", "A5", "A6", "A7", "A8", "A9", "B0", "B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B9", "B10", "C5E", "Comm10E", "DLE", "Executive", "Folio", "Ledger", "Legal", "Tabloid", "Custom"]},
+				"pdf_page_height": {"type": "number"},
+				"pdf_page_width": {"type": "number"},
+			},
+		},
+	},
+	{
+		"name": "prepare_create_email_template",
+		"description": (
+			"Stage a new Email Template. Validates Jinja syntax in `subject` and `response` (body) at preview time "
+			"by dry-rendering against an empty context. Templates are inert until used by send tools. Two-phase: "
+			"returns preview_token."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"name": {"type": "string"},
+				"subject": {"type": "string", "description": "Jinja-templated email subject line"},
+				"response": {"type": "string", "description": "Jinja-templated email body (HTML)"},
+				"use_html": {"type": "boolean", "default": True},
+			},
+			"required": ["name", "subject", "response"],
+		},
+	},
+	{
+		"name": "restore_deleted_doc",
+		"description": (
+			"Restore a previously-deleted document from Frappe's recycle bin (Deleted Document doctype). "
+			"DIRECT — no /commit phase: restoring is a single, reversible action with full perm re-checks. "
+			"Caller must have delete permission on the original doctype (Frappe enforces). "
+			"Returns {ok, doctype, name, link}."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"deleted_document_name": {"type": "string", "description": "Name (primary key) of the Deleted Document row, e.g. 'XYZ12'."},
+			},
+			"required": ["deleted_document_name"],
+		},
+	},
 ]
