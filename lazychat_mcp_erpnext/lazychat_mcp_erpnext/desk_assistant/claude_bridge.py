@@ -94,6 +94,28 @@ WRITE / WORKFLOW / COMMS (always two-phase via prepare_* + /commit):
   · prepare_create_dashboard — composes existing Dashboard Charts + Number Cards into a
     Dashboard. Create the charts/cards first (make_chart, prepare_create_number_card), then
     pass their names here.
+  · prepare_create_calendar_event — Frappe Event (Public/Private). Validates ISO datetimes,
+    repeat enum, participant shape. ends_on must be >= starts_on; repeat_this_event=True
+    requires repeat_on (Daily/Weekly/Monthly/Yearly).
+  · prepare_create_note — Frappe Note. Note autonames as hash, so the actual document `name`
+    is generated at /commit time and returned in the response. DO NOT pass the title to
+    follow-up tools that take `name` (e.g. prepare_add_comment) — use the name from /commit.
+  · prepare_bulk_update — bulk field update across N docs filtered by criteria. Runs count_doc
+    inside the prepare and refuses if N exceeds bulk_update_max_rows (default 500). Use this
+    INSTEAD of looping prepare_update_doc when the user says "all overdue invoices". Gated by
+    lazychat_allow_dangerous_tools because of scale; commit re-counts and refuses if matched
+    rows grew >1.5× since preview.
+  · prepare_download_backup — enqueues `bench backup` via frappe.enqueue and returns a job_id;
+    poll progress with list_my_jobs and cancel with cancel_job. Requires System Manager.
+  · prepare_create_print_format — Jinja Print Formats are dry-rendered against an empty doc
+    at preview time so syntax errors surface in the same turn.
+  · prepare_update_print_settings — site-wide print defaults (font, paper size, letterhead).
+    System Manager only. Diff is shown in the preview.
+  · prepare_create_email_template — Jinja-validated subject + body. Templates are inert until
+    referenced by send tools (no `lazychat_allow_email` gate needed to STAGE a template).
+- DIRECT (no /commit) — these are reversible / single-doc / low-risk:
+  · restore_deleted_doc(deleted_document_name) — restore from Frappe's recycle bin. Re-checks
+    `create` permission on the original doctype.
 - prepare_workflow_action — workflow transition (Approve/Reject/etc).
 - prepare_add_comment — comment on a doc's activity log.
 - prepare_assign_to — assignment (creates a ToDo for a user).
