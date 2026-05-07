@@ -475,7 +475,10 @@ TOOL_SCHEMAS = [
 			"Does NOT actually execute. Returns {preview_token, summary, preview, confirm_with}. "
 			"Show the user the EXACT query and ask them to '/commit TOKEN'. "
 			"REQUIRES: site_config 'lazychat_allow_dangerous_tools'=true AND System Manager role. "
-			"WARNING: bypasses Frappe per-user permission filters — use only when get_list/aggregate cannot express the query."
+			"WARNING: bypasses Frappe per-user permission filters — use only when get_list/aggregate cannot express the query. "
+			"SCHEMA-FIRST: ALWAYS call describe_doctype on every doctype you reference BEFORE staging the SQL — schema-hallucinated column names (the #1 failure mode) will surface as 'Unknown column' OperationalErrors. "
+			"CHILD-TABLE LINKS: in ERPNext, cross-document references usually live on the child Item table, not the parent (e.g. `Purchase Receipt Item.purchase_order`, NOT a column on `tabPurchase Receipt`). When traversing PR↔PO, SI↔SO, etc., JOIN through the child table on `child.parent = parent.name`. "
+			"ERROR RECOVERY: if /commit fails, you'll see [lazychat:tool-error] with a hint on the next turn — re-verify schema, fix the query, re-stage. Do NOT retry the same query unchanged."
 		),
 		"input_schema": {
 			"type": "object",
@@ -494,7 +497,9 @@ TOOL_SCHEMAS = [
 			"Show the user the EXACT code and ask them to '/commit TOKEN'. "
 			"REQUIRES: site_config 'lazychat_allow_dangerous_tools'=true AND System Manager role. "
 			"Set the result by assigning to `_result` (or write a single expression to return its value). "
-			"Print statements are captured to stdout."
+			"Print statements are captured to stdout. "
+			"SCHEMA-FIRST: when the code uses frappe.db.sql / frappe.get_all(fields=...), call describe_doctype FIRST to verify column names. Same CHILD-TABLE rule as prepare_run_sql — cross-doc links live on child Item tables (e.g. `Purchase Receipt Item.purchase_order`). "
+			"ERROR RECOVERY: DB errors at /commit time return a structured hint on the next turn — read the hint, re-verify schema, re-stage. Do NOT retry the same code unchanged."
 		),
 		"input_schema": {
 			"type": "object",

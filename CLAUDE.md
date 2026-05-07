@@ -486,6 +486,109 @@ When debugging *"my report URL gave 404 even though the chat said it was
 created"*: confirm the chat-ui bundle was rebuilt after this fix landed
 (`?v=` query in iframe URL should be > `1778066844`).
 
+## Self-correcting `/commit` for run_sql / run_python (2026-05-07)
+
+Before this change: when `prepare_run_sql` / `prepare_run_python` failed at
+`/commit` time with a DB error (the canonical case being
+`OperationalError: (1054, "Unknown column 'pr.purchase_order' in 'WHERE'")`),
+the chat dead-ended. The error rendered as a red card; clicking Retry
+re-ran the same broken script because the LLM never saw the failure in its
+turn history. Three independent gaps stacked:
+
+1. `tools.py:3367` (now wrapped) ran `frappe.db.sql(query)` with no inner
+   try/except. The OperationalError fell through to the outer handler at
+   [tools.py:4048-4054](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py),
+   which returned `{ok: false, error: str(e), action}` — a flat opaque
+   string with no diagnostic context.
+2. The chat-ui's `messagesToTurns` (in `agent.ts`) only emitted
+   `user`/`narration`/`done` kinds when building the LLM context. The
+   `error` kind that `commitSlash.ts` writes was silently dropped, so the
+   LLM had no idea the previous `/commit` failed.
+3. The system prompt was silent on schema-verification (call
+   `describe_doctype` first) and ERPNext's child-table linkage convention
+   (PO↔PR is `Purchase Receipt Item.purchase_order`, NOT a column on
+   `Purchase Receipt`).
+
+### Fixes
+
+- **`tools.py` `_wrap_db_error(e, query, action)`** — new helper near
+  [`_validate_select_sql`](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py).
+  Detects MySQL error codes 1054 (unknown column), 1146 (table not found),
+  1064 (syntax), 1142 (permission) and emits a structured response:
+  ```python
+  {
+    "ok": False, "action": ...,
+    "error": "OperationalError: (1054, ...)",
+    "error_kind": "schema" | "syntax" | "permission" | "other",
+    "hint": "<actionable text>",
+    "query": "<first 1000 chars>",
+  }
+  ```
+  For 1054, the hint is **schema-aware**: looks up the offending column in
+  `_CHILD_TABLE_LINKS` and points at the right child-table location. For
+  the user's exact bug (`pr.purchase_order`), the hint emits:
+  > Column `pr.purchase_order` does not exist (in `WHERE`). In ERPNext,
+  > `purchase_order` typically lives on the CHILD table — try
+  > `Purchase Receipt Item / Purchase Invoice Item` instead. Example:
+  > `SELECT … FROM tabPurchase Receipt pr JOIN tabPurchase Receipt Item pri ON pri.parent = pr.name WHERE pri.purchase_order = …`
+  > Run `describe_doctype` on the parent and inspect its child-table
+  > fields ('table' fieldtype) before retrying.
+
+  Wrapped at the `frappe.db.sql` call site for `run_sql`. For `run_python`,
+  the existing outer `except Exception as e` now routes through the same
+  helper when the exception is DB-flavored (OperationalError /
+  ProgrammingError / message contains 1054/1064/1146).
+
+- **`claude_bridge.py` system prompt** — replaces the 4-line
+  `prepare_run_sql` / `prepare_run_python` block with: SCHEMA-FIRST rule
+  (always call describe_doctype before non-trivial SQL), CHILD-TABLE LINKS
+  table covering the 6 most common cross-doc references, and an explicit
+  ERROR RECOVERY block telling the model the `[lazychat:tool-error]`
+  prefix means "read the hint, re-verify schema, re-stage with corrections,
+  do NOT regenerate the same query unchanged".
+
+- **`tool_schemas.py`** — mirror the prompt's two new pieces (schema-first;
+  child-table-link convention) into the tool descriptions for
+  `prepare_run_sql` and `prepare_run_python` so the guidance also surfaces
+  during tool selection.
+
+- **chat-ui side** (sibling repo): `agent.ts:messagesToTurns` adds a
+  branch for `kind === 'error'` that emits a synthetic `[lazychat:tool-error]`
+  user turn carrying the structured error + hint. `commitSlash.ts` now
+  writes the canonical `error` Message shape (was using a non-typed
+  `as unknown as Message` cast that left `message` undefined), formats
+  the structured fields into the message, then auto-triggers `startStream`
+  for `run_sql`/`run_python` failures (NOT mutations) with a sliding
+  10-message / 3-error cap to prevent infinite loops on unrecoverable
+  errors. Manual `Try again` button stays as a fallback when auto-retry
+  caps out.
+
+### Verification
+
+- The exact production failure (`Unknown column 'pr.purchase_order'`) now
+  produces the 491-character schema-aware hint via the bench console:
+  ```
+  bench --site erp.local console
+  >>> from lazychat_mcp_erpnext.desk_assistant.tools import _wrap_db_error
+  >>> e = SimpleNamespace(__class__=type('OperationalError',(Exception,),{}))
+  >>> _wrap_db_error(e, "...", "run_sql")["hint"]
+  ```
+- Smoke: T44–T47 (run_sql happy path + DML rejection + run_python sum) all
+  green; the structured-error wrap doesn't regress the success path.
+- chat-ui: `messagesToTurns` regression test (`agent.multipart.test.ts`)
+  asserts the `[lazychat:tool-error]` user turn shape; `commitSlash.test.ts`
+  covers the canonical-shape error write, auto-retry on run_sql/run_python,
+  no-retry on mutations, no-retry on success, and the 3-error cap.
+
+### Out of scope
+
+- Auto-retrying mutations (`prepare_create_*`, `prepare_update_doc`, etc.) —
+  those failures are usually validation / business-logic errors where
+  re-staging without user input is dangerous.
+- Schema-aware SQL pre-validation (parsing the query and checking columns
+  before staging) — would need a doctype-field index; separate larger
+  effort.
+
 ## Production-grade iframe perf overhaul (2026-05-07)
 
 End-to-end perf pass on the embedded iframe. Companion changes in [../lazychat.ai/CLAUDE.md](../lazychat.ai/CLAUDE.md) Cycle 6. **First-paint critical bytes ~186 KB brotli (~221 KB gz)** down from ~321 KB-gz single-bundle baseline (~70% drop behind nginx).
