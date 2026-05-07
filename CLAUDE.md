@@ -486,6 +486,52 @@ When debugging *"my report URL gave 404 even though the chat said it was
 created"*: confirm the chat-ui bundle was rebuilt after this fix landed
 (`?v=` query in iframe URL should be > `1778066844`).
 
+## Production-grade iframe perf overhaul (2026-05-07)
+
+End-to-end perf pass on the embedded iframe. Companion changes in [../lazychat.ai/CLAUDE.md](../lazychat.ai/CLAUDE.md) Cycle 6. **First-paint critical bytes ~186 KB brotli (~221 KB gz)** down from ~321 KB-gz single-bundle baseline (~70% drop behind nginx).
+
+### Iframe element tightening ([lazychat_panel.bundle.js:509-528](lazychat_mcp_erpnext/lazychat_mcp_erpnext/public/js/lazychat_panel.bundle.js))
+
+- `iframe.title = "Lazy Chat assistant"` (a11y).
+- `iframe.loading = "eager"` — explicit because the FAB-triggered open is what reveals the iframe and we want it fully booted on first reveal.
+- `iframe.referrerPolicy = "same-origin"`.
+- `iframe.sandbox = "allow-same-origin allow-scripts allow-popups allow-forms allow-downloads allow-modals"`. **`allow-same-origin` is mandatory** — same-origin production iframe needs `frappe.csrf_token`/`frappe.boot`/localStorage, and our origin-pinned `postMessage` validation depends on a non-`null` origin. `allow-popups` lets `target="_blank"` external links open. `allow-downloads` covers CSV exports.
+- `?v=<deploy_token>` cache-bust on the iframe URL **kept** with a "SAFE TO REMOVE once nginx ships" code comment. Required because Frappe's Werkzeug serves `index.html` with `Cache-Control: max-age=43200` — without `?v=`, redeploys never invalidate the entry HTML and the browser keeps loading the OLD asset hashes.
+
+### Build pipeline — precompressed sidecars ([scripts/build-lazychat-dist.sh](scripts/build-lazychat-dist.sh))
+
+Post-rsync pass over `*.{js,css,svg,json,html,map}` in `public/lazychat_dist/`:
+
+- Brotli `-q 11` `.br` sidecars when the `brotli` CLI is present (graceful warning + skip when missing).
+- Gzip `-9 -n` `.gz` sidecars (always; `gzip` is on every macOS/Linux box).
+- Files <1 KB skipped (compression overhead exceeds savings).
+- Source-newer-than-sidecar check via `-nt` so re-runs only recompress changed files.
+- `SKIP_PRECOMPRESS=1` short-circuit for fast dev rebuilds.
+
+Pairs with `brotli_static on; gzip_static on;` in the nginx config.
+
+### Production nginx sample ([scripts/nginx-lazychat.conf.example](scripts/nginx-lazychat.conf.example))
+
+Two `location` blocks for the dist path, plus an embedded README:
+
+- `^~ /assets/lazychat_mcp_erpnext/lazychat_dist/assets/` → `Cache-Control: public, max-age=31536000, immutable` (Vite's content-hash filenames make this safe).
+- `= /assets/lazychat_mcp_erpnext/lazychat_dist/index.html` → `Cache-Control: no-cache, must-revalidate` + a strict CSP including `frame-ancestors`, `Permissions-Policy`, `Referrer-Policy`, `X-Content-Type-Options`. `frame-ancestors` value is a placeholder (`https://erp.example.com`); each operator must edit it.
+- Both serve precompressed `.br` / `.gz` sidecars when the client supports them. Falls back to dynamic `gzip` for anything without a sidecar.
+- Add either to the `nginx.conf` template (persists across `bench setup nginx`) or via `include /etc/nginx/conf.d/lazychat.conf` in the Frappe-generated server block.
+
+**Once this nginx config is live**, the `?v=` cache-bust in [lazychat_panel.bundle.js:154-158](lazychat_mcp_erpnext/lazychat_mcp_erpnext/public/js/lazychat_panel.bundle.js) becomes redundant and can be deleted (the no-cache header on `index.html` does the revalidation; the immutable header on hashed assets does the long-term caching).
+
+### Lighthouse CI ([scripts/lighthouse-iframe.sh](scripts/lighthouse-iframe.sh))
+
+On-demand performance budget enforcement. Runs `npx lighthouse` headless against the iframe URL, parses the JSON result with stdlib Python, asserts FCP/LCP/TBT/CLS/perf-score floors. Defaults: perf ≥85, FCP ≤1500 ms, LCP ≤2500 ms, TBT ≤300 ms, CLS ≤0.05. Override per-env via `SITE_URL`, `PERF_MIN`, `FCP_MAX_MS`, etc. HTML report under `lighthouse-out/lighthouse.html`. Wire into CI as a non-blocking job until budgets are hardened.
+
+### What stays unchanged
+
+- The two-phase mutation pattern.
+- The 87-tool registry shape.
+- The `send_message_stream` / `mcp.handle` API surface.
+- All gating (System Manager + `/commit` + site flags).
+
 ## Where to go next
 
 When user opens a new task in this repo:
