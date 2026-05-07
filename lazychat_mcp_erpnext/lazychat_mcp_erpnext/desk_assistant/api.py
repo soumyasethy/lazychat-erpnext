@@ -103,6 +103,9 @@ def send_message_stream(
 	model_label=None,
 	confirmed_writes=False,
 	attachments=None,
+	mode=None,
+	effort=None,
+	plan_resumed=False,
 ):
 	"""SSE variant of send_message — emits text_delta / tool_use / tool_result events live."""
 	from werkzeug.wrappers import Response
@@ -122,6 +125,12 @@ def send_message_stream(
 			context = json.loads(context) if context else {}
 		except json.JSONDecodeError:
 			context = {}
+
+	# Defensive clamp on mode/effort — fall back to defaults on unknown values.
+	# These pass through to claude_bridge.run_agentic_turn which honors them.
+	mode_safe = mode if mode in ("ask", "edit-auto", "plan", "auto") else "edit-auto"
+	effort_safe = effort if effort in ("low", "medium", "high", "max") else "medium"
+	plan_resumed_safe = bool(plan_resumed)
 
 	convo = _get_or_create_conversation(conversation_id)
 	history = _load_history(convo)
@@ -149,6 +158,9 @@ def send_message_stream(
 				allow_writes=bool(confirmed_writes),
 				desk_context=context or {},
 				emit=emit,
+				mode=mode_safe,
+				effort=effort_safe,
+				plan_resumed=plan_resumed_safe,
 			)
 			c = frappe.get_doc("Claude Conversation", convo.name)
 			c.history = json.dumps(new_history, default=str)
