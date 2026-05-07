@@ -421,7 +421,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"summary": f"Will create {dt} with {len(values)} field(s)",
 			"preview": {"doctype": dt, "fields": values},
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "prepare_update_doc":
@@ -446,7 +446,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"summary": f"Will update {dt}/{dn} — {len(patch)} field(s)",
 			"diff": diff,
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "prepare_submit_doc":
@@ -468,7 +468,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"preview_token": token,
 			"summary": f"Will submit {dt}/{dn}",
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "list_workflow_actions":
@@ -526,7 +526,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"preview_token": token,
 			"summary": f"Will apply workflow action '{action}' on {dt}/{dn}",
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "prepare_add_comment":
@@ -557,7 +557,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"summary": f"Will add comment on {dt}/{dn}",
 			"preview": {"text": text[:500]},
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "prepare_assign_to":
@@ -580,7 +580,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"preview_token": token,
 			"summary": f"Will assign {dt}/{dn} to {assign_user}",
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "aggregate":
@@ -1013,7 +1013,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				"linked": f"{ref_dt}/{ref_name}" if ref_dt and ref_name else None,
 			},
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "prepare_delete_doc":
@@ -1031,7 +1031,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"preview_token": token,
 			"summary": f"Will delete {dt}/{dn} (irreversible)",
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "search_doctype":
@@ -1266,7 +1266,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"summary": f"Will execute SELECT query (returns up to {limit} rows)",
 			"preview": {"query": query[:2000], "limit": limit, "warning": "Raw SQL bypasses Frappe per-user permissions — review the query carefully before /commit."},
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "prepare_run_python":
@@ -1284,7 +1284,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"summary": f"Will execute Python code (timeout {timeout}s) with full Frappe access",
 			"preview": {"code": code[:4000], "timeout": timeout, "warning": "This code runs with FULL access to your Frappe data and the server filesystem (as the calling user). Review carefully before /commit."},
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "prepare_share_doc":
@@ -1308,7 +1308,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"preview_token": token,
 			"summary": f"Will share {dt}/{dn} with {share_user} (read={read}, write={write})",
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "number_card_value":
@@ -1367,7 +1367,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"preview_token": token,
 			"summary": f"Will rename {dt}/{old_name} -> {new_name}" + (" (merge)" if merge else ""),
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "list_doc_versions":
@@ -1452,7 +1452,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"summary": f"Will revert {dt}/{dn} via Version {version_id}: {len(valid_changes)} scalar field change(s)",
 			"diff": diff_preview,
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	# Tier B-upload — chat-side file picker. prepare_upload_file stages an
@@ -1524,7 +1524,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"preview_token": token,
 			"summary": f"Will create a Data Import for {dt} ({import_type}) using {matches[0]['file_name']}",
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 			"_note": "On commit, a Data Import doctype row is created and start_import() is called. Watch progress via list_my_jobs.",
 		}
 
@@ -1843,7 +1843,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 					"row_count_estimate": row_count_estimate,
 					"prompt": f"Pick fields to include in the {dt} CSV. Default selection follows the doctype's 'in_list_view' flags.",
 					"expires_in_sec": PREP_TTL_SEC,
-					"confirm_with": f"/commit {token} fields=field1,field2,...",
+					"confirm_with": "pick fields in the inline checkbox UI and confirm",
 				}
 			except Exception as e:
 				return {"error": f"field-picker preview failed: {e}"}
@@ -2121,7 +2121,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"preview_token": token,
 			"summary": f"Will create knowledge base '{slug}' titled '{title}'" + (" (public)" if is_public else ""),
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "prepare_add_file_to_kb":
@@ -2151,7 +2151,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"preview_token": token,
 			"summary": f"Will attach '{display_name}' to knowledge base '{kb_name}'",
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	# Typed wrappers for doctypes where prepare_create_doc is too generic
@@ -2210,7 +2210,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				"open_url": f"/app/query-report/{report_name}" if report_type == "Query Report" else f"/app/report/{report_name}",
 			},
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "prepare_create_scheduled_job":
@@ -2239,7 +2239,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"summary": f"Will schedule '{method}' to run {frequency.lower()}{f' (cron: {cron_format})' if cron_format else ''}",
 			"preview": {"method": method, "frequency": frequency, "cron_format": cron_format or None},
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "prepare_create_number_card":
@@ -2287,7 +2287,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				"open_url": f"/app/number-card/{label}",
 			},
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "prepare_create_dashboard":
@@ -2327,7 +2327,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				"open_url": f"/app/dashboard-view/{dashboard_name}",
 			},
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	# ------------------------------------------------------------------
@@ -2401,7 +2401,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				"participant_count": len(participants),
 			},
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "prepare_create_note":
@@ -2429,7 +2429,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				"note": "Note autonames as hash; the actual document `name` is returned in the /commit response — pass that to follow-up tools that take `name`, not the title.",
 			},
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "prepare_bulk_update":
@@ -2510,7 +2510,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				"note": "If new docs match the filter between preview and /commit, commit re-counts and refuses if the count grew >1.5×.",
 			},
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "prepare_download_backup":
@@ -2527,7 +2527,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"summary": f"Will enqueue site backup{' (with files)' if with_files else ''}; poll progress with list_my_jobs.",
 			"preview": {"with_files": with_files},
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "prepare_create_print_format":
@@ -2584,7 +2584,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				"open_url": f"/app/print-format/{pf_name}",
 			},
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "prepare_update_print_settings":
@@ -2621,7 +2621,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"diff": diff,
 			"preview": {"patch": patch, "open_url": "/app/print-settings"},
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "prepare_create_email_template":
@@ -2667,7 +2667,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				"open_url": f"/app/email-template/{tpl_name}",
 			},
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	# ------------------------------------------------------------------
@@ -2776,7 +2776,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				"condition": condition or None,
 			},
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "prepare_create_auto_email_report":
@@ -2832,7 +2832,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				"format": fmt,
 			},
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "update_notification_settings":
@@ -2897,7 +2897,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"summary": f"Will track milestones on {dt}.{track_field}",
 			"preview": {"document_type": dt, "track_field": track_field, "disabled": disabled},
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "prepare_create_auto_repeat":
@@ -2983,7 +2983,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				"submit_on_creation": submit_on_creation,
 			},
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "prepare_create_email_group":
@@ -3008,7 +3008,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"summary": f"Will create {'public ' if public else ''}Email Group '{title}'",
 			"preview": {"title": title, "public": public},
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "prepare_add_to_email_group":
@@ -3037,7 +3037,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"summary": f"Will add '{email}' to Email Group '{row}'",
 			"preview": {"email_group": row, "email": email},
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "prepare_create_newsletter":
@@ -3081,7 +3081,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				"body_preview": (message[:300] + "…") if len(message) > 300 else message,
 			},
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	# ------------------------------------------------------------------
@@ -3234,7 +3234,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"summary": f"Will create Email Account '{account_name}' for {email_id}" + (f" — {'; '.join(summary_bits)}" if summary_bits else ""),
 			"preview": preview,
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "prepare_create_assignment_rule":
@@ -3327,7 +3327,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				"open_url": f"/app/assignment-rule/{rule_name}",
 			},
 			"expires_in_sec": PREP_TTL_SEC,
-			"confirm_with": f"/commit {token}",
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "restore_deleted_doc":
