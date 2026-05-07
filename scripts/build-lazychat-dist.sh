@@ -68,6 +68,41 @@ mkdir -p "$DIST_DST"
 echo "==> rsync dist into app ..."
 rsync -a --delete "$DIST_SRC/" "$DIST_DST/"
 
+# ---------------------------------------------------------------------------
+# Precompress static assets so nginx can serve `.br` / `.gz` sidecars with
+# `brotli_static on; gzip_static on;` (see scripts/nginx-lazychat.conf.example).
+# This shifts CPU from request-time on the production server to one-shot at
+# build time and unlocks brotli quality 11 (impractical to negotiate live).
+# Skipped silently when SKIP_PRECOMPRESS=1 (set in dev to keep builds fast).
+# ---------------------------------------------------------------------------
+SKIP_PRECOMPRESS="${SKIP_PRECOMPRESS:-0}"
+if [[ "$SKIP_PRECOMPRESS" == "1" ]]; then
+	echo "==> precompress: skipped (SKIP_PRECOMPRESS=1)"
+else
+	HAS_BROTLI=0
+	command -v brotli >/dev/null 2>&1 && HAS_BROTLI=1
+	if [[ "$HAS_BROTLI" == "0" ]]; then
+		echo "==> precompress: brotli CLI not found — install with 'brew install brotli' (macOS) or 'apt-get install brotli' (Debian/Ubuntu). Skipping .br sidecars; .gz only." >&2
+	fi
+
+	# Only files >= 1024 bytes; smaller files cost more in compression overhead than they save on the wire.
+	# Recompress when the source is newer than the sidecar (mtime check via `-nt`).
+	count_br=0; count_gz=0
+	while IFS= read -r -d '' f; do
+		# Skip already-compressed sidecars themselves.
+		case "$f" in *.br|*.gz) continue;; esac
+		size=$(wc -c < "$f")
+		[[ "$size" -lt 1024 ]] && continue
+		if [[ "$HAS_BROTLI" == "1" ]] && { [[ ! -f "$f.br" ]] || [[ "$f" -nt "$f.br" ]]; }; then
+			brotli -q 11 -f -k -o "$f.br" "$f" && count_br=$((count_br + 1))
+		fi
+		if [[ ! -f "$f.gz" ]] || [[ "$f" -nt "$f.gz" ]]; then
+			gzip -9 -k -f -n "$f" && count_gz=$((count_gz + 1))
+		fi
+	done < <(find "$DIST_DST" -type f \( -name '*.js' -o -name '*.css' -o -name '*.svg' -o -name '*.json' -o -name '*.html' -o -name '*.map' \) -print0)
+	echo "==> precompress: $count_br .br + $count_gz .gz sidecars written"
+fi
+
 echo ""
 echo "================================================================"
 echo "Built lazychat dist into lazychat_mcp_erpnext."

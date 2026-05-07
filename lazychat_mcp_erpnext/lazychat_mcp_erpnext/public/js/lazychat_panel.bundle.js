@@ -151,6 +151,11 @@
 		// the OLD index.html — which references the OLD hashed asset bundle.
 		// Prefer settings.deploy_version (boot.py composes "<app_version>.<dist mtime>" — flips
 		// on every rebuild). Fall back to the static app version, then empty.
+		// SAFE TO REMOVE this `?v=` once the production nginx config from
+		// scripts/nginx-lazychat.conf.example is in place — that config serves
+		// index.html with `Cache-Control: no-cache` (revalidate every visit) and the
+		// hashed assets immutable, so the entry HTML always returns the current
+		// asset hashes without a query-string nudge. Until then, leave this in.
 		const cacheBust = (settings.deploy_version
 			|| (boot.versions && boot.versions.lazychat_mcp_erpnext)
 			|| "");
@@ -508,8 +513,20 @@
 
 		const iframe = document.createElement("iframe");
 		iframe.id = "lazychat-iframe";
-		iframe.src = iframeSrc;
+		iframe.title = "Lazy Chat assistant";
+		iframe.loading = "eager";          // FAB-triggered open: we want it fully loaded the first time it's revealed
+		iframe.referrerPolicy = "same-origin";
 		iframe.allow = "clipboard-read; clipboard-write";
+		// Sandbox: allow-same-origin is REQUIRED — production iframe is same-origin with
+		// the Desk and reads frappe.boot, csrf_token, localStorage; allow-scripts boots
+		// React; allow-popups lets external `target="_blank"` links open; allow-forms
+		// preserves any future <form> usage; allow-downloads supports CSV exports;
+		// allow-modals supports future native dialog/alert paths.
+		iframe.setAttribute(
+			"sandbox",
+			"allow-same-origin allow-scripts allow-popups allow-forms allow-downloads allow-modals"
+		);
+		iframe.src = iframeSrc;
 
 		panel.appendChild(handle);
 		panel.appendChild(iframe);

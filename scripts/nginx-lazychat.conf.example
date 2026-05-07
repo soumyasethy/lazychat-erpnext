@@ -1,0 +1,127 @@
+# ============================================================================
+# lazychat — production nginx snippet for the chat-ui SPA assets
+# ============================================================================
+#
+# Where this goes
+# ---------------
+# Frappe production deploys generate the active nginx.conf via
+#   bench setup nginx
+# from `~/frappe-bench/config/templates/nginx.conf`. Either:
+#   (a) Add the two `location` blocks below to that template (preferred —
+#       persists across `bench setup nginx`), then re-run the command, OR
+#   (b) Add an `include /etc/nginx/conf.d/lazychat.conf;` line to the
+#       Frappe-generated nginx.conf inside the matching `server { ... }`
+#       block, and put the two `location` blocks in /etc/nginx/conf.d/lazychat.conf.
+#
+# Prerequisites
+# -------------
+# 1. Build the SPA with precompressed sidecars:
+#      ./scripts/build-lazychat-dist.sh
+#    Confirm `.br` and `.gz` files exist next to each `.js` / `.css`:
+#      ls public/lazychat_dist/assets/*.br | head
+# 2. nginx must be built with brotli_static support (nginx-extras on
+#    Debian/Ubuntu, or the official ngx_brotli module). Without it, the
+#    `brotli_static on;` directive errors at config-test time — drop that
+#    line and gzip_static still works.
+#
+# What it changes vs. Frappe's default
+# ------------------------------------
+# - Hashed assets (`assets/*-<hash>.{js,css,woff2,…}`) get
+#   `Cache-Control: public, max-age=31536000, immutable` — the browser
+#   never revalidates them. Vite's content-hash filenames make this safe.
+# - `index.html` gets `Cache-Control: no-cache` — the browser revalidates
+#   every visit (cheap conditional GET; nginx returns 304 if unchanged).
+#   Once this is in place you can DELETE the `?v=<deploy_version>` cache-bust
+#   in `lazychat_panel.bundle.js` (search for "SAFE TO REMOVE").
+# - Both serve precompressed `.br` / `.gz` sidecars when the client supports
+#   them, falling back to on-the-fly compression for everything else.
+# - Strict CSP including `frame-ancestors` pins which Desk hosts may embed
+#   the SPA. Replace `https://erp.example.com` with the real Desk origin.
+#
+# ============================================================================
+
+# 1) Hashed assets — long-lived, immutable.
+location ^~ /assets/lazychat_mcp_erpnext/lazychat_dist/assets/ {
+    # Vite emits content-hash filenames (e.g. index-5voQmT5N.js) so the URL
+    # itself changes when the file changes. Safe to cache forever.
+    add_header Cache-Control "public, max-age=31536000, immutable" always;
+
+    # Precompressed sidecars from build-lazychat-dist.sh. The `_static` variants
+    # never call the compressor at request time — they just serve the `.br` /
+    # `.gz` file alongside if the client's Accept-Encoding allows it.
+    brotli_static on;
+    gzip_static on;
+
+    # Fallback dynamic compression for anything without a sidecar.
+    gzip on;
+    gzip_types application/javascript text/css application/json image/svg+xml;
+    gzip_min_length 1024;
+
+    # No CORS / CSP needed on individual asset responses — they're loaded
+    # by the SPA itself which is same-origin with the Desk.
+    access_log off;
+
+    try_files $uri =404;
+}
+
+# 2) Entry HTML — must revalidate every load.
+#    The match is exact: `=` so the regex doesn't accidentally also catch
+#    `index.html?frame=sidebar` requests with extra path segments.
+location = /assets/lazychat_mcp_erpnext/lazychat_dist/index.html {
+    add_header Cache-Control "no-cache, must-revalidate" always;
+
+    brotli_static on;
+    gzip_static on;
+    gzip on;
+    gzip_types text/html;
+
+    # CSP for the iframe document. Tune the origins to match your deployment.
+    # - frame-ancestors: only the Desk origin may embed this iframe.
+    # - connect-src: same-origin covers /api/method/... (MCP + LLM proxy);
+    #   add explicit external LLM hosts if you let users BYO keys that POST
+    #   directly from the browser without going through the same-origin proxy
+    #   (e.g. https://api.openai.com https://api.anthropic.com).
+    # - script-src 'self' is strict: no inline <script>, no eval. The SPA's
+    #   bundle is loaded as an external module from the assets/ path.
+    add_header Content-Security-Policy "
+        default-src 'self';
+        script-src 'self';
+        style-src 'self' 'unsafe-inline';
+        font-src 'self' data:;
+        img-src 'self' data: blob:;
+        connect-src 'self';
+        frame-ancestors https://erp.example.com;
+        base-uri 'none';
+        form-action 'self';
+        object-src 'none';
+        worker-src 'self' blob:;
+    " always;
+
+    # Belt-and-braces against framing on browsers that ignore frame-ancestors.
+    # Only set if frame-ancestors above is RESTRICTIVE; if you want anyone to
+    # embed it, drop this line.
+    add_header X-Frame-Options "SAMEORIGIN" always;
+
+    # Hardening misc.
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "same-origin" always;
+    add_header Permissions-Policy "clipboard-read=(self), clipboard-write=(self), microphone=(self)" always;
+
+    try_files $uri =404;
+}
+
+# Notes for ops
+# -------------
+# - Verify after reload:
+#     curl -I https://erp.example.com/assets/lazychat_mcp_erpnext/lazychat_dist/assets/index-<hash>.js
+#       → expect: Cache-Control: public, max-age=31536000, immutable
+#                 Content-Encoding: br   (when Accept-Encoding includes br)
+#     curl -I https://erp.example.com/assets/lazychat_mcp_erpnext/lazychat_dist/index.html
+#       → expect: Cache-Control: no-cache, must-revalidate
+#                 Content-Security-Policy: ...
+# - If brotli_static errors out on `nginx -t`, your nginx is built without
+#   ngx_brotli. Drop the two `brotli_static on;` lines and gzip_static still
+#   delivers a meaningful win.
+# - The microphone permission in Permissions-Policy mirrors the chat-ui's
+#   voice-input feature (apps/chat-ui/src/features/voice/useSpeechRecognition.ts).
+#   Drop it if voice input is disabled in your deployment.
