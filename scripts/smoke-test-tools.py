@@ -441,6 +441,64 @@ def run():
 			c = commit_prepared(t47)
 			ok_py = c.get("ok") and c.get("result") == 45
 			record(_ok("T47 prepare_run_python + commit returns sum(range(10))=45", bool(ok_py), c.get("error", "")))
+
+		# T47a–T47d: run_sql_select (auto-execute SELECT, no /commit)
+		r = execute_tool("run_sql_select", {"query": "SELECT 1 as one, 'hi' as greeting", "limit": 5})
+		ok_sel = r.get("ok") and r.get("rows") and r["rows"][0].get("one") == 1
+		record(_ok("T47a run_sql_select returns rows immediately (no /commit)", bool(ok_sel), r.get("error", "")))
+
+		r = execute_tool("run_sql_select", {"query": "-- get one row\nSELECT 1 as n", "limit": 5})
+		record(_ok("T47b run_sql_select tolerates leading -- comment", r.get("ok") and r.get("rows", [{}])[0].get("n") == 1, r.get("error", "")))
+
+		r = execute_tool("run_sql_select", {"query": "/* descriptive comment */ SELECT 2 as n", "limit": 5})
+		record(_ok("T47c run_sql_select tolerates leading /* */ comment", r.get("ok") and r.get("rows", [{}])[0].get("n") == 2, r.get("error", "")))
+
+		r = execute_tool("run_sql_select", {"query": "DELETE FROM tabUser WHERE name='x'"})
+		record(_ok("T47d run_sql_select rejects DML", "error" in r))
+
+		# T47e–T47k: run_python_readonly (auto-execute, AST-validated, savepoint-rollback)
+		r = execute_tool("run_python_readonly", {"code": "_result = sum(range(10))"})
+		record(_ok("T47e run_python_readonly returns result immediately", r.get("ok") and r.get("result") == 45, r.get("error", "")))
+
+		# AST scan blocks dangerous imports
+		r = execute_tool("run_python_readonly", {"code": "import subprocess\n_result = subprocess.check_output(['ls'])"})
+		record(_ok("T47f run_python_readonly blocks subprocess import", "error" in r and "forbidden import" in r.get("error", "")))
+
+		r = execute_tool("run_python_readonly", {"code": "import os\n_result = os.listdir('.')"})
+		record(_ok("T47g run_python_readonly blocks os import", "error" in r and "forbidden import" in r.get("error", "")))
+
+		# AST scan blocks frappe.db mutators
+		r = execute_tool("run_python_readonly", {"code": "frappe.db.set_value('User', 'Administrator', 'first_name', 'oops')"})
+		record(_ok("T47h run_python_readonly blocks frappe.db.set_value", "error" in r and "frappe.db.set_value" in r.get("error", "")))
+
+		r = execute_tool("run_python_readonly", {"code": "frappe.delete_doc('Note', 'whatever')"})
+		record(_ok("T47i run_python_readonly blocks frappe.delete_doc", "error" in r and "frappe.delete_doc" in r.get("error", "")))
+
+		# AST scan blocks file/dynamic-code built-ins
+		r = execute_tool("run_python_readonly", {"code": "f = open('/tmp/x', 'w')\nf.write('x')"})
+		record(_ok("T47j run_python_readonly blocks open()", "error" in r and "open()" in r.get("error", "")))
+
+		# Savepoint defense-in-depth: doc.save() escapes the AST scan
+		# (chain root isn't `frappe`), but the savepoint rollback should undo
+		# the insert. Verify by checking the Note doesn't persist after the call.
+		import secrets as _secrets
+		marker = "_lazychat_ro_savepoint_test_" + _secrets.token_hex(4)
+		code = (
+			"note = frappe.new_doc('Note')\n"
+			f"note.title = '{marker}'\n"
+			"note.public = 1\n"
+			"note.insert(ignore_permissions=True)\n"
+			"_result = note.name"
+		)
+		r = execute_tool("run_python_readonly", {"code": code})
+		# The code "succeeded" from the LLM's perspective but the savepoint
+		# should have rolled the insert back.
+		survived = bool(frappe.db.exists("Note", {"title": marker}))
+		record(_ok(
+			"T47k run_python_readonly savepoint rolls back doc.insert() (defense-in-depth past AST scan)",
+			r.get("ok") and not survived,
+			f"survived={survived} result={r.get('result')} err={r.get('error', '')}"
+		))
 	finally:
 		frappe.get_site_config = original_get_config
 

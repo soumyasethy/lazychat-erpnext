@@ -510,16 +510,35 @@ TOOL_SCHEMAS = [
 		},
 	},
 	{
+		"name": "run_python_readonly",
+		"description": (
+			"AUTO-EXECUTE read-only Python with frappe access (and pandas/numpy if installed) and return the result IMMEDIATELY in this same turn. "
+			"USE THIS for analytical Python that needs data manipulation beyond what run_sql_select can express (pandas pivots, multi-pass computations, complex group-by-then-filter, etc.) — same in-turn semantics as run_sql_select, no /commit, no Apply button. "
+			"REQUIRES: site_config 'lazychat_allow_dangerous_tools'=true AND System Manager role. "
+			"READ-ONLY ENFORCED in two layers: "
+			"(1) Static AST scan REJECTS the code BEFORE execution if it contains imports of subprocess/os/sys/shutil/socket/urllib/requests/http/smtplib/ftplib/telnetlib/ssl/ctypes/multiprocessing, or calls to file/dynamic-code built-ins (open, dynamic compile/eval/exec, __import__, input, breakpoint), or explicit frappe.db.set_value/set_many/delete/sql_ddl/multisql/commit/rollback/savepoint calls, or frappe.sendmail/publish_realtime/publish_progress/enqueue/enqueue_doc/delete_doc/rename_doc/copy_doc calls. "
+			"(2) Runtime savepoint ALWAYS rolls back any DB mutations after the code runs — even if a write somehow gets past the AST scan (.save() / .insert() / .submit()), it's undone before this tool returns. "
+			"Set the result by assigning to `_result` (or write a single expression). Print statements captured to stdout (cap 8 KB). "
+			"For mutation work that genuinely needs to land in the DB (creating docs, sending emails, etc.), use the prepare_* tools instead — they go through the two-phase Apply gate."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"code": {"type": "string"},
+			},
+			"required": ["code"],
+		},
+	},
+	{
 		"name": "prepare_run_python",
 		"description": (
-			"STAGE running Python code with FULL access to frappe (and pandas/numpy if installed). "
-			"Does NOT actually execute. Returns {preview_token, summary, preview, confirm_with}. "
-			"Show the user the EXACT code and ask them to '/commit TOKEN'. "
+			"STAGE Python code for user-approval gating (returns {preview_token, summary, preview} — does NOT execute). "
+			"For analytical Python you should use `run_python_readonly` instead — it returns the result immediately so you can compare/branch/synthesize in the same turn, and DB mutations are auto-rolled-back. "
+			"Use `prepare_run_python` ONLY when the code GENUINELY mutates the DB or has side-effects you want the user to approve before running (rare). "
 			"REQUIRES: site_config 'lazychat_allow_dangerous_tools'=true AND System Manager role. "
-			"Set the result by assigning to `_result` (or write a single expression to return its value). "
-			"Print statements are captured to stdout. "
-			"SCHEMA-FIRST: when the code uses frappe.db.sql / frappe.get_all(fields=...), call describe_doctype FIRST to verify column names. Same CHILD-TABLE rule as prepare_run_sql — cross-doc links live on child Item tables (e.g. `Purchase Receipt Item.purchase_order`). "
-			"ERROR RECOVERY: DB errors at /commit time return a structured hint on the next turn — read the hint, re-verify schema, re-stage. Do NOT retry the same code unchanged."
+			"Set the result by assigning to `_result`. Print statements captured to stdout. "
+			"Same SCHEMA-FIRST and CHILD-TABLE LINKS rules as the other SQL/Python tools. "
+			"ERROR RECOVERY: DB errors at /commit time return a structured hint on the next turn — read the hint, re-verify schema, re-stage."
 		),
 		"input_schema": {
 			"type": "object",

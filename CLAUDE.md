@@ -486,6 +486,141 @@ When debugging *"my report URL gave 404 even though the chat said it was
 created"*: confirm the chat-ui bundle was rebuilt after this fix landed
 (`?v=` query in iframe URL should be > `1778066844`).
 
+## Cycle 7 — Compound-question delivery: read-execute tools + plan-first prompting (2026-05-07)
+
+The platform-grade follow-up to the self-correcting `/commit` work below. The
+canonical user prompt that exposed this:
+
+> *"List me POs that have more than 100 line items and in which stock ledger
+> entry is not matching the purchase receipt if yes give me the PRs and missing
+> items, else give the list of POs → PR → PI"*
+
+Even with the schema-first / structured-error / auto-retry plumbing from
+"Self-correcting /commit" below, the platform STILL couldn't answer this
+because `prepare_run_sql` was the only auto-callable SQL tool and it was
+two-phase: stage → user clicks Apply → next turn sees data. For a compound
+analytical question the LLM cannot complete the analysis in a single agentic
+loop — it stages, the turn ends without rows, the user has to click, and
+typically the model fills the empty turn with hallucinated conclusions ("no
+POs match") drawn from "typical ERP patterns" instead of the database.
+
+The actual data: 18 POs match (top: `PO-I-26-000003` with 789 line items).
+
+### The new tools — separate read-path from mutation-path
+
+**`run_sql_select`** ([tools.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py))
+- Auto-executes SELECT (or `WITH ... SELECT`) SQL and returns rows in the
+  same tool result. No /commit, no Apply card, no preview_token.
+- Same security envelope as `prepare_run_sql`:
+  1. site_config `lazychat_allow_dangerous_tools=true`
+  2. caller has System Manager role
+  3. `_validate_select_sql` regex (rejects DML/DDL keywords + multi-statement)
+- Same `_wrap_db_error` structured-hint response on failure.
+- Row cap 200 default, 1000 max.
+
+**`run_python_readonly`** ([tools.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py))
+For analytical Python that goes beyond what SQL alone can express (pandas
+pivots, multi-pass computations, group-then-filter chains). Two layers of
+read-only enforcement:
+1. **Static AST scan** (`_validate_python_readonly`) rejects:
+   - Imports of `subprocess`, `os`, `sys`, `shutil`, `socket`, `urllib`,
+     `requests`, `http`, `smtplib`, `ftplib`, `telnetlib`, `ssl`, `ctypes`,
+     `multiprocessing` (modules whose side-effects are NOT DB-rollbackable).
+   - Calls to dangerous built-ins by name: `open`, dynamic-code primitives
+     (compile / eval / dynamic exec), `__import__`, `input`, `breakpoint`.
+   - Explicit `frappe.db.{set_value,set_many,delete,sql_ddl,multisql,commit,
+     rollback,savepoint,release_savepoint}` and `frappe.{sendmail,
+     publish_realtime,publish_progress,enqueue,enqueue_doc,delete_doc,
+     rename_doc,copy_doc}` — i.e. things that have non-DB side-effects
+     (email, redis publish, queue spawn) the savepoint can't undo.
+2. **Runtime savepoint** that ALWAYS rolls back. Even if the AST scan misses
+   something (e.g. `note.save()` — chain root isn't `frappe`), the
+   `frappe.db.rollback(save_point=…)` after the code runs ensures no DB write
+   persists. Smoke T47k specifically tests this defense-in-depth.
+
+Both new tools are gated identically to the prepare_* variants
+(`allow_dangerous_tools` + System Manager + per-tool validators).
+
+### Tool-choice routing (the actually-deliver-it part)
+
+System prompt in [claude_bridge.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/claude_bridge.py)
++ [routerSystemPrompt.ts](../lazychat.ai/apps/chat-ui/src/lib/routerSystemPrompt.ts)
+direct the LLM:
+
+- **For analysis** (data needed back this turn) → `run_sql_select` /
+  `run_python_readonly` / `get_list` / `count_doc` / `aggregate`.
+- **For mutations** (creating docs, sending emails) → `prepare_*` variants
+  with the inline Apply gate.
+- **NEVER** use `prepare_run_sql` / `prepare_run_python` for analysis — those
+  STAGE the action and the LLM's turn ends without data, so completion
+  becomes impossible in one loop.
+
+### Plan-first / completeness / evidence-or-say-so prompt rules
+
+Three blocks added to the shared guidance to push compound multi-stage
+behaviour:
+
+- **COMPOUND QUESTIONS** — emit a numbered Plan as the first content message
+  before any tool call, then execute step-by-step, then synthesize. Mirrors
+  Claude Code's TodoWrite pattern.
+- **COMPLETENESS** — before the final assistant turn, re-read the user's
+  message and confirm every clause is answered. If even one clause is
+  unanswered (e.g. the user asked "if X then A else B" and only the X check
+  ran), KEEP going with another tool call instead of declaring Done with a
+  partial answer.
+- **EVIDENCE-OR-SAY-SO** — a negative answer ("no X matches") REQUIRES a
+  successful `count_doc` / `aggregate` / `run_sql_select` with `COUNT(*)`
+  returning 0. Forbids "based on typical ERP patterns" / sample-of-one
+  generalizations — exactly the failure mode that produced the hallucinated
+  "no POs with >100 items" answer.
+
+### `_validate_select_sql` leading-comment tolerance
+
+LLMs frequently prefix queries with `-- get PRs linked to ...` for
+self-narration. The previous strict "must start with SELECT/WITH/("
+check rejected these on the first attempt. `_strip_leading_sql_comments`
+now eats `--` line comments and `/* */` block comments at the start of the
+query before the prefix check, while leaving in-query comments alone (those
+are MariaDB's job).
+
+### Iteration budget — chat-ui side
+
+[`agent.ts`](../lazychat.ai/apps/chat-ui/src/lib/agent.ts) raises
+`MAX_MCP_TURNS` from 8 → 16. A typical compound query needs 3-4
+describe_doctype rounds + 2-3 data-fetching rounds + 1-2 comparison rounds +
+1 synthesis round = 7-10 turns minimum. The old 8-turn cap forced the LLM to
+declare Done with a partial answer. The COMPLETENESS rule pushes the LLM to
+use these turns; the headroom lets it actually do so.
+
+### Smoke coverage (`scripts/smoke-test-tools.py`)
+
+- **T47a** — `run_sql_select` returns rows in the same call (no /commit).
+- **T47b** — `run_sql_select` tolerates leading `-- comment`.
+- **T47c** — `run_sql_select` tolerates leading `/* comment */`.
+- **T47d** — `run_sql_select` rejects DML.
+- **T47e** — `run_python_readonly` returns `_result` immediately.
+- **T47f** — blocks `import subprocess`.
+- **T47g** — blocks `import os`.
+- **T47h** — blocks `frappe.db.set_value`.
+- **T47i** — blocks `frappe.delete_doc`.
+- **T47j** — blocks file-open calls.
+- **T47k** — savepoint defense-in-depth: `note.insert()` (escapes AST scan
+  because chain root isn't `frappe`) is rolled back; the Note doesn't
+  persist. This is the test that proves the layered model actually closes
+  the gap.
+
+### End-to-end verification
+
+In the embedded panel, the canonical user prompt now flows: numbered plan →
+6 describe_doctype calls → 4+ chained `run_sql_select` calls returning real
+data → "Excellent! Found 18 POs with >100 items" → PR linkage query (2.2 KB)
+→ SLE comparison query (5.7s, 22.3 KB) → "Mismatches found! There are
+significant stock ledger discrepancies." Compare against the pre-Cycle-7
+hallucinated "no POs match" output.
+
+Evidence:
+- [`test/evidence/cycle7-self-correcting-commit/12-PLATFORM-DELIVERS-real-data-no-hallucination.png`](test/evidence/cycle7-self-correcting-commit/12-PLATFORM-DELIVERS-real-data-no-hallucination.png)
+
 ## Self-correcting `/commit` for run_sql / run_python (2026-05-07)
 
 Before this change: when `prepare_run_sql` / `prepare_run_python` failed at
