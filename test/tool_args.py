@@ -226,6 +226,22 @@ TOOL_ARGS: dict[str, dict[str, Any]] = {
         "charts": ["_lazychat_smoke_no_chart"],
     },
 
+    # --- Build-page typed wrappers (2026-05-07) ---
+    # Both require System Manager role; the harness runs as Administrator who
+    # has it, so happy-path stage is expected. If a future bench runs the smoke
+    # as a non-System-Manager user, both will turn into EXPECT_ERROR_OK candidates.
+    "prepare_create_custom_field": {
+        "dt": "Customer",
+        "label": "_lazychat_smoke_cf_probe",
+        "fieldtype": "Data",
+        "insert_after": "customer_name",
+    },
+    "prepare_create_client_script": {
+        "dt": "Customer",
+        "view": "Form",
+        "script": "frappe.ui.form.on('Customer', {refresh: function(frm) {}});",
+    },
+
     # --- Commit 1 — ERPNext "Tools" workspace typed wrappers (2026-05-06) ---
     "prepare_create_calendar_event": {
         "subject": "_lazychat_smoke_event_probe",
@@ -687,6 +703,9 @@ VALIDATORS: dict[str, Callable[[dict], tuple[bool, str]]] = {
     "prepare_create_email_group": _v_prepare_token,
     # Commit 3 — Email Account + Assignment Rule
     "prepare_create_assignment_rule": _v_prepare_token,
+    # Build-page typed wrappers (2026-05-07)
+    "prepare_create_custom_field": _v_prepare_token,
+    "prepare_create_client_script": _v_prepare_token,
     # prepare_create_email_account is EXPECT_ERROR_OK by default (gated).
     # Auto-email-report / auto-repeat / add_to_email_group / newsletter are
     # EXPECT_ERROR_OK with their default fixtures (referenced docs don't exist).
