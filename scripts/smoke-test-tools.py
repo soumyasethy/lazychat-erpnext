@@ -302,16 +302,20 @@ def run():
 	r = execute_tool("get_company_defaults", {})
 	record(_ok("T31 get_company_defaults", r.get("ok"), f"company={(r.get('company') or {}).get('name')}"))
 
-	# T32: prepare_send_email — should be REJECTED unless site flag set
+	# T32: prepare_send_email — should be REJECTED unless the email gate is on.
+	# The gate lives in get_lazychat_settings() which layers the Lazychat
+	# Settings doctype on top of site_config — checking site_config alone
+	# misses bench setups that enable via the doctype (the common case).
 	r = execute_tool(
 		"prepare_send_email",
 		{"recipients": ["test@example.com"], "subject": "smoke", "content": "x"},
 	)
-	allow = bool(frappe.get_site_config().get("lazychat_allow_email"))
+	from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings as _get_lazychat_settings
+	allow = bool(_get_lazychat_settings().get("allow_email"))
 	if allow:
-		record(_ok("T32 prepare_send_email staged", bool(r.get("preview_token"))))
+		record(_ok("T32 prepare_send_email staged (email allowed by Lazychat Settings)", bool(r.get("preview_token"))))
 	else:
-		record(_ok("T32 prepare_send_email gated when flag off", "error" in r and "disabled" in r["error"]))
+		record(_ok("T32 prepare_send_email gated when allow_email=false", "error" in r and "disabled" in r["error"]))
 
 	# T33: prepare_share_doc + commit (Note still around? if not, skip)
 	if created_note:
@@ -390,22 +394,19 @@ def run():
 			gone = not frappe.db.exists("Note", throwaway.name)
 			record(_ok("T41b doc actually gone", gone))
 
-	# T42+T43: prepare_run_sql + run_python with flag OFF — should be REJECTED
-	# (Note: even though we will mutate site_config below, frappe.get_site_config caches per request;
-	# we test rejection at default site state, then exercise the staged-with-flag-on path via direct token call)
-	import os
-	import json as _json
-	site_path = os.path.join(frappe.local.sites_path, frappe.local.site, "site_config.json")
-	with open(site_path) as f:
-		conf = _json.load(f)
-	flag_was = conf.get("lazychat_allow_dangerous_tools")
+	# T42+T43: prepare_run_sql + prepare_run_python with the dangerous-tools
+	# gate OFF — should be REJECTED. Read the effective flag via the unified
+	# resolver (Lazychat Settings doctype layered on top of site_config) so
+	# benches that enable via the doctype skip these correctly instead of
+	# silently failing the assertion.
+	flag_was = bool(_get_lazychat_settings().get("allow_dangerous_tools"))
 	if not flag_was:
 		r = execute_tool("prepare_run_sql", {"query": "SELECT 1 as one"})
 		record(_ok("T42 prepare_run_sql gated (flag off)", "error" in r and "disabled" in r.get("error", "")))
 		r = execute_tool("prepare_run_python", {"code": "_result = 2 + 2"})
 		record(_ok("T43 prepare_run_python gated (flag off)", "error" in r and "disabled" in r.get("error", "")))
 	else:
-		_skip("T42/T43 flag-off rejection", "site already has dangerous tools enabled")
+		_skip("T42/T43 flag-off rejection", "Lazychat Settings has allow_dangerous_tools=true")
 		results["skip"] += 2
 
 	# T44–T47: monkey-patch get_site_config to enable the flag for these tests
