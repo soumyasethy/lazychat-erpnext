@@ -50,6 +50,119 @@ def _validate_select_sql(sql):
 	return None  # OK
 
 
+# Match MySQL/MariaDB error texts surfaced through pymysql.OperationalError /
+# frappe wrappers. Both shapes appear in the wild — we look for the textual
+# pattern and the numeric code (e.g. (1054, "...")).
+_DB_ERR_UNKNOWN_COLUMN = re.compile(
+	r"""(?:\(?1054[,)]?\s*)?["']?Unknown column ['"`]([^'"`]+)['"`] in ['"`]([^'"`]+)['"`]""",
+	re.IGNORECASE,
+)
+_DB_ERR_TABLE_NOT_FOUND = re.compile(
+	r"""(?:\(?1146[,)]?\s*)?["']?Table ['"`]?([^'"`)]+?)['"`]?\s+doesn't exist""",
+	re.IGNORECASE,
+)
+_DB_ERR_SYNTAX = re.compile(
+	r"""(?:\(?1064[,)]?\s*)?["']?You have an error in your SQL syntax""",
+	re.IGNORECASE,
+)
+# ERPNext relationships that frequently live on the child table, not the
+# parent — these are the column names the LLM most often hallucinates onto a
+# parent doctype. When a 1054 error names one of these on a parent table, we
+# emit a targeted hint pointing at the right child-table location.
+_CHILD_TABLE_LINKS = {
+	"purchase_order": "Purchase Receipt Item / Purchase Invoice Item",
+	"purchase_receipt": "Purchase Invoice Item / Stock Ledger Entry",
+	"sales_order": "Sales Invoice Item / Delivery Note Item",
+	"sales_invoice": "Payment Entry Reference",
+	"delivery_note": "Sales Invoice Item",
+	"against_sales_order": "Delivery Note Item / Sales Invoice Item",
+	"against_purchase_order": "Purchase Receipt Item",
+}
+
+
+def _wrap_db_error(e, query, action):
+	"""Build a structured, LLM-actionable error response for a DB exception
+	thrown during run_sql / run_python execution.
+
+	The opaque `OperationalError: (1054, "Unknown column 'pr.purchase_order'")`
+	dead-ends the agent loop because the LLM has no idea WHICH column is
+	missing or what it should have used instead. This wrapper extracts the
+	column/table from the message and emits a hint pointing at the most
+	likely correction (child-table link conventions, or generic
+	describe_doctype guidance).
+
+	Returns a dict matching the existing run_sql/run_python error shape so
+	the caller can `return _wrap_db_error(...)` directly.
+	"""
+	msg = str(e)
+	err_type = type(e).__name__
+	resp = {
+		"ok": False,
+		"action": action,
+		"error": f"{err_type}: {msg}",
+		"error_kind": "other",
+		"hint": None,
+		"query": (query or "")[:1000],
+	}
+
+	m = _DB_ERR_UNKNOWN_COLUMN.search(msg)
+	if m:
+		col_ref, where_clause = m.group(1), m.group(2)
+		# col_ref is typically "alias.column" or just "column"
+		col_name = col_ref.rsplit(".", 1)[-1]
+		resp["error_kind"] = "schema"
+		child_hint = _CHILD_TABLE_LINKS.get(col_name)
+		if child_hint:
+			resp["hint"] = (
+				f"Column `{col_ref}` does not exist (in `{where_clause}`). In ERPNext, "
+				f"`{col_name}` typically lives on the CHILD table — try `{child_hint}` "
+				f"instead. Example: SELECT ... FROM `tabPurchase Receipt` pr "
+				f"JOIN `tabPurchase Receipt Item` pri ON pri.parent = pr.name "
+				f"WHERE pri.{col_name} = ... — the child rows carry the cross-doc link, "
+				f"not the parent. Run `describe_doctype` on the parent and inspect its "
+				f"child-table fields ('table' fieldtype) before retrying."
+			)
+		else:
+			resp["hint"] = (
+				f"Column `{col_ref}` does not exist (in `{where_clause}`). Run "
+				f"`describe_doctype` on the table to see the actual column names "
+				f"before retrying."
+			)
+		return resp
+
+	m = _DB_ERR_TABLE_NOT_FOUND.search(msg)
+	if m:
+		resp["error_kind"] = "schema"
+		resp["hint"] = (
+			f"Table `{m.group(1)}` does not exist. ERPNext doctype tables are "
+			f"`tab<Doctype Name>` (with the space, no underscore). Run "
+			f"`describe_doctype` to confirm the doctype exists, then retry "
+			f"with the correct backtick-quoted table name."
+		)
+		return resp
+
+	if _DB_ERR_SYNTAX.search(msg):
+		resp["error_kind"] = "syntax"
+		resp["hint"] = (
+			"SQL syntax error. Re-read the query, fix the syntax, and retry. "
+			"Common causes: missing backticks around table/column names that "
+			"contain spaces, unbalanced parentheses, or DML/DDL keywords "
+			"(only SELECT is allowed)."
+		)
+		return resp
+
+	# Permission errors etc. — pass through with no structured hint.
+	if "1142" in msg or "denied" in msg.lower() or "no permission" in msg.lower():
+		resp["error_kind"] = "permission"
+		resp["hint"] = (
+			"Permission denied at the database layer. This usually means the "
+			"calling user lacks read access on the table. Try the higher-level "
+			"`get_list` / `get_doc` tools which respect Frappe's per-user "
+			"permission filters."
+		)
+	return resp
+
+
 def _validate_frappe_expression(expr):
 	"""Validate a Frappe condition expression via Python AST (used by
 	Notification + Assignment Rule). AST-only — catches ~95% of typo errors
@@ -3363,8 +3476,14 @@ def commit_prepared(token, **extras):
 			if validation_error:
 				return {"ok": False, "error": validation_error}
 			limit = int(payload.get("limit") or 200)
-			# Run; cap rows by re-querying with explicit limit
-			rows = frappe.db.sql(query, as_dict=True)
+			# Run; cap rows by re-querying with explicit limit. Inner try/except
+			# converts DB errors (e.g. "Unknown column 'pr.purchase_order'") into
+			# a structured response with a self-correction hint, so the agent
+			# loop can recover on the next turn instead of dead-ending.
+			try:
+				rows = frappe.db.sql(query, as_dict=True)
+			except Exception as e:
+				return _wrap_db_error(e, query, action="run_sql")
 			if isinstance(rows, list) and len(rows) > limit:
 				rows = rows[:limit]
 				truncated = True
@@ -3412,6 +3531,22 @@ def commit_prepared(token, **extras):
 						# Fallback: execute as statements; user code can set _result
 						exec(compile(code, "<lazychat>", "exec"), ns, ns)
 			except Exception as e:
+				# Detect DB errors (pymysql.OperationalError + frappe wrappers
+				# typically include the numeric MySQL code in the message). For
+				# those, route through _wrap_db_error so the LLM gets the same
+				# self-correction hint as run_sql. Other Python errors fall
+				# through to the original opaque shape.
+				_msg = str(e)
+				if (
+					"OperationalError" in type(e).__name__
+					or "ProgrammingError" in type(e).__name__
+					or "1054" in _msg
+					or "1064" in _msg
+					or "1146" in _msg
+				):
+					wrapped = _wrap_db_error(e, code, action="run_python")
+					wrapped["stdout"] = buf.getvalue()[:8000]
+					return wrapped
 				return {
 					"ok": False,
 					"action": "run_python",
