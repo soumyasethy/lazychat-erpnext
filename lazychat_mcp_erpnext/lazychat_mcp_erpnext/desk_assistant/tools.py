@@ -37,15 +37,45 @@ def _dangerous_tools_enabled():
 	return True, None
 
 
+def _strip_leading_sql_comments(sql):
+	"""Strip leading -- line comments and /* */ block comments so an LLM can
+	prefix a query with descriptive comments without tripping the
+	SELECT/WITH-must-be-first regex. Only strips at the START of the trimmed
+	string; comments AFTER the SELECT keyword are left alone (they're handled
+	by MariaDB itself). Returns the de-commented string.
+	"""
+	s = (sql or "").strip()
+	while s:
+		if s.startswith("--"):
+			nl = s.find("\n")
+			if nl < 0:
+				return ""  # comment-only
+			s = s[nl + 1:].lstrip()
+		elif s.startswith("/*"):
+			end = s.find("*/")
+			if end < 0:
+				return s  # unterminated; let downstream validator surface a clear error
+			s = s[end + 2:].lstrip()
+		else:
+			break
+	return s
+
+
 def _validate_select_sql(sql):
 	stripped = (sql or "").strip().rstrip(";")
 	if not stripped:
 		return "empty query"
-	if ";" in stripped:
+	# Tolerate leading SQL comments — LLMs often prefix queries with
+	# "-- get PRs linked to..." for self-narration. The previous strict
+	# "must start with SELECT/WITH" check rejected these.
+	uncommented = _strip_leading_sql_comments(stripped)
+	if not uncommented:
+		return "empty query"
+	if ";" in uncommented:
 		return "multi-statement queries not allowed"
-	if not SQL_ALLOWED_PATTERN.match(stripped):
+	if not SQL_ALLOWED_PATTERN.match(uncommented):
 		return "only SELECT (or WITH ... SELECT) queries allowed"
-	if SQL_DML_PATTERN.search(stripped):
+	if SQL_DML_PATTERN.search(uncommented):
 		return "DML/DDL keywords not allowed (INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/...)"
 	return None  # OK
 
@@ -161,6 +191,99 @@ def _wrap_db_error(e, query, action):
 			"permission filters."
 		)
 	return resp
+
+
+def _attr_chain(node):
+	"""For an AST Attribute node like `frappe.db.sql`, return ['frappe', 'db', 'sql'].
+	Returns [] for non-Name/Attribute roots so callers can ignore complex receivers.
+	"""
+	import ast
+	parts = []
+	while isinstance(node, ast.Attribute):
+		parts.append(node.attr)
+		node = node.value
+	if isinstance(node, ast.Name):
+		parts.append(node.id)
+		return list(reversed(parts))
+	return []
+
+
+# Modules that can produce side-effects outside the DB (file I/O, shell out,
+# network, redis publish, queue-job spawn). The savepoint-rollback we wrap
+# around the code execution can undo DB mutations but cannot un-send an
+# email, un-spawn a subprocess, or un-publish a realtime event — those have
+# to be blocked statically before the code runs.
+_PY_RO_BLOCKED_IMPORTS = {
+	"subprocess", "os", "sys", "shutil", "socket", "urllib", "requests",
+	"http", "smtplib", "ftplib", "telnetlib", "ssl", "ctypes", "multiprocessing",
+}
+_PY_RO_BLOCKED_BUILTINS = {
+	# Built-ins that could escape the readonly contract (file I/O, dynamic code
+	# loading, prompt the operator). Listed by name; the validator looks for
+	# Call(Name(id=name)) at the AST root.
+	"open", "__import__", "compile", "input", "breakpoint",
+	"exec", "eval",
+}
+# Exact frappe.X / frappe.db.X attribute chains that have side-effects the
+# savepoint can't undo, or that cause damage we don't want auto-execute Python
+# to be capable of.
+_PY_RO_BLOCKED_FRAPPE = {
+	"sendmail", "publish_realtime", "publish_progress", "enqueue", "enqueue_doc",
+	"delete_doc", "rename_doc", "copy_doc",
+}
+_PY_RO_BLOCKED_FRAPPE_DB = {
+	"sql_ddl", "multisql", "commit", "rollback", "savepoint", "release_savepoint",
+	# set_value / delete are caught by the savepoint rollback, but blocking them
+	# at AST time is clearer signal to the LLM that this tool is read-only.
+	"set_value", "set_many", "delete",
+}
+
+
+def _validate_python_readonly(code):
+	"""Static AST scan to reject Python code that would have side-effects we
+	cannot roll back. Returns None on success, a human-readable error string
+	on rejection.
+
+	Defense-in-depth: even if this scan misses something, run_python_readonly
+	wraps the code execution in a savepoint + always-rollback (see the tool
+	dispatch). The scan blocks the obvious mutators so the LLM gets a clear
+	"no" rather than seeing its mutation succeed and then silently rolled back.
+	"""
+	import ast
+	if not (code or "").strip():
+		return "empty code"
+	try:
+		tree = ast.parse(code, mode="exec")
+	except SyntaxError as e:
+		return f"syntax error: {e.msg}"
+
+	for node in ast.walk(tree):
+		# Block dangerous module imports
+		if isinstance(node, ast.Import):
+			for alias in node.names:
+				root = alias.name.split(".")[0]
+				if root in _PY_RO_BLOCKED_IMPORTS:
+					return f"forbidden import: {alias.name} — run_python_readonly cannot use modules that produce non-DB side-effects"
+		if isinstance(node, ast.ImportFrom):
+			root = (node.module or "").split(".")[0]
+			if root in _PY_RO_BLOCKED_IMPORTS:
+				return f"forbidden import: from {node.module} — run_python_readonly cannot use modules that produce non-DB side-effects"
+
+		# Block calls to dangerous built-ins (open / dynamic-code / prompt)
+		if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+			if node.func.id in _PY_RO_BLOCKED_BUILTINS:
+				return f"forbidden call: {node.func.id}() — run_python_readonly cannot perform file/shell I/O or dynamic code execution"
+
+		# Block specific frappe.* / frappe.db.* attribute chains
+		if isinstance(node, ast.Attribute):
+			chain = _attr_chain(node)
+			if chain and chain[0] == "frappe":
+				if len(chain) >= 3 and chain[1] == "db" and chain[2] in _PY_RO_BLOCKED_FRAPPE_DB:
+					return f"forbidden DB mutation: frappe.db.{chain[2]}() — run_python_readonly cannot mutate the database"
+				if len(chain) >= 2 and chain[1] in _PY_RO_BLOCKED_FRAPPE:
+					return f"forbidden side-effect: frappe.{chain[1]}() — run_python_readonly cannot send mail, publish events, enqueue jobs, or delete/rename docs"
+
+	return None
 
 
 def _validate_frappe_expression(expr):
@@ -1281,6 +1404,91 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"row_count": len(rows) if isinstance(rows, list) else 0,
 			"truncated": truncated,
 			"rows": rows,
+		}
+
+	if name == "run_python_readonly":
+		# Auto-execute Python with read-only enforcement. Two layers:
+		#   1. Static AST scan (_validate_python_readonly) blocks imports of
+		#      non-DB-rollbackable modules (subprocess, os, urllib, smtplib,
+		#      ...), forbidden built-ins (open, exec, eval, __import__),
+		#      and explicit frappe.* / frappe.db.* mutator/side-effect calls
+		#      (sendmail, publish_realtime, enqueue, delete_doc,
+		#      frappe.db.set_value, frappe.db.delete, ...).
+		#   2. Runtime savepoint that ALWAYS rolls back. Even if the AST scan
+		#      misses something, any DB mutation (.save(), .insert(),
+		#      doc.set('field', ...).save(), etc.) is undone before the
+		#      response is returned.
+		# Same gating as prepare_run_python (allow_dangerous_tools site flag
+		# + System Manager role). For analytical Python that goes beyond
+		# what run_sql_select can express (pandas pivots, multi-pass
+		# computations, etc).
+		ok, err = _dangerous_tools_enabled()
+		if not ok:
+			return {"error": err}
+		code = args.get("code") or ""
+		validation_error = _validate_python_readonly(code)
+		if validation_error:
+			return {"error": validation_error}
+
+		ns = {"frappe": frappe, "json": json, "_result": None}
+		try:
+			import datetime as _dt
+			ns["datetime"] = _dt
+		except Exception:
+			pass
+		for libname in ("pandas", "numpy"):
+			try:
+				ns[libname] = __import__(libname)
+			except Exception:
+				pass
+
+		buf = io.StringIO()
+		import contextlib
+		sp = "lazychat_ro_" + secrets.token_hex(4)
+		try:
+			frappe.db.savepoint(sp)
+		except Exception:
+			pass
+		try:
+			with contextlib.redirect_stdout(buf):
+				try:
+					value = eval(compile(code, "<lazychat_readonly>", "eval"), ns, ns)
+					ns["_result"] = value
+				except SyntaxError:
+					exec(compile(code, "<lazychat_readonly>", "exec"), ns, ns)
+		except Exception as e:
+			# Always rollback first so any partial mutation is undone
+			try: frappe.db.rollback(save_point=sp)
+			except Exception: pass
+			_msg = str(e)
+			if (
+				"OperationalError" in type(e).__name__
+				or "ProgrammingError" in type(e).__name__
+				or "1054" in _msg or "1064" in _msg or "1146" in _msg
+			):
+				wrapped = _wrap_db_error(e, code, action="run_python_readonly")
+				wrapped["stdout"] = buf.getvalue()[:8000]
+				return wrapped
+			return {
+				"ok": False,
+				"action": "run_python_readonly",
+				"error": f"{type(e).__name__}: {e}",
+				"stdout": buf.getvalue()[:8000],
+			}
+		# Read-only by design — rollback any DB writes the AST scan didn't catch.
+		try: frappe.db.rollback(save_point=sp)
+		except Exception: pass
+
+		result = ns.get("_result")
+		try:
+			json.dumps(result, default=str)
+		except Exception:
+			result = str(result)
+		return {
+			"ok": True,
+			"action": "run_python_readonly",
+			"result": result,
+			"stdout": buf.getvalue()[:8000],
 		}
 
 	if name == "prepare_run_sql":
