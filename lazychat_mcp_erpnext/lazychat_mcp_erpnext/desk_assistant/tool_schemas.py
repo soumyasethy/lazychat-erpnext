@@ -469,16 +469,36 @@ TOOL_SCHEMAS = [
 		},
 	},
 	{
+		"name": "run_sql_select",
+		"description": (
+			"AUTO-EXECUTE a raw SELECT (or WITH ... SELECT) SQL query against the Frappe DB and return rows IMMEDIATELY in this same turn. "
+			"USE THIS for analytical queries — it's the right tool for compound questions where you need data back to compare/branch/synthesize. "
+			"NO /commit step, NO Apply button — the query runs as soon as you call it and you get rows in the tool result. "
+			"REQUIRES: site_config 'lazychat_allow_dangerous_tools'=true AND System Manager role (same gates as prepare_run_sql). "
+			"VALIDATED SELECT-only: regex blocks DML/DDL keywords (INSERT/UPDATE/DELETE/DROP/ALTER/...) and multi-statement queries — non-SELECT input is rejected before execution. "
+			"WARNING: bypasses Frappe per-user permission filters — only call when get_list/aggregate/count_doc cannot express the query. "
+			"SCHEMA-FIRST: ALWAYS call describe_doctype on every doctype you reference BEFORE this — schema-hallucinated column names (the #1 failure mode) come back as 'Unknown column' OperationalErrors. "
+			"CHILD-TABLE LINKS: in ERPNext, cross-document references usually live on the child Item table, not the parent (e.g. `Purchase Receipt Item.purchase_order`, NOT a column on `tabPurchase Receipt`). JOIN through the child on `child.parent = parent.name`. "
+			"ERROR RECOVERY: if the query fails, the response includes a structured 'hint' field — read it, re-verify schema, retry with corrections. Do NOT retry the same query unchanged."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"query": {"type": "string", "description": "SELECT-only SQL query"},
+				"limit": {"type": "integer", "default": 200, "description": "Max rows to return (capped at 1000)"},
+			},
+			"required": ["query"],
+		},
+	},
+	{
 		"name": "prepare_run_sql",
 		"description": (
-			"STAGE running a raw SELECT (or WITH ... SELECT) SQL query against the Frappe DB. "
-			"Does NOT actually execute. Returns {preview_token, summary, preview, confirm_with}. "
-			"Show the user the EXACT query and ask them to '/commit TOKEN'. "
+			"STAGE a raw SELECT SQL query for user-approval gating (returns {preview_token, summary, preview} — does NOT execute). "
+			"For analytical queries you should use `run_sql_select` instead — it returns rows immediately so you can compare/branch/synthesize in the same turn. "
+			"Use `prepare_run_sql` ONLY when the user has explicitly asked to review the SQL before it runs (rare). "
 			"REQUIRES: site_config 'lazychat_allow_dangerous_tools'=true AND System Manager role. "
-			"WARNING: bypasses Frappe per-user permission filters — use only when get_list/aggregate cannot express the query. "
-			"SCHEMA-FIRST: ALWAYS call describe_doctype on every doctype you reference BEFORE staging the SQL — schema-hallucinated column names (the #1 failure mode) will surface as 'Unknown column' OperationalErrors. "
-			"CHILD-TABLE LINKS: in ERPNext, cross-document references usually live on the child Item table, not the parent (e.g. `Purchase Receipt Item.purchase_order`, NOT a column on `tabPurchase Receipt`). When traversing PR↔PO, SI↔SO, etc., JOIN through the child table on `child.parent = parent.name`. "
-			"ERROR RECOVERY: if /commit fails, you'll see [lazychat:tool-error] with a hint on the next turn — re-verify schema, fix the query, re-stage. Do NOT retry the same query unchanged."
+			"The chat-ui auto-renders an inline Apply button for the user; do NOT instruct them to type /commit TOKEN. "
+			"Same SCHEMA-FIRST and CHILD-TABLE LINKS rules as run_sql_select."
 		),
 		"input_schema": {
 			"type": "object",

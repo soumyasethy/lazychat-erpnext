@@ -1250,6 +1250,39 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		except Exception as e:
 			return {"error": str(e)}
 
+	if name == "run_sql_select":
+		# Auto-execute SELECT-only SQL — no /commit gate. Same security
+		# envelope as prepare_run_sql (allow_dangerous_tools site flag +
+		# System Manager role + _validate_select_sql regex). The /commit
+		# step that prepare_run_sql adds is over-cautious for read-only
+		# queries: SQL is already permission-bypassing (raw query against
+		# the DB) but the 3 gates above prevent abuse, and the staging
+		# step adds friction without safety. Use this for analytical
+		# queries; use prepare_run_sql only when an explicit user-approval
+		# gate is desirable (rare).
+		ok, err = _dangerous_tools_enabled()
+		if not ok:
+			return {"error": err}
+		query = (args.get("query") or "").strip()
+		validation_error = _validate_select_sql(query)
+		if validation_error:
+			return {"error": validation_error}
+		limit = min(int(args.get("limit") or 200), 1000)
+		try:
+			rows = frappe.db.sql(query, as_dict=True)
+		except Exception as e:
+			return _wrap_db_error(e, query, action="run_sql_select")
+		truncated = False
+		if isinstance(rows, list) and len(rows) > limit:
+			rows = rows[:limit]
+			truncated = True
+		return {
+			"ok": True,
+			"row_count": len(rows) if isinstance(rows, list) else 0,
+			"truncated": truncated,
+			"rows": rows,
+		}
+
 	if name == "prepare_run_sql":
 		ok, err = _dangerous_tools_enabled()
 		if not ok:
