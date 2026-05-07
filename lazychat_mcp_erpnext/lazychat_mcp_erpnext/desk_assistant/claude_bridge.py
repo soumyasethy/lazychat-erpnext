@@ -12,6 +12,38 @@ from lazychat_mcp_erpnext.desk_assistant.tools import execute_tool
 
 MAX_TURNS = 8
 
+# Effort tiers control turn budget and (for Anthropic) extended-thinking
+# budget. Mirrors apps/chat-ui/src/lib/effortConfig.ts EFFORT_CONFIG.
+EFFORT_MAP = {
+	"low":    {"max_turns": 8,  "thinking_budget": 0},
+	"medium": {"max_turns": 16, "thinking_budget": 0},
+	"high":   {"max_turns": 32, "thinking_budget": 4000},
+	"max":    {"max_turns": 64, "thinking_budget": 16000},
+}
+
+# Mode-specific prompt blocks. Plan turn 1 forbids tool calls until user
+# approves. Ask mode nudges toward staging tools.
+PLAN_MODE_BLOCK = """
+PLAN MODE IS ACTIVE. Your FIRST response in this turn MUST be a numbered plan only —
+NO tool_use blocks, NO tool_calls. Format exactly:
+
+  Plan: <one-line title>
+  1. <action> — <why>
+  2. ...
+  N. <synthesis step>
+
+After emitting the plan, STOP. Do NOT call any tools. The user will Approve, Edit,
+or Reject. On approval you will be re-invoked with the plan in context and may
+begin running tools step-by-step.
+""".strip()
+
+ASK_MODE_BLOCK = """
+ASK BEFORE EDITS MODE. The user wants to confirm every mutation explicitly.
+PREFER prepare_* staging tools for all mutations (the user clicks Apply per call).
+For analytics, prefer run_sql_select / run_python_readonly / get_list — those
+auto-execute and don't need confirmation.
+""".strip()
+
 MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024
 MAX_ATTACHMENTS = 8
 MAX_TEXT_FROM_FILE = 100_000
@@ -65,7 +97,7 @@ def _route_context_summary(context):
 	return ""
 
 
-def _system_prompt(context, supports_tools):
+def _system_prompt(context, supports_tools, mode="edit-auto", plan_resumed=False):
 	base = _route_context_summary(context) + """You are an ERPNext / Frappe desk assistant. Be concise and accurate.
 Use tools to fetch real data instead of guessing.
 
@@ -136,6 +168,13 @@ WRITE / WORKFLOW / COMMS (always two-phase via prepare_* + /commit):
     must all exist; Based on Field requires a Link-to-User field; assign_condition and
     unassign_condition are AST-validated against imports/lambdas/dunder. Requires
     Notification Manager OR System Manager role.
+  · prepare_create_custom_field — for Custom Field (DocType schema extension). Validates
+    dt + fieldtype enum + insert_after up front. Requires System Manager. Use this INSTEAD
+    of prepare_create_doc({doctype:'Custom Field'}) — the generic path lets the model stage
+    incomplete rows that fail at apply time. Link/Table/Dynamic Link fieldtypes require
+    `options`. fieldname is auto-derived from label if omitted.
+  · prepare_create_client_script — for Client Script (Form/List browser-side JS). Validates
+    dt + view enum + non-empty script. Requires System Manager.
 - DIRECT (no /commit) — these are reversible / single-doc / low-risk:
   · restore_deleted_doc(deleted_document_name) — restore from Frappe's recycle bin. Re-checks
     `create` permission on the original doctype.
@@ -303,6 +342,12 @@ Desk context JSON: """
 		# Never let skill-prompt composition break the agent loop; log and
 		# fall through to the unmodified base prompt.
 		frappe.log_error(frappe.get_traceback(), "lazychat skills.compose_active_prompt")
+	# Mode-specific blocks composed last so they sit at the end where the model
+	# weighs them most heavily. PLAN suppressed when resumed (after Approve).
+	if mode == "plan" and not plan_resumed:
+		s += "\n\n" + PLAN_MODE_BLOCK
+	elif mode == "ask":
+		s += "\n\n" + ASK_MODE_BLOCK
 	return s
 
 
@@ -381,6 +426,9 @@ def run_agentic_turn(
 	allow_writes=False,
 	desk_context=None,
 	emit=None,
+	mode="edit-auto",
+	effort="medium",
+	plan_resumed=False,
 ):
 	model, provider, adapter = resolve_model(model_label)
 	supports_tools = bool(model.supports_tools)
@@ -397,12 +445,20 @@ def run_agentic_turn(
 	usage_total = {"input_tokens": 0, "output_tokens": 0}
 	tools = TOOL_SCHEMAS if supports_tools else None
 
-	for _turn in range(MAX_TURNS):
+	# Effort mapping (turn budget + Anthropic thinking budget). Defaults preserve
+	# the pre-Effort behavior (medium = 16 turns, no thinking). For Plan mode's
+	# first turn, also cap turns at 1 (the model should emit the plan and stop).
+	eff = EFFORT_MAP.get(effort, EFFORT_MAP["medium"])
+	turn_budget = eff["max_turns"]
+	if mode == "plan" and not plan_resumed:
+		turn_budget = 1
+
+	for _turn in range(turn_budget):
 		resp = adapter.chat(
 			provider=provider,
 			model=model,
 			messages=history,
-			system=_system_prompt(context, supports_tools),
+			system=_system_prompt(context, supports_tools, mode=mode, plan_resumed=plan_resumed),
 			tools=tools,
 			max_tokens=model.max_output_tokens or 4096,
 		)
