@@ -1487,4 +1487,63 @@ TOOL_SCHEMAS = [
 			"required": ["name", "document_type", "rule", "users"],
 		},
 	},
+	{
+		"name": "prepare_create_custom_field",
+		"description": (
+			"Stage a new Custom Field on an existing DocType. Use this INSTEAD of "
+			"prepare_create_doc({doctype:'Custom Field'}) — it validates dt, fieldtype enum, "
+			"and insert_after up front so the model gets actionable errors at preview time. "
+			"Requires System Manager. Two-phase: returns preview_token; user clicks Apply to confirm."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"dt": {"type": "string", "description": "Target DocType (must exist)"},
+				"label": {"type": "string", "description": "Display label. fieldname is auto-derived from this if not supplied."},
+				"fieldtype": {
+					"type": "string",
+					"enum": [
+						"Data", "Int", "Float", "Currency", "Percent", "Check", "Select", "Link",
+						"Dynamic Link", "Date", "Datetime", "Time", "Duration", "Small Text",
+						"Long Text", "Text", "Text Editor", "Markdown Editor", "HTML", "HTML Editor",
+						"Code", "JSON", "Password", "Phone", "Color", "Rating", "Geolocation",
+						"Barcode", "Signature", "Image", "Attach", "Attach Image", "Autocomplete",
+						"Read Only", "Section Break", "Column Break", "Tab Break", "Heading",
+						"Fold", "Icon", "Table", "Table MultiSelect", "Button",
+					],
+					"default": "Data",
+				},
+				"insert_after": {"type": "string", "description": "Existing fieldname on `dt` to place after, or 'append' for end"},
+				"fieldname": {"type": "string", "description": "Optional snake_case identifier. Auto-derived from label if omitted."},
+				"options": {"type": "string", "description": "For Select: newline-separated values. For Link/Table: target DocType. For Dynamic Link: source field."},
+				"default": {"type": "string", "description": "Default value"},
+				"reqd": {"type": "integer", "description": "1 = required field, 0 = optional", "enum": [0, 1]},
+				"unique": {"type": "integer", "enum": [0, 1]},
+				"read_only": {"type": "integer", "enum": [0, 1]},
+				"hidden": {"type": "integer", "enum": [0, 1]},
+				"description": {"type": "string"},
+			},
+			"required": ["dt", "label", "fieldtype", "insert_after"],
+		},
+	},
+	{
+		"name": "prepare_create_client_script",
+		"description": (
+			"Stage a new Client Script (browser-side JS that runs on Form or List view of a DocType). "
+			"Use this INSTEAD of prepare_create_doc({doctype:'Client Script'}) — it validates dt + view "
+			"and rejects empty scripts up front. Requires System Manager. Two-phase: returns "
+			"preview_token; user clicks Apply to confirm."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"dt": {"type": "string", "description": "Target DocType (must exist)"},
+				"view": {"type": "string", "enum": ["Form", "List"], "default": "Form"},
+				"script": {"type": "string", "description": "JS source. Use frappe.ui.form.on(dt, {...}) for Form view; frappe.listview_settings[dt] = {...} for List."},
+				"enabled": {"type": "integer", "enum": [0, 1], "default": 1},
+				"name": {"type": "string", "description": "Optional Client Script doc name. Frappe auto-names if omitted."},
+			},
+			"required": ["dt", "script"],
+		},
+	},
 ]

@@ -3571,6 +3571,117 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"confirm_with": "click the inline Apply button to confirm",
 		}
 
+	# Build-page typed wrappers (added 2026-05-07): Custom Field + Client Script.
+	# Same shape as the Cycle 6 Report wrapper — validate doctype-specific fields
+	# at preview time so the model gets actionable errors in the same turn instead
+	# of a confusing /commit failure.
+	if name == "prepare_create_custom_field":
+		dt = args.get("dt")
+		label = (args.get("label") or "").strip()
+		fieldtype = args.get("fieldtype") or "Data"
+		insert_after = args.get("insert_after") or ""
+		fieldname = (args.get("fieldname") or "").strip()
+		if not dt:
+			return {"error": "dt required (target DocType to attach the field to)"}
+		if not label:
+			return {"error": "label required"}
+		if not insert_after:
+			return {"error": "insert_after required (existing fieldname on dt, or 'append')"}
+		valid_types = {
+			"Data", "Int", "Float", "Currency", "Percent", "Check", "Select", "Link",
+			"Dynamic Link", "Date", "Datetime", "Time", "Duration", "Small Text",
+			"Long Text", "Text", "Text Editor", "Markdown Editor", "HTML", "HTML Editor",
+			"Code", "JSON", "Password", "Phone", "Color", "Rating", "Geolocation",
+			"Barcode", "Signature", "Image", "Attach", "Attach Image", "Autocomplete",
+			"Read Only", "Section Break", "Column Break", "Tab Break", "Heading",
+			"Fold", "Icon", "Table", "Table MultiSelect", "Button",
+		}
+		if fieldtype not in valid_types:
+			return {"error": f"fieldtype must be one of the 43 Frappe fieldtypes (got {fieldtype!r})"}
+		if not frappe.db.exists("DocType", dt):
+			return {"error": f"DocType '{dt}' does not exist"}
+		# System Manager gate — Custom Field is a powerful customization that
+		# changes the schema. Mirrors prepare_create_scheduled_job pattern.
+		if "System Manager" not in frappe.get_roles(frappe.session.user):
+			return {"error": "System Manager role required to create custom fields"}
+		if not frappe.has_permission("Custom Field", "create"):
+			return {"error": "no create permission on Custom Field"}
+		try:
+			meta = frappe.get_meta(dt)
+		except Exception as e:
+			return {"error": f"could not load meta for {dt}: {e}"}
+		fieldnames = [df.fieldname for df in meta.get("fields") or []]
+		if insert_after != "append" and insert_after not in fieldnames:
+			return {"error": f"insert_after '{insert_after}' is not a fieldname on {dt}. Valid: {fieldnames[:20]}…"}
+		if fieldname and fieldname in fieldnames:
+			return {"error": f"fieldname '{fieldname}' already exists on {dt}"}
+		# Link/Table-flavored fields need `options` (target doctype / source field).
+		if fieldtype in ("Link", "Table", "Table MultiSelect", "Dynamic Link") and not args.get("options"):
+			return {"error": f"fieldtype={fieldtype} requires `options` (target DocType for Link/Table; source field for Dynamic Link)"}
+		payload = {
+			"dt": dt,
+			"label": label,
+			"fieldtype": fieldtype,
+			"insert_after": insert_after,
+			"fieldname": fieldname,
+			"options": args.get("options") or "",
+			"default": args.get("default") or "",
+			"reqd": int(bool(args.get("reqd"))),
+			"unique": int(bool(args.get("unique"))),
+			"read_only": int(bool(args.get("read_only"))),
+			"hidden": int(bool(args.get("hidden"))),
+			"description": args.get("description") or "",
+		}
+		token = _stage_action("create_custom_field", payload)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will add Custom Field '{label}' ({fieldtype}) on {dt} after `{insert_after}`",
+			"preview": {**payload, "open_url": f"/app/customize-form?doc_type={dt}"},
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": "click the inline Apply button to confirm",
+		}
+
+	if name == "prepare_create_client_script":
+		dt = args.get("dt")
+		view = args.get("view") or "Form"
+		script = args.get("script") or ""
+		enabled_raw = args.get("enabled")
+		# Default enabled=1 when omitted; honor explicit 0/false/"0".
+		if enabled_raw in (None, ""):
+			enabled = 1
+		else:
+			enabled = 1 if enabled_raw in (1, "1", True, "true", "True") else 0
+		cs_name = (args.get("name") or "").strip()
+		if not dt:
+			return {"error": "dt required (target DocType)"}
+		if not script.strip():
+			return {"error": "script required (non-empty JS source)"}
+		if view not in ("Form", "List"):
+			return {"error": "view must be 'Form' or 'List'"}
+		if not frappe.db.exists("DocType", dt):
+			return {"error": f"DocType '{dt}' does not exist"}
+		if "System Manager" not in frappe.get_roles(frappe.session.user):
+			return {"error": "System Manager role required to create client scripts"}
+		if not frappe.has_permission("Client Script", "create"):
+			return {"error": "no create permission on Client Script"}
+		payload = {"dt": dt, "view": view, "script": script, "enabled": enabled, "name": cs_name}
+		token = _stage_action("create_client_script", payload)
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will add Client Script ({view}) on {dt} ({len(script)} chars{' — disabled' if not enabled else ''})",
+			"preview": {
+				"dt": dt,
+				"view": view,
+				"enabled": enabled,
+				"script_preview": script[:300] + ("…" if len(script) > 300 else ""),
+				"open_url": "/app/client-script",
+			},
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": "click the inline Apply button to confirm",
+		}
+
 	if name == "restore_deleted_doc":
 		# Direct (no /commit) — restoring is single-doc, fully reversible.
 		dd_name = args.get("deleted_document_name")
@@ -4405,6 +4516,44 @@ def commit_prepared(token, **extras):
 			for u in payload.get("users") or []:
 				doc.append("users", {"user": u})
 			doc.insert(ignore_permissions=False)
+		elif action == "create_custom_field":
+			if "System Manager" not in frappe.get_roles(frappe.session.user):
+				return {"ok": False, "error": "System Manager role required at commit time"}
+			if not frappe.has_permission("Custom Field", "create"):
+				return {"ok": False, "error": "no create permission on Custom Field at commit time"}
+			if not frappe.db.exists("DocType", payload["dt"]):
+				return {"ok": False, "error": f"DocType '{payload['dt']}' no longer exists"}
+			values = {
+				"doctype": "Custom Field",
+				"dt": payload["dt"],
+				"label": payload["label"],
+				"fieldtype": payload["fieldtype"],
+				"insert_after": payload["insert_after"],
+			}
+			for k in ("fieldname", "options", "default", "description"):
+				if payload.get(k):
+					values[k] = payload[k]
+			for k in ("reqd", "unique", "read_only", "hidden"):
+				if payload.get(k):
+					values[k] = payload[k]
+			doc = frappe.get_doc(values).insert(ignore_permissions=False)
+		elif action == "create_client_script":
+			if "System Manager" not in frappe.get_roles(frappe.session.user):
+				return {"ok": False, "error": "System Manager role required at commit time"}
+			if not frappe.has_permission("Client Script", "create"):
+				return {"ok": False, "error": "no create permission on Client Script at commit time"}
+			if not frappe.db.exists("DocType", payload["dt"]):
+				return {"ok": False, "error": f"DocType '{payload['dt']}' no longer exists"}
+			values = {
+				"doctype": "Client Script",
+				"dt": payload["dt"],
+				"view": payload["view"],
+				"script": payload["script"],
+				"enabled": payload.get("enabled", 1),
+			}
+			if payload.get("name"):
+				values["name"] = payload["name"]
+			doc = frappe.get_doc(values).insert(ignore_permissions=False)
 		else:
 			return {"ok": False, "error": f"Unknown action: {action}"}
 		frappe.db.commit()

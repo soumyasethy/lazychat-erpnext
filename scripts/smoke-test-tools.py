@@ -986,6 +986,92 @@ def run():
 	))
 
 	# ----------------------------------------------------------------
+	# Build-page typed wrappers (added 2026-05-07)
+	# ----------------------------------------------------------------
+
+	# T85a: prepare_create_custom_field stages a Data field on Customer
+	r = execute_tool("prepare_create_custom_field", {
+		"dt": "Customer",
+		"label": f"_lz_smoke_{frappe.generate_hash(length=4)}",
+		"fieldtype": "Data",
+		"insert_after": "customer_name",
+	})
+	record(_ok(
+		"T85a prepare_create_custom_field Data stages preview_token",
+		r.get("ok") is True and bool(r.get("preview_token")),
+		f"summary={r.get('summary')!r}",
+	))
+
+	# T85b: rejects bad dt
+	r = execute_tool("prepare_create_custom_field", {
+		"dt": "_NoSuchDocType_",
+		"label": "X",
+		"fieldtype": "Data",
+		"insert_after": "name",
+	})
+	record(_ok(
+		"T85b prepare_create_custom_field rejects nonexistent dt",
+		not r.get("ok") and "does not exist" in (r.get("error") or ""),
+	))
+
+	# T85c: rejects bad insert_after
+	r = execute_tool("prepare_create_custom_field", {
+		"dt": "Customer",
+		"label": "X",
+		"fieldtype": "Data",
+		"insert_after": "_no_such_field",
+	})
+	record(_ok(
+		"T85c prepare_create_custom_field rejects nonexistent insert_after",
+		not r.get("ok") and "insert_after" in (r.get("error") or ""),
+	))
+
+	# T85d: Link without options is rejected
+	r = execute_tool("prepare_create_custom_field", {
+		"dt": "Customer",
+		"label": "X",
+		"fieldtype": "Link",
+		"insert_after": "customer_name",
+	})
+	record(_ok(
+		"T85d prepare_create_custom_field Link without options errors",
+		not r.get("ok") and "options" in (r.get("error") or ""),
+	))
+
+	# T86a: prepare_create_client_script stages a Form-view script
+	r = execute_tool("prepare_create_client_script", {
+		"dt": "Customer",
+		"view": "Form",
+		"script": "frappe.ui.form.on('Customer', {refresh: function(frm) {}});",
+	})
+	record(_ok(
+		"T86a prepare_create_client_script Form stages preview_token",
+		r.get("ok") is True and bool(r.get("preview_token")),
+	))
+
+	# T86b: rejects empty script
+	r = execute_tool("prepare_create_client_script", {
+		"dt": "Customer",
+		"view": "Form",
+		"script": "   ",
+	})
+	record(_ok(
+		"T86b prepare_create_client_script rejects empty script",
+		not r.get("ok") and "script required" in (r.get("error") or ""),
+	))
+
+	# T86c: rejects bad view
+	r = execute_tool("prepare_create_client_script", {
+		"dt": "Customer",
+		"view": "Tree",
+		"script": "x = 1;",
+	})
+	record(_ok(
+		"T86c prepare_create_client_script rejects invalid view",
+		not r.get("ok") and "view" in (r.get("error") or ""),
+	))
+
+	# ----------------------------------------------------------------
 	# Commit 1 — typed wrappers for ERPNext "Tools" workspace
 	# ----------------------------------------------------------------
 
