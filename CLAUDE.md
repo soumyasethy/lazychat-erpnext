@@ -486,6 +486,52 @@ When debugging *"my report URL gave 404 even though the chat said it was
 created"*: confirm the chat-ui bundle was rebuilt after this fix landed
 (`?v=` query in iframe URL should be > `1778066844`).
 
+## Cycle 8 — Real Modes + Effort backend (2026-05-08)
+
+The Cycle-1 ModesPanel radios + 4-step Effort dot scale in chat-ui became real working features. See `../lazychat.ai/CLAUDE.md` "Cycle 8" for the chat-ui half. Backend half ships in [`api.py`](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/api.py) + [`claude_bridge.py`](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/claude_bridge.py) — pure additive, zero regression to the 154 in-process / 91 HTTP-wire smoke gates.
+
+### Passthrough kwargs
+
+`send_message_stream(...)` accepts three new keyword args (all optional, defaults preserve pre-Cycle-8 behavior):
+- `mode: str = "edit-auto"` — clamped to `{ask, edit-auto, plan, auto}`; falls back to `edit-auto` on unknown.
+- `effort: str = "medium"` — clamped to `{low, medium, high, max}`; falls back to `medium`.
+- `plan_resumed: bool = False` — set by chat-ui when continuing after the user clicked Approve on a Plan card; suppresses the PLAN_MODE_BLOCK on the resumed turn.
+
+`run_agentic_turn(..., mode, effort, plan_resumed)` reads these and routes them:
+
+### `EFFORT_MAP` ([claude_bridge.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/claude_bridge.py))
+
+```python
+EFFORT_MAP = {
+    "low":    {"max_turns": 8,  "thinking_budget": 0},
+    "medium": {"max_turns": 16, "thinking_budget": 0},
+    "high":   {"max_turns": 32, "thinking_budget": 4000},
+    "max":    {"max_turns": 64, "thinking_budget": 16000},
+}
+```
+
+`run_agentic_turn` reads `EFFORT_MAP[effort]["max_turns"]` for the agent loop ceiling. For Plan mode's first turn (`mode == "plan" and not plan_resumed`), turn budget is capped at **1** so the model emits the plan and stops — even on Anthropic where `tool_use` blocks aren't strictly suppressible by prompt alone, the single-turn cap makes the gate hard.
+
+`thinking_budget > 0` is wired for Anthropic adapter integration (`thinking={"type":"enabled","budget_tokens":N}` kwarg) — currently informational; adapter-side wire-up is incremental.
+
+### Mode-specific prompt blocks
+
+Two module-level constants in `claude_bridge.py` mirror the chat-ui's `routerSystemPrompt.ts`:
+- **`PLAN_MODE_BLOCK`** — instructs the LLM that turn 1 must be a numbered plan only, no `tool_use`. Appended by `_system_prompt(...)` when `mode == "plan" and not plan_resumed`.
+- **`ASK_MODE_BLOCK`** — nudges toward staging tools (`prepare_*`) for any mutation; reads/analytics auto-execute. Appended when `mode == "ask"`.
+
+Edit-auto mode appends neither (vanilla prompt). Auto mode is resolved chat-ui-side before the request reaches Frappe — backend never sees `mode == "auto"`.
+
+### Two-phase mutation security boundary — UNCHANGED
+
+The chat-ui's auto-Apply (3s countdown for LOW_RISK actions in Edit-auto) hits the SAME `commit_prepared_action` endpoint as a manual click. No new auto-commit path on the backend; LLM still cannot commit on its own. Permission re-check, savepoint, and 5-min token TTL all preserved.
+
+### Verification
+
+- `bench --site erp.local execute lazychat_mcp_erpnext._smoke.run` → 154/0/2 (no regression on existing flows; defaults preserve pre-Cycle-8 behavior).
+- `python3 lazychat-mcp-erpnext/test/curl_smoke.py` → 91/91 tools registered+called.
+- The chat-ui's new 7 unit tests for `effortConfig` + 10 for `autoModeClassifier` are in the lazychat.ai repo. Total chat-ui suite: 308/308 green.
+
 ## Cycle 7 — Compound-question delivery: read-execute tools + plan-first prompting (2026-05-07)
 
 The platform-grade follow-up to the self-correcting `/commit` work below. The
