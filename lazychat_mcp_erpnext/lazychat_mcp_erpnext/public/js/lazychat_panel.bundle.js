@@ -59,6 +59,39 @@
 		};
 	}
 
+	// Returns true if a CSS color value is effectively grayscale (R≈G≈B within
+	// 12 units of each other). Frappe's dark theme sets --primary-color to
+	// gray-900 (#171717) — pushing that as the chat-ui brand color makes accent
+	// dots / Apply pills / focus rings render near-black. Skip the push and let
+	// chat-ui's own --color-primary default (warm orange in theme.css) show.
+	// Accepts: #rgb, #rrggbb, #rrggbbaa, rgb(...), rgba(...). Other formats
+	// (named, hsl, oklch, etc.) return false (don't filter — let through).
+	function isGrayscale(color) {
+		if (!color || typeof color !== "string") return false;
+		const c = color.trim().toLowerCase();
+		let r, g, b;
+		// #rgb / #rrggbb / #rrggbbaa
+		const hex = c.match(/^#([0-9a-f]{3,8})$/i);
+		if (hex) {
+			let h = hex[1];
+			if (h.length === 3) h = h.split("").map((x) => x + x).join("");
+			else if (h.length === 4) h = h.slice(0, 3).split("").map((x) => x + x).join("");
+			if (h.length < 6) return false;
+			r = parseInt(h.slice(0, 2), 16);
+			g = parseInt(h.slice(2, 4), 16);
+			b = parseInt(h.slice(4, 6), 16);
+		} else {
+			// rgb(r, g, b) / rgba(r, g, b, a)
+			const m = c.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+			if (!m) return false;
+			r = parseInt(m[1], 10);
+			g = parseInt(m[2], 10);
+			b = parseInt(m[3], 10);
+		}
+		if ([r, g, b].some((v) => Number.isNaN(v))) return false;
+		return Math.abs(r - g) < 12 && Math.abs(g - b) < 12 && Math.abs(r - b) < 12;
+	}
+
 	function pushTheme(bridge) {
 		const mode = frappeThemeMode();
 		bridge.send("setTheme", { theme: mode });
@@ -69,9 +102,15 @@
 		// and preventing the user from toggling dark/light inside the iframe.
 		// Surface colors are managed by chat-ui's own CSS theme system instead.
 		const tokens = {};
-		if (c.primary) tokens["--color-primary"] = c.primary;
+		// Skip pushing if the primary is grayscale — Frappe's dark theme sets
+		// --primary-color to gray-900 (#171717) which would render chat-ui
+		// accents as near-black. Let chat-ui's own warm-orange default show.
+		if (c.primary && !isGrayscale(c.primary)) tokens["--color-primary"] = c.primary;
 		if (Object.keys(tokens).length) {
 			bridge.send("setThemeTokens", { tokens: tokens, persist: false });
+		} else if (c.primary) {
+			// Diagnostic: useful when debugging "my brand color isn't showing".
+			console.info("[lazychat] skipped pushing grayscale primary:", c.primary);
 		}
 	}
 
