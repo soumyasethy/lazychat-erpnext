@@ -77,6 +77,25 @@ TOOL_SCHEMAS = [
 		},
 	},
 	{
+		"name": "get_doctype_relationships",
+		"description": (
+			"Return canonical row-level + parent-level join hints for a doctype. "
+			"Use this BEFORE writing variance/comparison SQL — the response tells "
+			"you the EXACT join pattern (e.g. for Purchase Invoice Item, the row "
+			"link to Purchase Receipt Item is via `pr_detail`, NOT `item_code`). "
+			"Includes curated overrides for ERPNext's most-mismatched pairs: "
+			"PR↔PI, SO↔SI, SI↔DN, Stock Ledger Entry↔PR, PR↔PO. Falls back to "
+			"the generic describe_doctype links for uncurated doctypes."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"doctype": {"type": "string", "description": "Target DocType (must exist)"},
+			},
+			"required": ["doctype"],
+		},
+	},
+	{
 		"name": "prepare_create_doc",
 		"description": (
 			"STAGE creating a new document. Does NOT actually create. Returns "
