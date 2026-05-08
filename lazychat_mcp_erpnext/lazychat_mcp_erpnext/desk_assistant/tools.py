@@ -1263,6 +1263,15 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		diff = {}
 		for f, v in patch.items():
 			diff[f] = {"from": doc.get(f) if hasattr(doc, "get") else None, "to": v}
+		# M1.7 — universal validator on update path.
+		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		_settings_upd = get_lazychat_settings()
+		if _settings_upd.get("cycle9_enabled"):
+			_meta_upd = frappe.get_meta(dt)
+			_child_map_upd = {f.fieldname: f.options for f in _meta_upd.fields if f.fieldtype == "Table"}
+			_v_upd = _validate_prepare_payload(dt, patch, child_tables=_child_map_upd)
+			if _v_upd is not None:
+				return _v_upd
 		token = _stage_action("update", {"doctype": dt, "name": dn, "patch": patch})
 		return {
 			"ok": True,
@@ -3280,6 +3289,16 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			return {"error": "System Manager role required to schedule jobs"}
 		if not frappe.has_permission("Scheduled Job Type", "create"):
 			return {"error": "no create permission on Scheduled Job Type"}
+		# M1.7 — universal validator on typed create.
+		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		_settings_typ = get_lazychat_settings()
+		if _settings_typ.get("cycle9_enabled"):
+			_dtype_typ = "Scheduled Job Type"
+			_meta_typ = frappe.get_meta(_dtype_typ)
+			_child_map_typ = {f.fieldname: f.options for f in _meta_typ.fields if f.fieldtype == "Table"}
+			_v_typ = _validate_prepare_payload(_dtype_typ, args, child_tables=_child_map_typ)
+			if _v_typ is not None:
+				return _v_typ
 		token = _stage_action(
 			"create_scheduled_job",
 			{"method": method, "frequency": frequency, "cron_format": cron_format},
@@ -3363,6 +3382,16 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			cname = c.get("card") if isinstance(c, dict) else c
 			if not cname or not frappe.db.exists("Number Card", cname):
 				return {"error": f"Number Card '{cname}' not found"}
+		# M1.7 — universal validator on typed create.
+		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		_settings_typ = get_lazychat_settings()
+		if _settings_typ.get("cycle9_enabled"):
+			_dtype_typ = "Dashboard"
+			_meta_typ = frappe.get_meta(_dtype_typ)
+			_child_map_typ = {f.fieldname: f.options for f in _meta_typ.fields if f.fieldtype == "Table"}
+			_v_typ = _validate_prepare_payload(_dtype_typ, args, child_tables=_child_map_typ)
+			if _v_typ is not None:
+				return _v_typ
 		token = _stage_action(
 			"create_dashboard",
 			{"dashboard_name": dashboard_name, "charts": charts, "cards": cards, "module": module},
@@ -3398,6 +3427,16 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		repeat_on = (args.get("repeat_on") or "").strip()
 		participants = args.get("participants") or []
 		description = args.get("description") or ""
+		# M1.7 — universal validator on typed create.
+		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		_settings_typ = get_lazychat_settings()
+		if _settings_typ.get("cycle9_enabled"):
+			_dtype_typ = "Event"
+			_meta_typ = frappe.get_meta(_dtype_typ)
+			_child_map_typ = {f.fieldname: f.options for f in _meta_typ.fields if f.fieldtype == "Table"}
+			_v_typ = _validate_prepare_payload(_dtype_typ, args, child_tables=_child_map_typ)
+			if _v_typ is not None:
+				return _v_typ
 		if not subject:
 			return {"error": "subject required"}
 		if not starts_on:
@@ -3459,6 +3498,16 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		title = (args.get("title") or "").strip()
 		content = args.get("content") or ""
 		public = bool(args.get("public"))
+		# M1.7 — universal validator on typed create (runs on args before field checks).
+		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		_settings_typ = get_lazychat_settings()
+		if _settings_typ.get("cycle9_enabled"):
+			_dtype_typ = "Note"
+			_meta_typ = frappe.get_meta(_dtype_typ)
+			_child_map_typ = {f.fieldname: f.options for f in _meta_typ.fields if f.fieldtype == "Table"}
+			_v_typ = _validate_prepare_payload(_dtype_typ, args, child_tables=_child_map_typ)
+			if _v_typ is not None:
+				return _v_typ
 		if not title:
 			return {"error": "title required"}
 		if not content or not content.strip():
@@ -3612,6 +3661,16 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				frappe.render_template(html, {"doc": frappe._dict()})
 			except Exception as e:
 				return {"error": f"Jinja template did not render: {type(e).__name__}: {e}"}
+		# M1.7 — universal validator on typed create.
+		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		_settings_typ = get_lazychat_settings()
+		if _settings_typ.get("cycle9_enabled"):
+			_dtype_typ = "Print Format"
+			_meta_typ = frappe.get_meta(_dtype_typ)
+			_child_map_typ = {f.fieldname: f.options for f in _meta_typ.fields if f.fieldtype == "Table"}
+			_v_typ = _validate_prepare_payload(_dtype_typ, args, child_tables=_child_map_typ)
+			if _v_typ is not None:
+				return _v_typ
 		token = _stage_action(
 			"create_print_format",
 			{
@@ -3698,6 +3757,16 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			frappe.render_template(response, {"doc": frappe._dict()})
 		except Exception as e:
 			return {"error": f"response (body) Jinja did not render: {type(e).__name__}: {e}"}
+		# M1.7 — universal validator on typed create.
+		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		_settings_typ = get_lazychat_settings()
+		if _settings_typ.get("cycle9_enabled"):
+			_dtype_typ = "Email Template"
+			_meta_typ = frappe.get_meta(_dtype_typ)
+			_child_map_typ = {f.fieldname: f.options for f in _meta_typ.fields if f.fieldtype == "Table"}
+			_v_typ = _validate_prepare_payload(_dtype_typ, args, child_tables=_child_map_typ)
+			if _v_typ is not None:
+				return _v_typ
 		token = _stage_action(
 			"create_email_template",
 			{
@@ -3796,6 +3865,16 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		cond_err = _validate_frappe_expression(condition)
 		if cond_err:
 			return {"error": cond_err}
+		# M1.7 — universal validator on typed create.
+		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		_settings_typ = get_lazychat_settings()
+		if _settings_typ.get("cycle9_enabled"):
+			_dtype_typ = "Notification"
+			_meta_typ = frappe.get_meta(_dtype_typ)
+			_child_map_typ = {f.fieldname: f.options for f in _meta_typ.fields if f.fieldtype == "Table"}
+			_v_typ = _validate_prepare_payload(_dtype_typ, args, child_tables=_child_map_typ)
+			if _v_typ is not None:
+				return _v_typ
 		token = _stage_action(
 			"create_notification",
 			{
@@ -3860,6 +3939,16 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			return {"error": f"could not load Report/{report}: {e}"}
 		if not frappe.has_permission("Auto Email Report", "create"):
 			return {"error": "no create permission on Auto Email Report"}
+		# M1.7 — universal validator on typed create.
+		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		_settings_typ = get_lazychat_settings()
+		if _settings_typ.get("cycle9_enabled"):
+			_dtype_typ = "Auto Email Report"
+			_meta_typ = frappe.get_meta(_dtype_typ)
+			_child_map_typ = {f.fieldname: f.options for f in _meta_typ.fields if f.fieldtype == "Table"}
+			_v_typ = _validate_prepare_payload(_dtype_typ, args, child_tables=_child_map_typ)
+			if _v_typ is not None:
+				return _v_typ
 		token = _stage_action(
 			"create_auto_email_report",
 			{
@@ -3938,6 +4027,16 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			return {"error": f"track_field='{track_field}' is not a fieldname on {dt}"}
 		if fld.fieldtype not in ("Link", "Select"):
 			return {"error": f"track_field='{track_field}' must be a Link or Select field (got {fld.fieldtype})"}
+		# M1.7 — universal validator on typed create.
+		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		_settings_typ = get_lazychat_settings()
+		if _settings_typ.get("cycle9_enabled"):
+			_dtype_typ = "Milestone Tracker"
+			_meta_typ = frappe.get_meta(_dtype_typ)
+			_child_map_typ = {f.fieldname: f.options for f in _meta_typ.fields if f.fieldtype == "Table"}
+			_v_typ = _validate_prepare_payload(_dtype_typ, args, child_tables=_child_map_typ)
+			if _v_typ is not None:
+				return _v_typ
 		token = _stage_action(
 			"create_milestone_tracker",
 			{"document_type": dt, "track_field": track_field, "disabled": 1 if disabled else 0},
@@ -4008,6 +4107,16 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			return {"error": "no create permission on Auto Repeat"}
 		if submit_on_creation and not frappe.has_permission(ref_dt, "submit"):
 			return {"error": f"submit_on_creation=True requires submit permission on {ref_dt}"}
+		# M1.7 — universal validator on typed create.
+		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		_settings_typ = get_lazychat_settings()
+		if _settings_typ.get("cycle9_enabled"):
+			_dtype_typ = "Auto Repeat"
+			_meta_typ = frappe.get_meta(_dtype_typ)
+			_child_map_typ = {f.fieldname: f.options for f in _meta_typ.fields if f.fieldtype == "Table"}
+			_v_typ = _validate_prepare_payload(_dtype_typ, args, child_tables=_child_map_typ)
+			if _v_typ is not None:
+				return _v_typ
 		token = _stage_action(
 			"create_auto_repeat",
 			{
@@ -4112,6 +4221,16 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			return {"error": f"Email Group '{email_group}' not found"}
 		if not frappe.has_permission("Newsletter", "create"):
 			return {"error": "no create permission on Newsletter"}
+		# M1.7 — universal validator on typed create.
+		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		_settings_typ = get_lazychat_settings()
+		if _settings_typ.get("cycle9_enabled"):
+			_dtype_typ = "Newsletter"
+			_meta_typ = frappe.get_meta(_dtype_typ)
+			_child_map_typ = {f.fieldname: f.options for f in _meta_typ.fields if f.fieldtype == "Table"}
+			_v_typ = _validate_prepare_payload(_dtype_typ, args, child_tables=_child_map_typ)
+			if _v_typ is not None:
+				return _v_typ
 		token = _stage_action(
 			"create_newsletter",
 			{
@@ -4348,6 +4467,16 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		err = _validate_frappe_expression(unassign_condition)
 		if err:
 			return {"error": f"unassign_condition: {err}"}
+		# M1.7 — universal validator on typed create.
+		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		_settings_typ = get_lazychat_settings()
+		if _settings_typ.get("cycle9_enabled"):
+			_dtype_typ = "Assignment Rule"
+			_meta_typ = frappe.get_meta(_dtype_typ)
+			_child_map_typ = {f.fieldname: f.options for f in _meta_typ.fields if f.fieldtype == "Table"}
+			_v_typ = _validate_prepare_payload(_dtype_typ, args, child_tables=_child_map_typ)
+			if _v_typ is not None:
+				return _v_typ
 		token = _stage_action(
 			"create_assignment_rule",
 			{
@@ -4442,6 +4571,16 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"hidden": int(bool(args.get("hidden"))),
 			"description": args.get("description") or "",
 		}
+		# M1.7 — universal validator on typed create.
+		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		_settings_typ = get_lazychat_settings()
+		if _settings_typ.get("cycle9_enabled"):
+			_dtype_typ = "Custom Field"
+			_meta_typ = frappe.get_meta(_dtype_typ)
+			_child_map_typ = {f.fieldname: f.options for f in _meta_typ.fields if f.fieldtype == "Table"}
+			_v_typ = _validate_prepare_payload(_dtype_typ, payload, child_tables=_child_map_typ)
+			if _v_typ is not None:
+				return _v_typ
 		token = _stage_action("create_custom_field", payload)
 		return {
 			"ok": True,
@@ -4489,6 +4628,16 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			cs_name = f"{base_name} ({n})"
 			n += 1
 		payload = {"dt": dt, "view": view, "script": script, "enabled": enabled, "name": cs_name}
+		# M1.7 — universal validator on typed create.
+		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		_settings_typ = get_lazychat_settings()
+		if _settings_typ.get("cycle9_enabled"):
+			_dtype_typ = "Client Script"
+			_meta_typ = frappe.get_meta(_dtype_typ)
+			_child_map_typ = {f.fieldname: f.options for f in _meta_typ.fields if f.fieldtype == "Table"}
+			_v_typ = _validate_prepare_payload(_dtype_typ, payload, child_tables=_child_map_typ)
+			if _v_typ is not None:
+				return _v_typ
 		token = _stage_action("create_client_script", payload)
 		return {
 			"ok": True,
