@@ -486,6 +486,44 @@ When debugging *"my report URL gave 404 even though the chat said it was
 created"*: confirm the chat-ui bundle was rebuilt after this fix landed
 (`?v=` query in iframe URL should be > `1778066844`).
 
+## Cycle 9 — M1: Discovery primitives + hard validation gates (2026-05-08)
+
+Replaced the 60-line verbatim variance-report SQL template + 30-line
+Report.javascript example with two new discovery tools:
+
+- `get_form_prefill_capabilities(doctype)` — returns the live `_lz_items`
+  whitelist (parent fields + item-row fields + URL pattern) read from
+  install.py module-level constants. Single source of truth.
+- `get_doctype_relationships(doctype)` — wraps describe_doctype with
+  curated row-link hints for ERPNext's most-mismatched pairs (PR↔PI,
+  SO↔SI, SLE↔PR, PR↔PO, SI↔DN). Surfaces the canonical join warnings
+  that previously lived in the prompt as verbatim text.
+
+Universal `_validate_prepare_payload` runs at staging time on every
+`prepare_*` tool when `cycle9_enabled = true`. Catches:
+- Unknown fields with did-you-mean suggestions (difflib).
+- Unknown Link targets with search_link hints.
+- External URLs in Query Report HTML cells.
+- Malformed `_lz_items` base64 in URL params.
+- Non-whitelisted keys in `_lz_items` payloads.
+
+Wired into 14 of 18 typed prepare_create_* wrappers + prepare_update_doc.
+The 4 skipped wrappers (kb / email_group / email_account / number_card)
+have arg-name vs Frappe-field mismatches that would break existing tests
+if validated naively — deferred for follow-up.
+
+Feature-flagged: `Lazychat Settings.cycle9_enabled` (default false).
+When off, M1 changes are inert except the prompt slim — that's a one-way
+change.
+
+Smoke 195 → 204 (+9 new T cases: T89a-T89k). Tools 91 → 93 (+2). chat-ui
+360/360 (no change — server-side cycle).
+
+Prompt slim: claude_bridge.py dropped 167 lines (~19% character
+reduction); routerSystemPrompt.ts dropped 1 line (~7.8% character
+reduction — its content was already condensed bullets, not multi-line
+fences).
+
 ## Cycle 8c — Panel-shim grayscale filter for `pushTheme` (2026-05-08)
 
 Companion to lazychat.ai "Cycle 8c". Frappe's dark theme sets `--primary-color` to gray-900 (`#171717`); pushing this as the chat-ui brand accent rendered everything near-black. The shim's [`pushTheme()`](lazychat_mcp_erpnext/lazychat_mcp_erpnext/public/js/lazychat_panel.bundle.js) now calls a new `isGrayscale(color)` helper (R≈G≈B within 12 units) and skips the `setThemeTokens` push when the resolved primary is grayscale. Logs `[lazychat] skipped pushing grayscale primary: <hex>` for triage. The chat-ui side has matching defense-in-depth in [`extensions.ts`](../lazychat.ai/apps/chat-ui/src/store/extensions.ts) that filters grayscale tokens at `setThemeTokens` and `onRehydrateStorage` time. End result: in dark mode, chat-ui's own warm-orange `--color-primary` default (`#d97757` from theme.css) shows through instead of Frappe's UI-color near-black. Distinct host brand colors (purples, blues, custom hues) pass through unchanged.
