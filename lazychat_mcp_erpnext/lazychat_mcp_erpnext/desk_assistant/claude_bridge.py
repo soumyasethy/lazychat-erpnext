@@ -232,6 +232,54 @@ WRITE / WORKFLOW / COMMS (always two-phase via prepare_* + /commit):
   `/app/purchase-invoice/new?is_return=1&return_against=<PI-name>`. NEVER call
   describe_doctype("Debit Note") — it returns a redirect hint pointing here.
 
+  CANONICAL VARIANCE-REPORT TEMPLATE — use this verbatim when the user asks
+  for "report with debit-note option per line item" or any PR-vs-PI variance:
+
+```sql
+SELECT
+  pii.parent                                         AS 'Purchase Invoice',
+  pi.supplier                                        AS 'Supplier',
+  pii.item_code                                      AS 'Item',
+  COALESCE(pri.qty, 0)                               AS 'Receipt Qty',
+  pii.qty                                            AS 'Invoice Qty',
+  (pii.qty - COALESCE(pri.qty, 0))                   AS 'Qty Diff',
+  CASE WHEN pii.qty - COALESCE(pri.qty, 0) <> 0
+    THEN CONCAT('<a href="/app/purchase-invoice/new?is_return=1&return_against=',
+                pii.parent, '" class="btn btn-xs btn-primary">Debit Note ↗</a>')
+    ELSE '' END                                      AS 'Qty DN',
+  COALESCE(pri.rate, 0)                              AS 'Receipt Rate',
+  pii.rate                                           AS 'Invoice Rate',
+  (pii.rate - COALESCE(pri.rate, 0))                 AS 'Rate Diff',
+  CASE WHEN pii.rate - COALESCE(pri.rate, 0) <> 0
+    THEN CONCAT('<a href="/app/purchase-invoice/new?is_return=1&return_against=',
+                pii.parent, '" class="btn btn-xs btn-warning">Debit Note ↗</a>')
+    ELSE '' END                                      AS 'Rate DN'
+FROM `tabPurchase Invoice Item` pii
+JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent
+LEFT JOIN `tabPurchase Receipt Item` pri ON pri.name = pii.pr_detail
+WHERE pi.docstatus = 1
+  AND (pii.qty <> COALESCE(pri.qty, 0) OR pii.rate <> COALESCE(pri.rate, 0))
+ORDER BY pi.posting_date DESC, pii.parent, pii.idx
+```
+
+  Critical rules embedded above:
+  • `pii.parent` is the PI doc name (string) — not a join target. The parent doc
+    JOIN goes through `pi.name = pii.parent`.
+  • `pi.docstatus = 1` (parent invoice submitted) — without this, drafts pollute results.
+  • `WHERE` filters to ACTUAL variances only — `pii.qty <> COALESCE(pri.qty, 0)
+    OR pii.rate <> COALESCE(pri.rate, 0)`. Don't ship a "variance report" that shows
+    matched rows; the user opens it to find discrepancies, equal rows are noise.
+  • `COALESCE(pri.qty, 0)` is mandatory because LEFT JOIN — services and direct-
+    invoice items have NO receipt match (pri.* is NULL); naive subtraction yields NULL,
+    naive comparison fails the `<> 0` filter, the row drops out invisibly.
+  • Button label is SHORT (≤ ~12 chars: "Debit Note ↗"). Frappe Query Report columns
+    auto-size to content — long labels like "Create Debit Note (Qty Diff)" overflow
+    and get visually truncated. Compact labels stay readable.
+  • Use `''` (empty string) for non-action cells, not `'-'` — looks cleaner on
+    columns dominated by buttons.
+  • For Sales-side variance (SO/DN/SI), substitute: `Sales Invoice Item.so_detail`
+    → `Sales Order Item.name`, `Sales Invoice Item.dn_detail` → `Delivery Note Item.name`.
+
 - prepare_run_sql — STAGES a SELECT query for user-approval (Apply button) instead of running
   it immediately. Use ONLY when the user has explicitly asked to review the SQL before it runs.
   For analytical questions that need the data NOW, use `run_sql_select` instead — staging-then-
