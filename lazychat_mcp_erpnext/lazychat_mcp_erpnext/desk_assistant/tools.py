@@ -1,3 +1,4 @@
+import hashlib
 import io
 import json
 import re
@@ -4122,18 +4123,32 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			return {"error": "System Manager role required to create client scripts"}
 		if not frappe.has_permission("Client Script", "create"):
 			return {"error": "no create permission on Client Script"}
+		# Client Script's autoname is `Prompt` — Frappe rejects insert with
+		# "Please set the document name" when name is omitted. Derive a stable
+		# `<DocType>-<View>-<6char hash>` so the LLM doesn't have to know.
+		if not cs_name:
+			h = hashlib.sha1(script.encode("utf-8")).hexdigest()[:6]
+			cs_name = f"{dt} {view} (lazychat {h})"
+		# Avoid name collisions: if a Client Script with this name already
+		# exists, suffix -2, -3, … so the new staged action can commit.
+		base_name = cs_name
+		n = 2
+		while frappe.db.exists("Client Script", cs_name):
+			cs_name = f"{base_name} ({n})"
+			n += 1
 		payload = {"dt": dt, "view": view, "script": script, "enabled": enabled, "name": cs_name}
 		token = _stage_action("create_client_script", payload)
 		return {
 			"ok": True,
 			"preview_token": token,
-			"summary": f"Will add Client Script ({view}) on {dt} ({len(script)} chars{' — disabled' if not enabled else ''})",
+			"summary": f"Will add Client Script '{cs_name}' ({view}) on {dt} ({len(script)} chars{' — disabled' if not enabled else ''})",
 			"preview": {
 				"dt": dt,
 				"view": view,
 				"enabled": enabled,
+				"name": cs_name,
 				"script_preview": script[:300] + ("…" if len(script) > 300 else ""),
-				"open_url": "/app/client-script",
+				"open_url": f"/app/client-script/{cs_name}",
 			},
 			"expires_in_sec": PREP_TTL_SEC,
 			"confirm_with": "click the inline Apply button to confirm",

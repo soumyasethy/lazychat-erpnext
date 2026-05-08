@@ -1434,6 +1434,63 @@ def run():
 		f"err={(r.get('error') or '')[:160]!r}",
 	))
 
+	# T88w: prepare_create_client_script auto-derives `name` when LLM omits it.
+	# Frappe's Client Script doctype uses autoname=Prompt — without an explicit
+	# name the commit insert errors with "Please set the document name" and
+	# the LLM-generated Client Script never lands. Real-user trigger 2026-05-08.
+	r = execute_tool("prepare_create_client_script", {
+		"dt": "Customer",
+		"view": "Form",
+		"script": "frappe.ui.form.on('Customer', { refresh: function(frm) { /* lazychat smoke T88w */ } });",
+	})
+	preview_w = r.get("preview") or {}
+	derived_name = preview_w.get("name") or ""
+	record(_ok(
+		"T88w prepare_create_client_script auto-derives name when omitted",
+		r.get("ok") is True
+		and derived_name.startswith("Customer Form (lazychat ")
+		and derived_name.endswith(")"),
+		f"name={derived_name!r}",
+	))
+	# T88x: explicit `name` arg passes through unchanged.
+	explicit = f"_lz_smoke_cs_{frappe.generate_hash(length=4)}"
+	r = execute_tool("prepare_create_client_script", {
+		"dt": "Customer",
+		"view": "Form",
+		"script": "frappe.ui.form.on('Customer', { refresh: function(frm) {} });",
+		"name": explicit,
+	})
+	record(_ok(
+		"T88x prepare_create_client_script honors explicit name",
+		r.get("ok") is True and (r.get("preview") or {}).get("name") == explicit,
+		f"name={(r.get('preview') or {}).get('name')!r}",
+	))
+
+	# T88y: persistent lazychat form helper Client Scripts are seeded by
+	# install hooks on Purchase Invoice / Sales Invoice / Purchase Receipt /
+	# Delivery Note. Verify the Purchase Invoice helper exists, is enabled,
+	# and contains the `_lz_items` URL-param parser. This is what makes the
+	# variance-report HTML buttons populate the items child table — URL
+	# params alone can't reach child rows in Frappe.
+	from lazychat_mcp_erpnext.install import seed_lazychat_form_helpers
+	seed_lazychat_form_helpers()
+	pi_helper_name = "Lazychat Form Helper (Purchase Invoice)"
+	cs_exists = frappe.db.exists("Client Script", pi_helper_name)
+	if cs_exists:
+		cs_doc = frappe.get_doc("Client Script", pi_helper_name)
+		body = cs_doc.script or ""
+	else:
+		body = ""
+	record(_ok(
+		"T88y persistent Lazychat Form Helper (Purchase Invoice) is installed and reads _lz_items",
+		bool(cs_exists)
+		and (cs_doc.enabled if cs_exists else 0) == 1
+		and (cs_doc.dt if cs_exists else "") == "Purchase Invoice"
+		and "_lz_items" in body
+		and "is_return" in body,
+		f"exists={bool(cs_exists)} dt={cs_doc.dt if cs_exists else None!r} enabled={cs_doc.enabled if cs_exists else None}",
+	))
+
 	# T88p: prepare_create_report previews must point at /app/query-report/
 	# for Query AND Script Reports — Frappe routes both there. The generic
 	# /app/report/<name> path is Report-Builder-only and gives "Sorry I
