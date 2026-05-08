@@ -1466,6 +1466,40 @@ def run():
 		f"name={(r.get('preview') or {}).get('name')!r}",
 	))
 
+	# T88z: prepare_create_report accepts optional `javascript` arg for
+	# Query Reports (Report.javascript field — Frappe loads it for
+	# non-standard reports). Used for top-right inner-page buttons.
+	r = execute_tool("prepare_create_report", {
+		"report_name": f"_lz_smoke_qr_js_{frappe.generate_hash(length=4)}",
+		"ref_doctype": "Customer",
+		"report_type": "Query Report",
+		"query": "SELECT name FROM `tabCustomer` LIMIT 1",
+		"javascript": "frappe.query_reports['_lz_smoke'] = { onload: function(r) {} };",
+	})
+	record(_ok(
+		"T88z prepare_create_report accepts javascript arg for Query Report",
+		r.get("ok") is True,
+		f"err={(r.get('error') or '')[:120]!r}",
+	))
+
+	# T88aa: signature-based reapply pattern in form helper script body —
+	# the new helper detects items clobber via signature mismatch and
+	# re-applies. Verify the body contains the signature helpers + the
+	# expanded parent-whitelist (supplier handling).
+	from lazychat_mcp_erpnext.install import seed_lazychat_form_helpers
+	seed_lazychat_form_helpers()
+	cs_doc = frappe.get_doc("Client Script", "Lazychat Form Helper (Purchase Invoice)")
+	body = cs_doc.script or ""
+	record(_ok(
+		"T88aa form helper has signature-based reapply + supplier handling",
+		"_sig" in body
+		and "_frmSig" in body
+		and "PARENT_WHITELIST" in body
+		and "'supplier'" in body
+		and "ITEM_WHITELIST" in body,
+		f"len={len(body)}",
+	))
+
 	# T88y: persistent lazychat form helper Client Scripts are seeded by
 	# install hooks on Purchase Invoice / Sales Invoice / Purchase Receipt /
 	# Delivery Note. Verify the Purchase Invoice helper exists, is enabled,

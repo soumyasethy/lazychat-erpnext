@@ -144,17 +144,28 @@ def seed_llm_defaults():
 
 _LAZYCHAT_FORM_HELPER_SCRIPT = r"""
 // Lazychat form-fill helper — seeded by lazychat_mcp_erpnext install hooks.
-// Reads URL params on a NEW form and prefills child-table rows that URL params
-// alone can't reach (Frappe's new-form route handler ignores child-table query
-// params). The variance-report HTML buttons emit URLs like:
-//   /app/purchase-invoice/new?is_return=1&return_against=PI-XXX&_lz_items=<base64-json>
-// where _lz_items is a base64 of a JSON array of {item_code, qty, rate,
-// purchase_receipt?, pr_detail?, ...} rows. Items are only injected when the
-// items table is empty, so this is safe for hand-edited drafts.
+// Reads URL params on a NEW form and prefills parent fields + the items
+// child table. The variance-report HTML buttons emit URLs like:
+//   /app/purchase-invoice/new?is_return=1&return_against=PI-XXX&supplier=ACME&_lz_items=<base64-json>
+//
+// Why a Client Script: Frappe's new-form route handler reads URL params for
+// PARENT fields only — child-table rows (e.g. items[0][item_code]) cannot be
+// set via query string. We base64-encode a JSON array of row objects and
+// decode it client-side.
+//
+// Why signature-based reapply: when `return_against` is set, ERPNext's Make
+// Return logic auto-fetches items from the original doc and clobbers ours.
+// We detect the clobber by signature mismatch on each `refresh` event and
+// re-inject. This wins the race regardless of timing.
 (function () {
+  // Decode URL-safe base64 (handles +/= and percent-encoded variants).
   function _decode(b64) {
+    if (!b64) return null;
     try {
-      var bin = atob(decodeURIComponent(b64));
+      var s = decodeURIComponent(b64).replace(/-/g, '+').replace(/_/g, '/');
+      // pad if length not multiple of 4
+      while (s.length % 4) s += '=';
+      var bin = atob(s);
       var pct = bin.split('').map(function (c) {
         return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
       }).join('');
@@ -167,61 +178,108 @@ _LAZYCHAT_FORM_HELPER_SCRIPT = r"""
     try { return new URLSearchParams(window.location.search); }
     catch (e) { return new URLSearchParams(''); }
   }
-  function _alreadyApplied(frm) { return !!(frm.__lz_helper_applied); }
-  function _markApplied(frm) { frm.__lz_helper_applied = true; }
+  // Stable signature of a parsed _lz_items array — used to tell our rows
+  // apart from auto-fetched / user-added rows.
+  function _sig(rows) {
+    return rows.map(function (r) {
+      return [r.item_code || '', r.qty || 0, r.rate || 0, r.pr_detail || ''].join('|');
+    }).join('::');
+  }
+  // Signature of currently-mounted items[] (same shape).
+  function _frmSig(items) {
+    return (items || []).map(function (r) {
+      return [r.item_code || '', r.qty || 0, r.rate || 0, r.pr_detail || ''].join('|');
+    }).join('::');
+  }
 
-  function lazychatPrefill(frm) {
-    if (!frm || !frm.is_new || !frm.is_new()) return;
-    if (_alreadyApplied(frm)) return;
-    var p = _params();
-    var rawItems = p.get('_lz_items');
-    var isReturn = p.get('_lz_is_return') === '1' || p.get('is_return') === '1';
-    var returnAgainst = p.get('return_against') || p.get('_lz_return_against');
+  // Whitelist of item-row fields we'll honor from URL data. Everything else
+  // is computed by ERPNext's own item_code/uom/warehouse handlers.
+  var ITEM_WHITELIST = [
+    'item_code', 'item_name', 'description', 'qty', 'rate', 'amount',
+    'uom', 'stock_uom', 'conversion_factor',
+    'warehouse', 'cost_center', 'expense_account', 'income_account',
+    'project', 'tax_rate',
+    // Reference back-links to the original receipt/invoice/order
+    'purchase_receipt', 'pr_detail',
+    'purchase_invoice', 'purchase_invoice_item',
+    'sales_order', 'so_detail',
+    'sales_invoice', 'sales_invoice_item',
+    'delivery_note', 'dn_detail',
+  ];
+  // Whitelist of parent-level fields settable from the URL (in addition
+  // to anything Frappe's own URL parser already wires up). Some setters
+  // (return_against) trigger heavy auto-fetch that races _lz_items —
+  // we restore items via signature reapply below.
+  var PARENT_WHITELIST = [
+    'supplier', 'customer',
+    'is_return', 'return_against',
+    'posting_date', 'due_date', 'set_warehouse',
+    'company', 'cost_center', 'project', 'currency',
+  ];
 
-    // Parent-level return flags (URL params CAN set parent fields on new
-    // forms, but only after a tick — Frappe wipes them while wiring defaults).
-    if (isReturn && frm.doc && !frm.doc.is_return) {
-      frm.set_value('is_return', 1);
-    }
-    if (returnAgainst && frm.doc && !frm.doc.return_against) {
-      frm.set_value('return_against', returnAgainst);
-    }
+  function setParentFromUrl(frm, p) {
+    PARENT_WHITELIST.forEach(function (k) {
+      var v = p.get(k) || p.get('_lz_' + k);
+      if (!v) return;
+      // is_return is integer
+      if (k === 'is_return') v = (v === '1' || v === 'true') ? 1 : 0;
+      if (frm.doc[k] === v) return;
+      try { frm.set_value(k, v); } catch (e) {}
+    });
+  }
 
-    if (!rawItems) return;
-    var rows = _decode(rawItems);
-    if (!Array.isArray(rows) || rows.length === 0) return;
+  function applyItems(frm, rows) {
     if (frm.doc.items && frm.doc.items.length > 0) {
-      // Don't clobber existing rows (e.g. user already added items).
-      var hasRealRow = frm.doc.items.some(function (r) { return r.item_code; });
-      if (hasRealRow) { _markApplied(frm); return; }
-      // All-blank rows -> safe to clear.
       frm.clear_table('items');
     }
     rows.forEach(function (row) {
       if (!row || typeof row !== 'object') return;
       var d = frm.add_child('items');
-      // Whitelist of fields we'll let the URL set. Everything else is
-      // computed by ERPNext's own item-fetch handlers when item_code is set.
-      ['item_code', 'qty', 'rate', 'amount', 'uom', 'warehouse',
-       'purchase_receipt', 'pr_detail', 'sales_order', 'so_detail',
-       'description'].forEach(function (k) {
+      ITEM_WHITELIST.forEach(function (k) {
         if (row[k] !== undefined && row[k] !== null) d[k] = row[k];
       });
     });
-    _markApplied(frm);
     frm.refresh_field('items');
-    // Trigger ERPNext's item_code handler so taxes/HSN/UOM auto-fill.
+    // Trigger ERPNext's item_code handler so HSN / taxes / UOM / account
+    // / warehouse defaults auto-fill. Wrap each in try/catch — some
+    // doctypes don't define item_code triggers and Frappe throws then.
     (frm.doc.items || []).forEach(function (row) {
-      if (row.item_code) {
-        try { frappe.model.trigger('item_code', row.item_code, row); } catch (e) {}
-      }
+      if (!row.item_code) return;
+      try { frappe.model.trigger('item_code', row.item_code, row); } catch (e) {}
     });
+  }
+
+  function lazychatPrefill(frm) {
+    if (!frm || !frm.is_new || !frm.is_new()) return;
+    var p = _params();
+    var rawItems = p.get('_lz_items');
+
+    // Always re-set parent fields on every refresh — set_value is a noop
+    // if value already matches. Cheap idempotent.
+    setParentFromUrl(frm, p);
+
+    if (!rawItems) return;
+    var rows = _decode(rawItems);
+    if (!Array.isArray(rows) || rows.length === 0) return;
+
+    var ourSig = _sig(rows);
+    var nowSig = _frmSig(frm.doc.items);
+    if (ourSig === nowSig) return;  // already applied, untouched
+
+    // Items differ from our payload — either empty (first paint) OR
+    // auto-fetched by Make Return. Either way, restore our payload.
+    applyItems(frm, rows);
   }
 
   if (window.frappe && frappe.ui && frappe.ui.form) {
     frappe.ui.form.on('__DT__', {
       onload_post_render: lazychatPrefill,
       refresh: lazychatPrefill,
+      // Re-apply when return_against finishes its async auto-fetch — that
+      // change handler fires AFTER Make Return has already clobbered items.
+      return_against: function (frm) { setTimeout(function () { lazychatPrefill(frm); }, 50); },
+      supplier: function (frm) { setTimeout(function () { lazychatPrefill(frm); }, 50); },
+      customer: function (frm) { setTimeout(function () { lazychatPrefill(frm); }, 50); },
     });
   }
 })();

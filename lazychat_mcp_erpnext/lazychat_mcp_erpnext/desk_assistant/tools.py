@@ -2779,6 +2779,12 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		report_type = args.get("report_type") or "Report Builder"
 		query = (args.get("query") or "").strip()
 		script = (args.get("script") or args.get("report_script") or "").strip()
+		# Optional client-side JavaScript loaded by Frappe's Query Report page
+		# for non-standard reports (Report.javascript field). Lets the LLM
+		# attach top-right inner page buttons via `report.page.add_inner_button()`
+		# in the report's `onload`. Only applied for Query / Script Reports;
+		# Report Builder reports don't load arbitrary JS.
+		javascript = (args.get("javascript") or "").strip()
 		columns = args.get("columns") or []
 		filters = args.get("filters") or {}
 		if not report_name or not ref_dt:
@@ -2878,6 +2884,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				"report_type": report_type,
 				"query": query,
 				"script": script,
+				"javascript": javascript,
 				"columns": columns,
 				"filters": filters,
 			},
@@ -4586,6 +4593,10 @@ def commit_prepared(token, **extras):
 					return {"ok": False, "error": "Script Report payload missing `script` body at commit"}
 				rep_values["report_script"] = body
 				rep_values["script_type"] = "Python"
+			# Optional client-side JS for Query / Script Reports — adds
+			# top-right page buttons via report.page.add_inner_button().
+			if payload.get("javascript") and payload["report_type"] in ("Query Report", "Script Report"):
+				rep_values["javascript"] = payload["javascript"]
 			# Re-validate Query Report SQL at commit time — the staging machinery
 			# already validated it, but defense-in-depth is cheap.
 			if rep_values.get("query"):
