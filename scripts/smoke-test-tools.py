@@ -1599,6 +1599,29 @@ def run():
 		frappe.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 0)
 		frappe.db.commit()
 
+	# T89h: prepare_create_doc with non-existent Link target returns
+	# error_kind=reference + search_link hint. Toggles cycle9_enabled
+	# on for the test, off in finally.
+	frappe.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 1)
+	try:
+		r = execute_tool("prepare_create_doc", {
+			"doctype": "Customer",
+			"values": {
+				"customer_name": f"_lz_smoke_link_{frappe.generate_hash(length=4)}",
+				"customer_group": "_lz_definitely_not_a_real_group_xyz",
+			},
+		})
+		record(_ok(
+			"T89h prepare_create_doc rejects unknown Link target with reference error",
+			r.get("error_kind") == "reference"
+			and "_lz_definitely_not_a_real_group_xyz" in (r.get("error") or "")
+			and ("search_link" in (r.get("hint") or "") or "Customer Group" in (r.get("hint") or "")),
+			f"err={(r.get('error') or '')[:140]!r}",
+		))
+	finally:
+		frappe.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 0)
+		frappe.db.commit()
+
 	# T88y: persistent lazychat form helper Client Scripts are seeded by
 	# install hooks on Purchase Invoice / Sales Invoice / Purchase Receipt /
 	# Delivery Note. Verify the Purchase Invoice helper exists, is enabled,
