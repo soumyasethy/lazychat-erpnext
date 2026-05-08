@@ -849,6 +849,25 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		patch = args.get("patch") or {}
 		if not dt or not dn:
 			return {"error": "doctype and name required"}
+		# Existence pre-check with a typed-wrapper redirect on miss. Without
+		# this, the LLM hits "Doc not found" at commit time (after a stale-
+		# state race) and frequently hallucinates success in the narration.
+		# By returning an actionable hint pointing at the create wrapper,
+		# the LLM recovers cleanly into prepare_create_report.
+		if not frappe.db.exists(dt, dn):
+			typed_create = _TYPED_WRAPPER_FOR_DOCTYPE.get(dt)
+			hint = (
+				f"{dt} '{dn}' does not exist. "
+				+ (
+					f"To create a NEW {dt}, use the typed wrapper '{typed_create}' "
+					f"(prepare_update_doc only modifies an existing doc). "
+					if typed_create
+					else f"Use prepare_create_doc to create a new {dt} (prepare_update_doc only modifies existing docs). "
+				)
+				+ "If you previously thought you created this doc, the create may have failed silently — "
+				"check the chat for a Failed Apply card before assuming it exists."
+			)
+			return {"error": hint}
 		if not frappe.has_permission(dt, "write", doc=dn):
 			return {"error": "no write permission"}
 		try:

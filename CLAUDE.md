@@ -673,6 +673,22 @@ hallucinated "no POs match" output.
 Evidence:
 - [`test/evidence/cycle7-self-correcting-commit/12-PLATFORM-DELIVERS-real-data-no-hallucination.png`](test/evidence/cycle7-self-correcting-commit/12-PLATFORM-DELIVERS-real-data-no-hallucination.png)
 
+## prepare_update_doc redirects to typed-create wrapper on non-existent target (2026-05-08)
+
+Stale-state regression — multi-turn chat where the LLM "remembered" creating a Report we'd deleted between sessions. LLM called `prepare_update_doc({doctype:'Report', name:'X'})`, the doc didn't exist, the wrapper returned a bare `"X not found"` error, and the LLM hallucinated **"Perfect! I've updated..."** in its narration anyway (TOOL-ERROR HONESTY rule isn't bullet-proof against model drift).
+
+**Fix** — `prepare_update_doc` now does an existence pre-check at preview time. On miss, returns a structured hint that explicitly redirects to the typed CREATE wrapper:
+
+```
+{dt} 'X' does not exist. To create a NEW {dt}, use the typed wrapper '{prepare_create_report}' (prepare_update_doc only modifies an existing doc). If you previously thought you created this doc, the create may have failed silently — check the chat for a Failed Apply card before assuming it exists.
+```
+
+For doctypes without a typed wrapper, the hint nudges toward `prepare_create_doc`. Either way the LLM has an actionable next step instead of an opaque "not found".
+
+**Smoke** (T88r in [scripts/smoke-test-tools.py](scripts/smoke-test-tools.py)): `prepare_update_doc({doctype:'Report', name:'_lz_smoke_does_not_exist_xyz'})` returns an error containing both "does not exist" and "prepare_create_report". 185 in-process / 91 HTTP-wire all green.
+
+End-to-end probe (`PR vs PI Variance Probe`): canonical SQL template stages → commits → opens at `/app/query-report/<name>` → returns **6,882 rows** with all 11 columns including HTML link buttons. Pipeline confirmed sound.
+
 ## Query/Script Report URL routing fix — `/app/query-report/<name>` (2026-05-08)
 
 Production bug: clicking the post-Apply "Open Report →" button on a created Query Report (or Script Report) opened `/app/report/<name>`, which Frappe's router treats as Report Builder only — landed the user on **"Sorry! I could not find what you were looking for"** (and triggered a `TypeError: getdoctype() missing 1 required positional argument: 'doctype'` in the backend trace).
