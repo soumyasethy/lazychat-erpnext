@@ -142,6 +142,34 @@ def seed_llm_defaults():
 	frappe.db.commit()
 
 
+# Module-level constants — single source of truth for the lazychat URL
+# convention. Both the helper Client Script JS body (templated below) AND
+# the get_form_prefill_capabilities MCP tool import these.
+LAZYCHAT_PARENT_WHITELIST = (
+	"supplier", "customer",
+	"is_return", "return_against",
+	"posting_date", "due_date", "set_warehouse",
+	"company", "cost_center", "project", "currency",
+)
+
+LAZYCHAT_ITEM_WHITELIST = (
+	"item_code", "item_name", "description",
+	"qty", "rate", "amount",
+	"uom", "stock_uom", "conversion_factor",
+	"warehouse", "cost_center", "expense_account", "income_account",
+	"project", "tax_rate",
+	"purchase_receipt", "pr_detail",
+	"purchase_invoice", "purchase_invoice_item",
+	"sales_order", "so_detail",
+	"sales_invoice", "sales_invoice_item",
+	"delivery_note", "dn_detail",
+)
+
+LAZYCHAT_FORM_HELPER_TARGETS = (
+	"Purchase Invoice", "Sales Invoice",
+	"Purchase Receipt", "Delivery Note",
+)
+
 _LAZYCHAT_FORM_HELPER_SCRIPT = r"""
 // Lazychat form-fill helper — seeded by lazychat_mcp_erpnext install hooks.
 // Reads URL params on a NEW form and prefills parent fields + the items
@@ -194,28 +222,12 @@ _LAZYCHAT_FORM_HELPER_SCRIPT = r"""
 
   // Whitelist of item-row fields we'll honor from URL data. Everything else
   // is computed by ERPNext's own item_code/uom/warehouse handlers.
-  var ITEM_WHITELIST = [
-    'item_code', 'item_name', 'description', 'qty', 'rate', 'amount',
-    'uom', 'stock_uom', 'conversion_factor',
-    'warehouse', 'cost_center', 'expense_account', 'income_account',
-    'project', 'tax_rate',
-    // Reference back-links to the original receipt/invoice/order
-    'purchase_receipt', 'pr_detail',
-    'purchase_invoice', 'purchase_invoice_item',
-    'sales_order', 'so_detail',
-    'sales_invoice', 'sales_invoice_item',
-    'delivery_note', 'dn_detail',
-  ];
+  var ITEM_WHITELIST = __ITEM_WHITELIST__;
   // Whitelist of parent-level fields settable from the URL (in addition
   // to anything Frappe's own URL parser already wires up). Some setters
   // (return_against) trigger heavy auto-fetch that races _lz_items —
   // we restore items via signature reapply below.
-  var PARENT_WHITELIST = [
-    'supplier', 'customer',
-    'is_return', 'return_against',
-    'posting_date', 'due_date', 'set_warehouse',
-    'company', 'cost_center', 'project', 'currency',
-  ];
+  var PARENT_WHITELIST = __PARENT_WHITELIST__;
 
   function setParentFromUrl(frm, p) {
     PARENT_WHITELIST.forEach(function (k) {
@@ -286,7 +298,6 @@ _LAZYCHAT_FORM_HELPER_SCRIPT = r"""
 """.strip()
 
 _LAZYCHAT_FORM_HELPER_NAME = "Lazychat Form Helper"
-_LAZYCHAT_FORM_HELPER_TARGETS = ("Purchase Invoice", "Sales Invoice", "Purchase Receipt", "Delivery Note")
 
 
 def seed_lazychat_form_helpers():
@@ -301,10 +312,15 @@ def seed_lazychat_form_helpers():
 	"""
 	if not frappe.db.exists("DocType", "Client Script"):
 		return  # Frappe core not migrated yet (shouldn't happen in practice)
-	for dt in _LAZYCHAT_FORM_HELPER_TARGETS:
+	for dt in LAZYCHAT_FORM_HELPER_TARGETS:
 		if not frappe.db.exists("DocType", dt):
 			continue  # site doesn't have this doctype (e.g. no Stock module)
-		body = _LAZYCHAT_FORM_HELPER_SCRIPT.replace("__DT__", dt)
+		body = (
+			_LAZYCHAT_FORM_HELPER_SCRIPT
+			.replace("__DT__", dt)
+			.replace("__ITEM_WHITELIST__", json.dumps(list(LAZYCHAT_ITEM_WHITELIST)))
+			.replace("__PARENT_WHITELIST__", json.dumps(list(LAZYCHAT_PARENT_WHITELIST)))
+		)
 		name = f"{_LAZYCHAT_FORM_HELPER_NAME} ({dt})"
 		try:
 			if frappe.db.exists("Client Script", name):

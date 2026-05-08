@@ -1495,7 +1495,7 @@ def run():
 		"_sig" in body
 		and "_frmSig" in body
 		and "PARENT_WHITELIST" in body
-		and "'supplier'" in body
+		and "supplier" in body
 		and "ITEM_WHITELIST" in body,
 		f"len={len(body)}",
 	))
@@ -1507,6 +1507,23 @@ def run():
 		"T89a cycle9_enabled defaults false",
 		settings.get("cycle9_enabled") is False,
 		f"cycle9_enabled={settings.get('cycle9_enabled')!r}",
+	))
+
+	# T89b: install.py exposes whitelist constants used by both helper-script
+	# JS body and the new get_form_prefill_capabilities tool. Single source.
+	from lazychat_mcp_erpnext.install import (
+		LAZYCHAT_PARENT_WHITELIST,
+		LAZYCHAT_ITEM_WHITELIST,
+		LAZYCHAT_FORM_HELPER_TARGETS,
+	)
+	record(_ok(
+		"T89b install.py exposes LAZYCHAT_PARENT_WHITELIST + LAZYCHAT_ITEM_WHITELIST",
+		"supplier" in LAZYCHAT_PARENT_WHITELIST
+		and "is_return" in LAZYCHAT_PARENT_WHITELIST
+		and "item_code" in LAZYCHAT_ITEM_WHITELIST
+		and "pr_detail" in LAZYCHAT_ITEM_WHITELIST
+		and "Purchase Invoice" in LAZYCHAT_FORM_HELPER_TARGETS,
+		f"parent_n={len(LAZYCHAT_PARENT_WHITELIST)} item_n={len(LAZYCHAT_ITEM_WHITELIST)}",
 	))
 
 	# T88y: persistent lazychat form helper Client Scripts are seeded by
