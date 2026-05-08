@@ -2800,7 +2800,13 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				"query": query[:500] if query else None,
 				"columns": columns[:20] if isinstance(columns, list) else columns,
 				"filters": filters,
-				"open_url": f"/app/query-report/{report_name}" if report_type == "Query Report" else f"/app/report/{report_name}",
+				# Frappe routes Query Report AND Script Report at /app/query-report/<name>.
+				# Only Report Builder reports use /app/report/<name>.
+				"open_url": (
+					f"/app/report/{report_name}"
+					if report_type == "Report Builder"
+					else f"/app/query-report/{report_name}"
+				),
 			},
 			"expires_in_sec": PREP_TTL_SEC,
 			"confirm_with": "click the inline Apply button to confirm",
@@ -4920,12 +4926,20 @@ def commit_prepared(token, **extras):
 			return {"ok": False, "error": f"Unknown action: {action}"}
 		frappe.db.commit()
 		_consume_action(token)
+		# URL routing exception: Report doctype with report_type in
+		# {Query Report, Script Report} opens at /app/query-report/<name>,
+		# NOT /app/report/<name> (which is Report-Builder-only). The generic
+		# scrub-doctype pattern produces the wrong URL for these.
+		if doc.doctype == "Report" and getattr(doc, "report_type", "") in ("Query Report", "Script Report"):
+			link = f"/app/query-report/{doc.name}"
+		else:
+			link = f"/app/{frappe.scrub(doc.doctype)}/{doc.name}"
 		response = {
 			"ok": True,
 			"action": action,
 			"name": doc.name,
 			"doctype": doc.doctype,
-			"link": f"/app/{frappe.scrub(doc.doctype)}/{doc.name}",
+			"link": link,
 		}
 		# Merge handler-supplied extras (export_csv returns file_url + row_count etc).
 		extras_out = getattr(frappe.local.flags, "lazychat_commit_extras", None)

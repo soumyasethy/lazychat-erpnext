@@ -1354,6 +1354,39 @@ def run():
 		f"error={(r.get('error') or '')[:160]!r}",
 	))
 
+	# T88p: prepare_create_report previews must point at /app/query-report/
+	# for Query AND Script Reports — Frappe routes both there. The generic
+	# /app/report/<name> path is Report-Builder-only and gives "Sorry I
+	# could not find what you were looking for" + a getdoctype() crash for
+	# the other two types. Bug from real-user replay 2026-05-08.
+	r = execute_tool("prepare_create_report", {
+		"report_name": f"_lz_smoke_qr_url_{frappe.generate_hash(length=4)}",
+		"ref_doctype": "Customer",
+		"report_type": "Query Report",
+		"query": "SELECT name FROM `tabCustomer` LIMIT 1",
+	})
+	record(_ok(
+		"T88p Query Report preview open_url uses /app/query-report/",
+		r.get("ok") and r.get("preview", {}).get("open_url", "").startswith("/app/query-report/"),
+		f"open_url={(r.get('preview') or {}).get('open_url')!r}",
+	))
+
+	r = execute_tool("prepare_create_report", {
+		"report_name": f"_lz_smoke_sr_url_{frappe.generate_hash(length=4)}",
+		"ref_doctype": "Customer",
+		"report_type": "Script Report",
+		"script": (
+			"def execute(filters=None):\n"
+			"\treturn [{'label':'Name','fieldname':'name','fieldtype':'Data'}], "
+			"frappe.db.get_list('Customer', limit=1)\n"
+		),
+	})
+	record(_ok(
+		"T88q Script Report preview open_url uses /app/query-report/ (NOT /app/report/)",
+		r.get("ok") and r.get("preview", {}).get("open_url", "").startswith("/app/query-report/"),
+		f"open_url={(r.get('preview') or {}).get('open_url')!r}",
+	))
+
 	# T88l: describe_doctype on a business-term alias ("Debit Note") returns
 	# an actionable redirect with hint, not a bare "invalid doctype". This
 	# stops the recurring loop where the LLM bounces off the error and
