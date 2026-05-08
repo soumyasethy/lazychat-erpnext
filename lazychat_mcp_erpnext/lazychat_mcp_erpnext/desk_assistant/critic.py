@@ -111,23 +111,57 @@ def parse_critic_verdict(response_text):
 
 
 def critique_composition(intent, action, payload, evidence, *, effort="medium"):
-	"""Top-level: build prompt, call critic LLM, parse response. Returns
-	parsed verdict dict or {skipped: True} if Effort skips critic.
+	"""Top-level: build prompt, call critic LLM via the configured provider
+	stack, parse response. Returns parsed verdict dict or {skipped: True}
+	on any error or when Effort level skips the critic.
 
-	M2.2 STUB — returns {skipped: False, verdict: "ok"} as a safe default.
-	M2.3 replaces this with the real provider LLM call.
+	Provider call pattern mirrors claude_bridge.py:run_agentic_turn:
+	  model_doc, provider_doc, adapter = resolve_model(model_label)
+	  resp = adapter.chat(provider=provider_doc, model=model_doc,
+	                      messages=[...], system=..., tools=None,
+	                      max_tokens=1024)
+	The critic never uses tools; max_tokens 1024 is enough for the JSON blob.
+
+	Any exception → {skipped: True, reason: "..."} so the iterative loop
+	degrades gracefully instead of crashing the prepare_* response.
 	"""
-	model = critic_model_for_effort(effort)
-	if not model:
+	model_label = critic_model_for_effort(effort)
+	if not model_label:
 		return {"skipped": True, "reason": f"effort={effort} skips critic"}
+
 	prompt = build_critic_prompt(intent, action, payload, evidence)
-	# v1 stub — M2.3 wires this to a real LLM provider.
-	return {
-		"skipped": False,
-		"model": model,
-		"prompt_chars": len(prompt),
-		"verdict": "ok",  # safe default for the framework — overridden in M2.3
-		"severity": "low",
-		"mismatches": [],
-		"suggested_revisions": [],
-	}
+
+	try:
+		import frappe
+		from lazychat_mcp_erpnext.desk_assistant.providers import resolve_model
+
+		# resolve_model raises frappe.ValidationError (via frappe.throw) when
+		# the model label is unknown/disabled — catch that too.
+		try:
+			model_doc, provider_doc, adapter = resolve_model(model_label)
+		except Exception as e:
+			return {"skipped": True, "reason": f"no provider configured for {model_label}: {type(e).__name__}: {str(e)[:80]}"}
+
+		messages = [{"role": "user", "content": prompt}]
+		resp = adapter.chat(
+			provider=provider_doc,
+			model=model_doc,
+			messages=messages,
+			system="You are a strict verification critic. Return only the JSON verdict object with no extra prose.",
+			tools=None,
+			max_tokens=1024,
+		)
+
+		# Extract text from AdapterResponse.content (list of blocks)
+		text_blocks = [b.get("text", "") for b in resp.content if b.get("type") == "text"]
+		response_text = "\n".join(text_blocks).strip()
+
+	except Exception as e:
+		return {"skipped": True, "reason": f"critic LLM call failed: {type(e).__name__}: {str(e)[:80]}"}
+
+	parsed = parse_critic_verdict(response_text)
+	if "error" in parsed:
+		return {"skipped": True, "reason": f"critic response unparseable: {parsed.get('error')}"}
+
+	parsed["model"] = model_label
+	return parsed
