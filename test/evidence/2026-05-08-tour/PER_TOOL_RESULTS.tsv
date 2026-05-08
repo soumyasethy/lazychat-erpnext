@@ -1,0 +1,90 @@
+status	latency	tool	notes
+OK	21ms	get_list	
+OK	47ms	get_doc	
+OK	5ms	get_current_context	
+OK	7ms	describe_doctype	
+OK	5ms	get_value	
+OK	6ms	count_doc	
+OK	11ms	search_doctype	
+OK	6ms	search_global	
+OK	13ms	search_link	
+OK	5ms	get_doctype_links	
+OK	13ms	aggregate	
+OK	12ms	list_workflow_actions	
+OK	7ms	get_pending_approvals	
+OK	8ms	list_reports	
+OK	16ms	report_requirements	
+OK	22ms	run_report	
+OK	10ms	list_user_dashboards	
+OK	14ms	dashboard_chart_data	
+OK	8ms	number_card_value	
+OK	7ms	list_attachments	
+OK	7ms	get_file_url	
+OK	9ms	extract_file_content	
+OK	6ms	get_company_defaults	
+OK	12ms	get_stock_balance	
+OK_ERR	7ms	get_account_balance	invalid account (probe)
+OK	12ms	get_outstanding	
+OK	255ms	get_open_invoices	
+OK	376ms	get_sales_summary	
+OK	15ms	get_item_price	
+OK	8ms	subscribe_doc_changes	
+OK	7ms	unsubscribe_doc_changes	
+OK	6ms	list_my_subscriptions	
+OK	5ms	make_chart	
+OK	40ms	get_audit_trail	
+OK	8ms	get_system_info	
+OK	6ms	get_user_info	
+OK	6ms	list_doc_versions	
+OK	18ms	list_my_jobs	
+OK	6ms	cancel_job	
+OK	5ms	prepare_create_doc	
+OK	7ms	prepare_update_doc	
+OK	6ms	prepare_submit_doc	
+OK_ERR	5ms	prepare_delete_doc	non-existent fixture
+OK	5ms	prepare_add_comment	
+OK	5ms	prepare_assign_to	
+OK_ERR	11ms	prepare_workflow_action	action not allowed (probe)
+OK	6ms	prepare_send_email	
+OK	5ms	prepare_share_doc	
+OK	4ms	prepare_upload_file	
+OK	8ms	prepare_import_csv	
+OK_ERR	5ms	prepare_rename_doc	non-existent fixture
+OK_ERR	4ms	prepare_revert_doc	required field probe
+OK_ERR	5ms	prepare_run_sql	empty query probe
+OK	5ms	prepare_run_python	
+OK	7ms	export_list_to_csv	
+OK	3232ms	export_doc_pdf	PDF gen, naturally heavy
+OK	8ms	list_knowledge_bases	
+OK	5ms	get_kb_files	
+OK	5ms	search_kb	
+OK	5ms	reindex_kb	
+OK_ERR	4ms	prepare_create_kb	idempotent — already exists
+OK	5ms	prepare_add_file_to_kb	
+OK	6ms	list_skills	
+OK_ERR	5ms	activate_skill	non-existent skill (probe)
+OK	5ms	deactivate_skill	
+OK	5ms	prepare_create_report	
+OK	4ms	prepare_create_scheduled_job	
+OK	4ms	prepare_create_number_card	
+OK_ERR	4ms	prepare_create_dashboard	non-existent chart (probe)
+OK	5ms	prepare_create_custom_field	
+OK	4ms	prepare_create_client_script	
+OK	4ms	prepare_create_calendar_event	
+OK	4ms	prepare_create_note	
+OK_ERR	8ms	prepare_bulk_update	no matching docs (probe)
+OK	4ms	prepare_download_backup	
+OK	5ms	prepare_create_print_format	
+OK	6ms	prepare_update_print_settings	
+OK	6ms	prepare_create_email_template	
+OK_ERR	6ms	restore_deleted_doc	non-existent doc (probe)
+OK	6ms	prepare_create_notification	
+OK_ERR	4ms	prepare_create_auto_email_report	non-existent report (probe)
+OK	19ms	update_notification_settings	
+OK	6ms	prepare_create_milestone_tracker	
+OK_ERR	5ms	prepare_create_auto_repeat	non-existent SO (probe)
+OK	5ms	prepare_create_email_group	
+OK_ERR	5ms	prepare_add_to_email_group	non-existent group (probe)
+OK_ERR	4ms	prepare_create_newsletter	non-existent group (probe)
+OK	6ms	prepare_create_email_account	
+OK	6ms	prepare_create_assignment_rule	
