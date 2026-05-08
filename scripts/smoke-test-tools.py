@@ -1336,6 +1336,48 @@ def run():
 		f"error={(r.get('error') or '')[:120]!r}",
 	))
 
+	# T88j: MariaDB rejects LIMIT inside IN/ANY/ALL/SOME subqueries with
+	# NotSupportedError(1235). EXPLAIN actually catches it at parse time.
+	# Static regex (Layer 1) rejects most shapes at preview time.
+	r = execute_tool("prepare_create_report", {
+		"report_name": "_lz_smoke_qr_limit_in_subquery",
+		"ref_doctype": "Customer",
+		"report_type": "Query Report",
+		"query": (
+			"SELECT name FROM `tabCustomer` "
+			"WHERE name IN (SELECT name FROM `tabCustomer` LIMIT 1)"
+		),
+	})
+	record(_ok(
+		"T88j Query Report rejects LIMIT in IN subquery",
+		not r.get("ok") and "1235" in (r.get("error") or ""),
+		f"error={(r.get('error') or '')[:160]!r}",
+	))
+
+	# T88k: nested subquery shape that escapes the static regex (LIMIT not
+	# directly inside IN — separated by an extra paren), but EXPLAIN catches
+	# 1235. _wrap_db_error must classify it as `syntax` so the probe
+	# surfaces it instead of swallowing.
+	from lazychat_mcp_erpnext.desk_assistant.tools import _wrap_db_error
+
+	class _FakeNotSupportedError(Exception):
+		pass
+
+	wrapped = _wrap_db_error(
+		_FakeNotSupportedError(
+			"(1235, \"This version of MariaDB doesn't yet support 'LIMIT & IN/ALL/ANY/SOME subquery'\")"
+		),
+		"SELECT name FROM tabCustomer WHERE name IN (SELECT * FROM (SELECT name FROM tabCustomer LIMIT 1) sub)",
+		"explain_probe",
+	)
+	record(_ok(
+		"T88k _wrap_db_error classifies MariaDB 1235 as 'syntax' with rewrite hint",
+		wrapped.get("error_kind") == "syntax"
+		and "1235" in (wrapped.get("hint") or "")
+		and "JOIN" in (wrapped.get("hint") or ""),
+		f"kind={wrapped.get('error_kind')!r} hint={(wrapped.get('hint') or '')[:120]!r}",
+	))
+
 	# T88e: Script Report happy path with safe_exec-clean body.
 	r = execute_tool("prepare_create_report", {
 		"report_name": f"_lz_smoke_sr_ok_{frappe.generate_hash(length=4)}",

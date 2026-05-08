@@ -673,6 +673,20 @@ hallucinated "no POs match" output.
 Evidence:
 - [`test/evidence/cycle7-self-correcting-commit/12-PLATFORM-DELIVERS-real-data-no-hallucination.png`](test/evidence/cycle7-self-correcting-commit/12-PLATFORM-DELIVERS-real-data-no-hallucination.png)
 
+## MariaDB LIMIT-in-IN guard + EXPLAIN-probe 1235 surfacing (2026-05-08)
+
+Real-user replay of "report with debit-note option per line item" prompt: LLM staged a Query Report whose JOIN's `ON` clause used `pri.parent IN (SELECT DISTINCT prci.parent FROM ... WHERE ... LIMIT 1)`. Preview-time gates (`_validate_select_sql` regex + `_probe_select_sql_explain`) accepted it. Opening the report → `pymysql.err.NotSupportedError: (1235, "This version of MariaDB doesn't yet support 'LIMIT & IN/ALL/ANY/SOME subquery'")`.
+
+Two-layer fix in [tools.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py):
+
+**Layer 1 — static regex** in `_validate_select_sql` after the string-literal stripper. Matches `\b(IN|ANY|ALL|SOME)\s*\(\s*SELECT\b[^()]*\bLIMIT\b` against the defanged SQL. Rejects with: *"MariaDB does not support LIMIT inside IN/ANY/ALL/SOME subqueries (NotSupportedError 1235). Rewrite using a JOIN on a derived table: `SELECT a.* FROM tabA a JOIN (SELECT name FROM tabB LIMIT N) b ON a.name = b.name`."*
+
+**Layer 2 — `_wrap_db_error` classifies 1235 as `syntax`**. Direct `mariadb -e EXPLAIN ...` against the offending SQL DOES raise 1235 — but the probe at [_probe_select_sql_explain](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py) only re-raises `error_kind in ("schema", "syntax")`. Without classification, the probe silently swallowed `NotSupportedError(1235)` (`error_kind: "other"` → `return None`). Now `_wrap_db_error` detects `"1235"` in the message OR the textual pattern `"LIMIT" + ("IN/ALL/ANY/SOME" or "subquery")` and returns the same JOIN-rewrite hint with `error_kind: "syntax"`. The probe surfaces it; the LLM sees the actionable message at preview.
+
+This catches subquery shapes the static regex misses (e.g. nested derived tables) — defense in depth.
+
+Smoke ([scripts/smoke-test-tools.py](scripts/smoke-test-tools.py)): T88j (regex rejects `IN (SELECT ... LIMIT 1)` at preview), T88k (`_wrap_db_error` returns `error_kind: "syntax"` + rewrite hint for synthesized `(1235, ...)` exception). 178 in-process / 91 HTTP-wire all green (was 176 → +2).
+
 ## SQL string-literal-aware DML/DDL validator (2026-05-08)
 
 Companion to the Script-Report safe_exec validation below. The user's "report with debit-note buttons" prompt was hitting a separate validator bug: `_validate_select_sql`'s DML/DDL regex `\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|...)\b` matched `Create` inside `CONCAT('<a class="btn">Create DN</a>')`, rejecting legitimate Query Reports with HTML link columns. The LLM kept falling back to Script Report as a workaround.
