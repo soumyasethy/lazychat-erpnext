@@ -61,6 +61,45 @@ def _strip_leading_sql_comments(sql):
 	return s
 
 
+def _strip_sql_string_literals(sql):
+	"""Replace SQL single-quoted string contents with empty literals so the
+	DML/DDL keyword regex doesn't false-positive on words appearing inside
+	string values.
+
+	Example: `CONCAT('<a class="btn">Create DN</a>')` → `CONCAT('')` —
+	the `Create` text inside the literal becomes invisible to the keyword
+	scan, but the surrounding SQL structure is preserved (and the multi-
+	statement / SELECT-prefix checks still see the right thing).
+
+	Handles SQL's single-quote-doubling escape (`'It''s ok'` is one literal).
+	Backtick-quoted identifiers (`tabCustomer`) and double-quoted identifiers
+	in ANSI mode are NOT stripped — those legitimately can't contain DML
+	keywords as values, and the LLM uses backticks for table names.
+	"""
+	out = []
+	i = 0
+	n = len(sql)
+	while i < n:
+		c = sql[i]
+		if c == "'":
+			# Skip until the matching unescaped closing quote
+			out.append("''")  # preserve as empty literal so syntax stays valid
+			i += 1
+			while i < n:
+				if sql[i] == "'":
+					# Look for `''` escape
+					if i + 1 < n and sql[i + 1] == "'":
+						i += 2
+						continue
+					i += 1
+					break
+				i += 1
+		else:
+			out.append(c)
+			i += 1
+	return "".join(out)
+
+
 def _validate_select_sql(sql):
 	stripped = (sql or "").strip().rstrip(";")
 	if not stripped:
@@ -75,7 +114,12 @@ def _validate_select_sql(sql):
 		return "multi-statement queries not allowed"
 	if not SQL_ALLOWED_PATTERN.match(uncommented):
 		return "only SELECT (or WITH ... SELECT) queries allowed"
-	if SQL_DML_PATTERN.search(uncommented):
+	# Apply DML/DDL regex to a version with string literals neutralized so
+	# legitimate `CONCAT('<a>Create DN</a>')` rendering doesn't match the
+	# keyword regex. Real DML at SQL-statement level (DROP TABLE, INSERT INTO,
+	# etc.) is unaffected because keywords there are NOT inside literals.
+	defanged = _strip_sql_string_literals(uncommented)
+	if SQL_DML_PATTERN.search(defanged):
 		return "DML/DDL keywords not allowed (INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/...)"
 	return None  # OK
 

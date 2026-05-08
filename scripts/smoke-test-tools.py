@@ -1271,6 +1271,71 @@ def run():
 		f"error={(r.get('error') or '')[:120]!r}",
 	))
 
+	# T88f: Query Report SQL with `Create DN` HTML link content must NOT
+	# trip the DML/DDL keyword regex. Production trigger 2026-05-08: LLM's
+	# Query Report with `CONCAT('<a class="btn">Create DN</a>')` got rejected
+	# because `Create` matched `\bCREATE\b` even though it was inside a
+	# string literal. The validator should strip string literals before
+	# applying the DML regex.
+	r = execute_tool("prepare_create_report", {
+		"report_name": f"_lz_smoke_qr_create_str_{frappe.generate_hash(length=4)}",
+		"ref_doctype": "Customer",
+		"report_type": "Query Report",
+		"query": (
+			"SELECT name, "
+			"CONCAT('<a href=\"/app/note/new\" class=\"btn\">Create Note</a>') AS 'Action' "
+			"FROM `tabCustomer` LIMIT 1"
+		),
+	})
+	record(_ok(
+		"T88f Query Report tolerates 'Create' keyword inside string literal",
+		r.get("ok") is True and bool(r.get("preview_token")),
+		f"summary={r.get('summary')!r} error={(r.get('error') or '')[:120]!r}",
+	))
+
+	# T88g: same for UPDATE/DELETE/DROP inside HTML cell content
+	r = execute_tool("prepare_create_report", {
+		"report_name": f"_lz_smoke_qr_dml_str_{frappe.generate_hash(length=4)}",
+		"ref_doctype": "Customer",
+		"report_type": "Query Report",
+		"query": (
+			"SELECT name, "
+			"'Update / Delete / Drop labels in a string' AS 'Note' "
+			"FROM `tabCustomer` LIMIT 1"
+		),
+	})
+	record(_ok(
+		"T88g Query Report tolerates UPDATE/DELETE/DROP in string literal",
+		r.get("ok") is True and bool(r.get("preview_token")),
+		f"summary={r.get('summary')!r} error={(r.get('error') or '')[:120]!r}",
+	))
+
+	# T88h: real DML in code (not in string) STILL gets rejected.
+	r = execute_tool("prepare_create_report", {
+		"report_name": "_lz_smoke_qr_real_dml",
+		"ref_doctype": "Customer",
+		"report_type": "Query Report",
+		"query": "DROP TABLE `tabCustomer`",
+	})
+	record(_ok(
+		"T88h Query Report still rejects real DROP statement",
+		not r.get("ok") and "only SELECT" in (r.get("error") or ""),
+		f"error={(r.get('error') or '')[:120]!r}",
+	))
+
+	# T88i: DML keyword AFTER the SELECT (in a WHERE clause string) still rejected
+	r = execute_tool("prepare_create_report", {
+		"report_name": "_lz_smoke_qr_subquery_dml",
+		"ref_doctype": "Customer",
+		"report_type": "Query Report",
+		"query": "SELECT name FROM `tabCustomer`; DROP TABLE foo",
+	})
+	record(_ok(
+		"T88i Query Report rejects multi-statement with trailing DROP",
+		not r.get("ok") and "multi-statement" in (r.get("error") or ""),
+		f"error={(r.get('error') or '')[:120]!r}",
+	))
+
 	# T88e: Script Report happy path with safe_exec-clean body.
 	r = execute_tool("prepare_create_report", {
 		"report_name": f"_lz_smoke_sr_ok_{frappe.generate_hash(length=4)}",
