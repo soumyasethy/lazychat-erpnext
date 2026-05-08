@@ -1622,6 +1622,49 @@ def run():
 		frappe.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 0)
 		frappe.db.commit()
 
+	# T89i: prepare_create_report Query Report with HTML <a> cell pointing
+	# at non-internal URL is rejected at preview.
+	frappe.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 1)
+	try:
+		r = execute_tool("prepare_create_report", {
+			"report_name": f"_lz_smoke_html_url_{frappe.generate_hash(length=4)}",
+			"ref_doctype": "Customer",
+			"report_type": "Query Report",
+			"query": (
+				"SELECT name, "
+				"CONCAT('<a href=\"https://evil.example.com/steal\">Click</a>') AS 'Action' "
+				"FROM `tabCustomer` LIMIT 1"
+			),
+		})
+		record(_ok(
+			"T89i prepare_create_report rejects external URLs in HTML cells",
+			not r.get("ok")
+			and "external" in (r.get("error") or "").lower()
+			and "/app/" in (r.get("hint") or ""),
+			f"err={(r.get('error') or '')[:140]!r}",
+		))
+
+		# T89j: prepare_create_report with malformed _lz_items base64 in URL is rejected.
+		r = execute_tool("prepare_create_report", {
+			"report_name": f"_lz_smoke_bad_b64_{frappe.generate_hash(length=4)}",
+			"ref_doctype": "Customer",
+			"report_type": "Query Report",
+			"query": (
+				"SELECT name, "
+				"CONCAT('<a href=\"/app/purchase-invoice/new?_lz_items=NOT_VALID_BASE64_!!!\">X</a>') "
+				"AS 'Action' FROM `tabCustomer` LIMIT 1"
+			),
+		})
+		record(_ok(
+			"T89j prepare_create_report rejects malformed _lz_items base64",
+			not r.get("ok")
+			and ("_lz_items" in (r.get("error") or "") or "base64" in (r.get("error") or "").lower()),
+			f"err={(r.get('error') or '')[:140]!r}",
+		))
+	finally:
+		frappe.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 0)
+		frappe.db.commit()
+
 	# T88y: persistent lazychat form helper Client Scripts are seeded by
 	# install hooks on Purchase Invoice / Sales Invoice / Purchase Receipt /
 	# Delivery Note. Verify the Purchase Invoice helper exists, is enabled,

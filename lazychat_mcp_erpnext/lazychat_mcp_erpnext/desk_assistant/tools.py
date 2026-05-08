@@ -1,9 +1,11 @@
+import base64
 import difflib as _difflib
 import hashlib
 import io
 import json
 import re
 import secrets
+import urllib.parse
 
 import frappe
 from frappe.utils import get_url as _frappe_get_url
@@ -996,6 +998,91 @@ def _validate_prepare_payload(doctype, values, *, child_tables=None):
 						"hint": hint,
 					}
 
+	return None
+
+
+_LZ_ANCHOR_RE = re.compile(
+	r'<a[^>]+href=["\']([^"\']+)["\']', re.IGNORECASE)
+
+
+def _validate_query_report_html_cells(sample_rows, *, parent_whitelist, item_whitelist):
+	"""Scan sample rows from a Query Report's execute probe for HTML <a>
+	tags. Validate that every href is an internal /app/* path; if a
+	_lz_items query param is present, decode + verify it's a JSON array
+	with whitelisted keys only.
+
+	Returns None on pass, or {error_kind, error, hint} on first failure.
+	"""
+	if not isinstance(sample_rows, list):
+		return None
+	for row_i, row in enumerate(sample_rows):
+		if not isinstance(row, dict):
+			continue
+		for col, val in row.items():
+			if not isinstance(val, str) or '<a' not in val.lower():
+				continue
+			for m in _LZ_ANCHOR_RE.finditer(val):
+				href = m.group(1)
+				# Decode HTML entities like &amp;
+				href_dec = href.replace('&amp;', '&')
+				if not href_dec.startswith('/app/') and not href_dec.startswith('/'):
+					return {
+						"error_kind": "schema",
+						"error": f"External URL in row {row_i} column '{col}': {href[:120]}",
+						"hint": (
+							"Query Report HTML buttons must point at internal "
+							"Frappe routes (/app/<doctype>/<action>). External "
+							"URLs are not allowed for security."
+						),
+					}
+				# Parse query params; check _lz_items
+				try:
+					parsed = urllib.parse.urlparse(href_dec)
+					qs = urllib.parse.parse_qs(parsed.query)
+				except Exception as e:
+					return {"error_kind": "schema",
+					        "error": f"Malformed URL in row {row_i} column '{col}': {e}"}
+				lz_items_b64 = (qs.get('_lz_items') or [None])[0]
+				if lz_items_b64:
+					try:
+						# url-safe + std base64 acceptable
+						b = lz_items_b64.replace('-', '+').replace('_', '/')
+						b += '=' * ((4 - len(b) % 4) % 4)
+						decoded = base64.b64decode(b).decode('utf-8')
+						items = json.loads(decoded)
+					except Exception as e:
+						return {
+							"error_kind": "schema",
+							"error": (
+								f"Malformed _lz_items base64/JSON in row {row_i} "
+								f"column '{col}': {type(e).__name__}: {str(e)[:80]}"
+							),
+							"hint": (
+								"Encode with TO_BASE64(JSON_string). The string "
+								"must be valid JSON: an array of objects with "
+								f"keys from the whitelist: {list(item_whitelist)[:5]}…"
+							),
+						}
+					if not isinstance(items, list):
+						return {"error_kind": "schema",
+						        "error": f"_lz_items must be a JSON array (got {type(items).__name__})"}
+					for item_i, item in enumerate(items):
+						if not isinstance(item, dict):
+							continue
+						for k in item.keys():
+							if k not in item_whitelist:
+								return {
+									"error_kind": "schema",
+									"error": (
+										f"_lz_items[{item_i}] has non-whitelisted key '{k}' "
+										f"(row {row_i} column '{col}')"
+									),
+									"hint": (
+										f"Allowed keys: {list(item_whitelist)}. "
+										"Anything else is silently dropped by the helper "
+										"Client Script."
+									),
+								}
 	return None
 
 
@@ -3080,6 +3167,20 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			sample_rows = exec_probe.get("rows") or []
 			sample_columns = exec_probe.get("columns") or []
 			sample_truncated = bool(exec_probe.get("row_count_capped"))
+			# M1.6 — HTML cell scan for staged Query Reports.
+			from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+			_settings_html = get_lazychat_settings()
+			if _settings_html.get("cycle9_enabled") and sample_rows:
+				from lazychat_mcp_erpnext.install import (
+					LAZYCHAT_PARENT_WHITELIST, LAZYCHAT_ITEM_WHITELIST,
+				)
+				_html_err = _validate_query_report_html_cells(
+					sample_rows,
+					parent_whitelist=LAZYCHAT_PARENT_WHITELIST,
+					item_whitelist=LAZYCHAT_ITEM_WHITELIST,
+				)
+				if _html_err is not None:
+					return _html_err
 		if report_type == "Script Report":
 			# Production bug 2026-05-08: a Script Report stored without a Python
 			# `report_script` body opens to a blank page in Desk and the LLM has
