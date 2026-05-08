@@ -673,6 +673,20 @@ hallucinated "no POs match" output.
 Evidence:
 - [`test/evidence/cycle7-self-correcting-commit/12-PLATFORM-DELIVERS-real-data-no-hallucination.png`](test/evidence/cycle7-self-correcting-commit/12-PLATFORM-DELIVERS-real-data-no-hallucination.png)
 
+## Block generic `prepare_create_doc` for typed-wrapper doctypes (2026-05-08)
+
+Production triage from real chat transcript: LLM bypassed `prepare_create_report` and called `prepare_create_doc({doctype:"Report", values:{javascript:"..."}})`, got `IntegrityError 1062` (duplicate name), narrated success anyway, sent user to a dead Apply card. Same shape across multiple doctypes.
+
+Fix ([tools.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py)): new `_TYPED_WRAPPER_FOR_DOCTYPE` map covers Report, Custom Field, Client Script, Notification, Print Format, Email Template/Group/Account, Newsletter, Assignment Rule, Auto Email Report, Auto Repeat, Milestone Tracker, Number Card, Dashboard, Knowledge Base, Note, Event, Scheduled Job Type. `prepare_create_doc` now refuses for these and returns `"Use the typed wrapper '<name>' INSTEAD..."`. The LLM gets actionable redirect at preview time and uses the wrapper, which has actionable validation. Server Script deliberately stays on the generic path (no schema-able typed wrapper for arbitrary Python script bodies; gated by allow_dangerous_tools + System Manager).
+
+Also added: **pre-flight duplicate detection** in `prepare_create_report`. `frappe.db.exists("Report", report_name)` runs at preview, returns "Report 'X' already exists. Use prepare_update_doc to modify..." instead of letting the LLM ship a duplicate that fails at commit-time IntegrityError 1062. Updated T5 + T85-T89 smoke cases to use typed wrappers (the path that's now enforced).
+
+System prompt updated ([claude_bridge.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/claude_bridge.py) + [routerSystemPrompt.ts](../lazychat.ai/apps/chat-ui/src/lib/routerSystemPrompt.ts)): TOOL-ERROR HONESTY rule explicitly forbids "Perfect! I've staged..." narration after a Failed card; if error says "Use typed wrapper X", retry IMMEDIATELY with that wrapper; if "already exists", switch to prepare_update_doc; ANTI-LOOP rule stops the third re-stage when the same error fires twice. Both the Frappe-LLM and chat-ui-LLM paths get this.
+
+Smoke: T87h (prepare_create_doc rejects doctype=Report → redirect), T87i (×4: Custom Field / Client Script / Notification / Print Format → typed wrappers), T87j (prepare_create_report duplicate-name pre-detection). 167 in-process / 91 HTTP-wire / 336 chat-ui all green.
+
+Manual evidence: [test/evidence/2026-05-08-tour/04-script-report-with-real-body-staged.jpeg](test/evidence/2026-05-08-tour/04-script-report-with-real-body-staged.jpeg) — replayed user's exact "i need a report with debit note create option..." prompt; LLM emitted `prepare_create_report({report_type:"Script Report", script:"def execute(filters=None):..."})` directly with a real Python body, Apply card + sticky chip rendered cleanly. Zero hallucination loop.
+
 ## Script Report `script` body required (2026-05-08)
 
 Production bug observed in real chat transcript: LLM staged `prepare_create_report({report_type:"Script Report"})` with NO `script` arg → wrapper accepted → empty Report row created → user opened it → **blank page**. LLM had no way to know the body was empty so narrated "interactive buttons added" while nothing functional shipped. Same Cycle 6 hallucination shape, just for Script Reports.

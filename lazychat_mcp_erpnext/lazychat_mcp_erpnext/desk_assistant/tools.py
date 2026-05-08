@@ -199,6 +199,39 @@ def _wrap_db_error(e, query, action):
 _SQL_PLACEHOLDER_RE = re.compile(r"%\([^)]+\)s")
 
 
+# DocTypes for which a typed wrapper exists. prepare_create_doc REFUSES
+# for these and redirects the LLM to the wrapper, which validates the
+# required fields up front. Without this redirect, the LLM ends up
+# storing structurally-valid but semantically-broken rows (Report with
+# no ref_doctype, Custom Field with no insert_after, Notification with
+# no event, etc.) that explode at /commit or open time.
+_TYPED_WRAPPER_FOR_DOCTYPE = {
+	"Report": "prepare_create_report",
+	"Custom Field": "prepare_create_custom_field",
+	"Client Script": "prepare_create_client_script",
+	# "Server Script" deliberately NOT in this map — it has no typed wrapper
+	# (the script-body field is too freeform for schema-based validation),
+	# and the generic prepare_create_doc path is gated by allow_dangerous_tools
+	# + System Manager which is sufficient defense.
+	"Scheduled Job Type": "prepare_create_scheduled_job",
+	"Notification": "prepare_create_notification",
+	"Print Format": "prepare_create_print_format",
+	"Email Template": "prepare_create_email_template",
+	"Email Group": "prepare_create_email_group",
+	"Newsletter": "prepare_create_newsletter",
+	"Email Account": "prepare_create_email_account",
+	"Assignment Rule": "prepare_create_assignment_rule",
+	"Auto Email Report": "prepare_create_auto_email_report",
+	"Auto Repeat": "prepare_create_auto_repeat",
+	"Milestone Tracker": "prepare_create_milestone_tracker",
+	"Number Card": "prepare_create_number_card",
+	"Dashboard": "prepare_create_dashboard",
+	"Knowledge Base": "prepare_create_kb",
+	"Note": "prepare_create_note",
+	"Event": "prepare_create_calendar_event",
+}
+
+
 def _probe_select_sql_explain(query):
 	"""EXPLAIN-probe a SELECT against the live DB so table-not-found /
 	column-not-found / syntax errors surface at preview time instead of
@@ -567,6 +600,22 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		values = args.get("values") or {}
 		if not dt or not frappe.db.exists("DocType", dt):
 			return {"error": "invalid doctype"}
+		# REFUSE for doctypes that have a typed wrapper. Generic prepare_create_doc
+		# lets the LLM stage incomplete rows that fail at /commit time with
+		# opaque IntegrityError / getdoctype() / etc. Force the typed wrapper
+		# so the user gets actionable validation errors at preview time.
+		# Production trigger: LLM bypassed prepare_create_report on real chat
+		# transcript 2026-05-08, used prepare_create_doc({doctype:"Report"}),
+		# narrated success after the staging failed.
+		typed_wrapper = _TYPED_WRAPPER_FOR_DOCTYPE.get(dt)
+		if typed_wrapper:
+			return {"error": (
+				f"Use the typed wrapper '{typed_wrapper}' INSTEAD of "
+				f"prepare_create_doc({{doctype:{dt!r}}}). The typed wrapper "
+				f"validates required fields up front so you get actionable "
+				f"errors at preview time. The generic path was refused to "
+				f"prevent shipping incomplete rows."
+			)}
 		if not frappe.has_permission(dt, "create"):
 			return {"error": "no create permission"}
 		token = _stage_action("create", {"doctype": dt, "values": values})
@@ -2453,6 +2502,17 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			return {"error": "no create permission on Report"}
 		if not frappe.has_permission(ref_dt, "report"):
 			return {"error": f"no report permission on {ref_dt}"}
+		# Pre-detect duplicate name so the user sees the conflict at preview
+		# time — NOT after clicking Apply and getting a commit-time
+		# IntegrityError 1062. Production bug 2026-05-08: LLM kept restaging
+		# the same name and narrating success after each Failed card.
+		if frappe.db.exists("Report", report_name):
+			return {"error": (
+				f"Report '{report_name}' already exists. To modify it, use "
+				f"prepare_update_doc({{doctype:'Report', name:{report_name!r}, "
+				f"patch:{{...}}}}). To replace, delete the existing Report "
+				f"first via prepare_delete_doc."
+			)}
 		if report_type == "Query Report":
 			if not query:
 				return {"error": "query is required for Query Report"}

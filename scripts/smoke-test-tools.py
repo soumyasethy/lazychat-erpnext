@@ -53,17 +53,16 @@ def run():
 	r = execute_tool("describe_doctype", {"doctype": "Customer"})
 	record(_ok("T4 describe_doctype Customer", r.get("ok") and len(r.get("fields", [])) > 5))
 
-	# T5+T6: prepare_create_doc + commit — use Note (Frappe core, minimal required fields)
+	# T5+T6: prepare_create_note + commit (typed wrapper path; Note has a
+	# typed wrapper since 2026-05-08 — generic prepare_create_doc is now
+	# refused for Note to enforce validation upstream).
 	test_title = f"_lazychat_smoke_{frappe.generate_hash(length=6)}"
 	r = execute_tool(
-		"prepare_create_doc",
-		{
-			"doctype": "Note",
-			"values": {"title": test_title, "content": "smoke test note", "public": 0},
-		},
+		"prepare_create_note",
+		{"title": test_title, "content": "smoke test note"},
 	)
 	t5 = r.get("ok") and r.get("preview_token")
-	record(_ok("T5 prepare_create_doc Note", bool(t5), f"token={t5[:8]}…" if t5 else r.get("error")))
+	record(_ok("T5 prepare_create_note (typed wrapper)", bool(t5), f"token={t5[:8]}…" if t5 else r.get("error")))
 
 	if t5:
 		c = commit_prepared(t5)
@@ -1177,6 +1176,60 @@ def run():
 		f"error={(r.get('error') or '')[:120]!r}",
 	))
 
+	# T87h: prepare_create_doc({doctype:'Report'}) should REFUSE and redirect.
+	# Production bug 2026-05-08 (real chat transcript): LLM bypassed
+	# prepare_create_report wrapper, used generic prepare_create_doc with
+	# doctype=Report, ignored the duplicate-name failure, narrated success.
+	# Force the model onto the typed wrapper.
+	r = execute_tool("prepare_create_doc", {
+		"doctype": "Report",
+		"values": {"report_name": "_lz_smoke_redirect_probe", "ref_doctype": "Customer", "report_type": "Report Builder"},
+	})
+	err = (r.get("error") or "").lower()
+	record(_ok(
+		"T87h prepare_create_doc rejects doctype=Report, redirects to prepare_create_report",
+		not r.get("ok") and ("prepare_create_report" in err or "typed wrapper" in err),
+		f"error={(r.get('error') or '')[:160]!r}",
+	))
+
+	# T87i: same redirect for Custom Field, Client Script, Notification, etc.
+	for dt, wrapper in [
+		("Custom Field", "prepare_create_custom_field"),
+		("Client Script", "prepare_create_client_script"),
+		("Notification", "prepare_create_notification"),
+		("Print Format", "prepare_create_print_format"),
+	]:
+		r = execute_tool("prepare_create_doc", {"doctype": dt, "values": {}})
+		err = (r.get("error") or "").lower()
+		record(_ok(
+			f"T87i prepare_create_doc rejects doctype={dt!r}, redirects to {wrapper}",
+			not r.get("ok") and wrapper in err,
+			f"error={(r.get('error') or '')[:120]!r}",
+		))
+
+	# T87j: prepare_create_report PRE-DETECTS duplicate names at preview time.
+	# Production bug: LLM staged "Receipt vs Invoice Variance Report" twice;
+	# first stage succeeded, second fired "Applied" then commit-time
+	# IntegrityError 1062. The LLM rendered the failure card but kept
+	# narrating success. Catch this at PREVIEW so user sees the warning
+	# BEFORE the Apply button.
+	# Use a known-existing report from fixtures.json.
+	import json as _json
+	from pathlib import Path
+	fx = _json.loads((Path(frappe.get_app_path("lazychat_mcp_erpnext")).parent / "test/results/fixtures.json").read_text()) if (Path(frappe.get_app_path("lazychat_mcp_erpnext")).parent / "test/results/fixtures.json").exists() else {}
+	existing = fx.get("report") or "Account Balance"  # Account Balance is a stock standard report
+	r = execute_tool("prepare_create_report", {
+		"report_name": existing,
+		"ref_doctype": "Customer",
+		"report_type": "Report Builder",
+	})
+	err = (r.get("error") or "").lower()
+	record(_ok(
+		"T87j prepare_create_report pre-detects duplicate name at preview",
+		not r.get("ok") and "already exists" in err,
+		f"error={(r.get('error') or '')[:160]!r}",
+	))
+
 	# ----------------------------------------------------------------
 	# Commit 1 — typed wrappers for ERPNext "Tools" workspace
 	# ----------------------------------------------------------------
@@ -1678,45 +1731,64 @@ def run():
 		not r.get("ok") and "due_date_based_on" in (r.get("error") or ""),
 	))
 
-	# T85–T89: acceptance smoke for already-working features routed through
-	# generic prepare_create_doc. We only verify the dispatch + permission path
-	# returns a preview_token (committing real Custom Fields / Server Scripts /
-	# Notifications would mutate the bench beyond what the smoke should do).
-	for label, dt, values in [
-		("T85 Custom Field create stages token", "Custom Field", {
-			"dt": "Customer", "fieldname": "lazychat_smoke_field",
-			"label": "Lazychat Smoke", "fieldtype": "Data",
+	# T85–T89: acceptance smoke for typed-wrapper paths (was generic
+	# prepare_create_doc; updated 2026-05-08 because that path is now
+	# REFUSED for these doctypes — typed wrappers validate required fields
+	# up front instead of letting the generic path stage incomplete rows).
+	# Each test verifies dispatch + permission path returns a preview_token.
+	for label, tool, args in [
+		("T85 Custom Field create stages token (typed wrapper)", "prepare_create_custom_field", {
+			"dt": "Customer", "label": "Lazychat Smoke", "fieldtype": "Data",
+			"insert_after": "customer_name",
 		}),
-		("T86 Server Script create stages token", "Server Script", {
-			"name": "_lazychat_smoke_server_script",
-			"script_type": "DocType Event",
-			"reference_doctype": "Customer",
-			"doctype_event": "Before Save",
-			"script": "# noop",
-		}),
-		("T87 Client Script create stages token", "Client Script", {
-			"name": "_lazychat_smoke_client_script",
-			"dt": "Customer", "view": "Form",
-			"script": "// noop",
-		}),
-		("T88 Notification template create stages token", "Notification", {
-			"name": "_lazychat_smoke_notification",
-			"document_type": "Customer",
-			"event": "New",
-			"subject": "Lazychat smoke",
-			"channel": "Email",
-		}),
-		("T89 Print Format create stages token", "Print Format", {
-			"name": "_lazychat_smoke_print_format",
-			"doc_type": "Customer",
-			"html": "<div>smoke</div>",
+		("T87 Client Script create stages token (typed wrapper)", "prepare_create_client_script", {
+			"dt": "Customer", "view": "Form", "script": "frappe.ui.form.on('Customer', {refresh: function(frm) {}});",
 		}),
 	]:
-		r = execute_tool("prepare_create_doc", {"doctype": dt, "values": values})
+		r = execute_tool(tool, args)
 		record(_ok(
 			label,
 			r.get("ok") is True and bool(r.get("preview_token")),
-			f"doctype={dt}",
+			f"tool={tool} error={(r.get('error') or '')[:80]!r}",
+		))
+
+	# T86 Server Script — no typed wrapper exists (script body is too freeform
+	# for schema validation). Generic prepare_create_doc still works because
+	# Server Script is NOT in _TYPED_WRAPPER_FOR_DOCTYPE.
+	r = execute_tool("prepare_create_doc", {"doctype": "Server Script", "values": {
+		"name": "_lazychat_smoke_server_script",
+		"script_type": "DocType Event",
+		"reference_doctype": "Customer",
+		"doctype_event": "Before Save",
+		"script": "# noop",
+	}})
+	record(_ok(
+		"T86 Server Script create stages token (generic path — no wrapper)",
+		r.get("ok") is True and bool(r.get("preview_token")),
+		f"error={(r.get('error') or '')[:80]!r}",
+	))
+
+	# Continue T88/T89 typed-wrapper tests
+	for label, tool, args in [
+		("T88 Notification create stages token (typed wrapper)", "prepare_create_notification", {
+			"subject": "_lazychat_smoke_notification",
+			"document_type": "Customer",
+			"event": "New",
+			"channel": "Email",
+			"recipients": [{"receiver_by_role": "System Manager"}],
+		}),
+		("T89 Print Format create stages token (typed wrapper)", "prepare_create_print_format", {
+			"name": "_lazychat_smoke_print_format",
+			"doc_type": "Customer",
+			"print_format_type": "Jinja",
+			"html": "<div>smoke</div>",
+		}),
+	]:
+		r = execute_tool(tool, args)
+		record(_ok(
+			label,
+			r.get("ok") is True and bool(r.get("preview_token")),
+			f"tool={tool} error={(r.get('error') or '')[:80]!r}",
 		))
 
 	# Cleanup
