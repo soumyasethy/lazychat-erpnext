@@ -1207,6 +1207,88 @@ def run():
 			f"error={(r.get('error') or '')[:120]!r}",
 		))
 
+	# T88a: Script Report rejects top-level `import frappe`.
+	# Production bug 2026-05-08: LLM staged a Script Report starting with
+	# `import frappe`. AST validation passed (syntax ok, def execute exists)
+	# but at runtime safe_exec / RestrictedPython rejected it with
+	# `ImportError: __import__ not found`. Catch it at preview.
+	r = execute_tool("prepare_create_report", {
+		"report_name": "_lz_smoke_sr_import",
+		"ref_doctype": "Customer",
+		"report_type": "Script Report",
+		"script": "import frappe\ndef execute(filters=None):\n\treturn [], []\n",
+	})
+	record(_ok(
+		"T88a Script Report rejects top-level import",
+		not r.get("ok") and "import" in (r.get("error") or "").lower(),
+		f"error={(r.get('error') or '')[:120]!r}",
+	))
+
+	# T88b: Script Report rejects `from frappe import _`.
+	r = execute_tool("prepare_create_report", {
+		"report_name": "_lz_smoke_sr_fromimport",
+		"ref_doctype": "Customer",
+		"report_type": "Script Report",
+		"script": "from frappe import _\ndef execute(filters=None):\n\treturn [], []\n",
+	})
+	record(_ok(
+		"T88b Script Report rejects from-import",
+		not r.get("ok") and "import" in (r.get("error") or "").lower(),
+		f"error={(r.get('error') or '')[:120]!r}",
+	))
+
+	# T88c: Script Report rejects forbidden frappe.db write call.
+	r = execute_tool("prepare_create_report", {
+		"report_name": "_lz_smoke_sr_setvalue",
+		"ref_doctype": "Customer",
+		"report_type": "Script Report",
+		"script": (
+			"def execute(filters=None):\n"
+			"\tfrappe.db.set_value('Customer', '21000001', 'name1', 'x')\n"
+			"\treturn [], []\n"
+		),
+	})
+	record(_ok(
+		"T88c Script Report rejects frappe.db.set_value (write)",
+		not r.get("ok") and "set_value" in (r.get("error") or ""),
+		f"error={(r.get('error') or '')[:120]!r}",
+	))
+
+	# T88d: Script Report rejects `__import__('os')`.
+	r = execute_tool("prepare_create_report", {
+		"report_name": "_lz_smoke_sr_dunder",
+		"ref_doctype": "Customer",
+		"report_type": "Script Report",
+		"script": (
+			"def execute(filters=None):\n"
+			"\t__import__('os')\n"
+			"\treturn [], []\n"
+		),
+	})
+	record(_ok(
+		"T88d Script Report rejects __import__",
+		not r.get("ok") and "__import__" in (r.get("error") or ""),
+		f"error={(r.get('error') or '')[:120]!r}",
+	))
+
+	# T88e: Script Report happy path with safe_exec-clean body.
+	r = execute_tool("prepare_create_report", {
+		"report_name": f"_lz_smoke_sr_ok_{frappe.generate_hash(length=4)}",
+		"ref_doctype": "Customer",
+		"report_type": "Script Report",
+		"script": (
+			"def execute(filters=None):\n"
+			"\tcols = [{'label': 'Name', 'fieldname': 'name', 'fieldtype': 'Data'}]\n"
+			"\tdata = frappe.db.get_list('Customer', limit=1)\n"
+			"\treturn cols, data\n"
+		),
+	})
+	record(_ok(
+		"T88e Script Report stages with safe_exec-clean body",
+		r.get("ok") is True and bool(r.get("preview_token")),
+		f"summary={r.get('summary')!r} error={(r.get('error') or '')[:100]!r}",
+	))
+
 	# T87j: prepare_create_report PRE-DETECTS duplicate names at preview time.
 	# Production bug: LLM staged "Receipt vs Invoice Variance Report" twice;
 	# first stage succeeded, second fired "Applied" then commit-time

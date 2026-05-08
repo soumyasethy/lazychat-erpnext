@@ -1007,7 +1007,30 @@ TOOL_SCHEMAS = [
 				"ref_doctype": {"type": "string", "description": "DocType the report runs against (must exist + user must have report permission)"},
 				"report_type": {"type": "string", "enum": ["Report Builder", "Query Report", "Script Report"], "default": "Report Builder"},
 				"query": {"type": "string", "description": "SELECT-only SQL for Query Report. Validated by the same regex as prepare_run_sql. EXPLAIN-probed against the live DB so table/column errors surface at preview time. Required iff report_type=Query Report."},
-				"script": {"type": "string", "description": "Python source for Script Report. Must define `def execute(filters=None)` returning (columns, data). AST-validated at preview. Required iff report_type=Script Report — empty/missing rejected up front so the report doesn't ship empty."},
+				"script": {"type": "string", "description": (
+					"Python source for Script Report. Required iff report_type=Script Report. "
+					"PREFER report_type='Query Report' with HTML link columns when buttons are needed — "
+					"Query Reports support <a> tags in cell values and avoid the safe_exec sandbox. "
+					"If you DO use Script Report, follow safe_exec rules:\n"
+					"  * NO `import` statements (rejected at preview). `frappe`, `_`, `json` are "
+					"pre-injected as globals. Calling `import frappe` fails at runtime with "
+					"`ImportError: __import__ not found`.\n"
+					"  * MUST define `def execute(filters=None):` returning (columns, data) — "
+					"a tuple of (list-of-dict, list-of-dict).\n"
+					"  * Allowed DB access: `frappe.db.get_list`, `frappe.db.get_all`, "
+					"`frappe.db.get_value`, `frappe.db.count`, `frappe.qb`. NO `frappe.db.set_value`, "
+					"NO mutations.\n"
+					"  * NO side-effects: `frappe.sendmail`, `enqueue`, `delete_doc`, `rename_doc` "
+					"are forbidden.\n"
+					"Canonical pattern:\n"
+					"  def execute(filters=None):\n"
+					"      columns = [{'label': 'Item', 'fieldname': 'item_code', 'fieldtype': 'Link', "
+					"'options': 'Item', 'width': 120}]\n"
+					"      data = frappe.db.get_list('Doctype', filters=filters or {}, fields=['name'])\n"
+					"      return columns, data\n"
+					"The wrapper AST-validates + safe_exec dry-runs the body at preview, so any "
+					"violation surfaces with an actionable hint BEFORE the report ships."
+				)},
 				"columns": {"type": "array", "items": {"type": "object"}, "description": "Optional column definitions (Report Builder)"},
 				"filters": {"type": "object", "description": "Optional default filter values"},
 			},
