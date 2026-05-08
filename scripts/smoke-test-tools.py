@@ -2436,6 +2436,48 @@ def run():
 	))
 	finalize_session(sess1["intent_hash"], "ok")
 
+	# T89n: critic.build_critic_prompt produces a prompt that includes
+	# user intent + composed payload + evidence sections.
+	from lazychat_mcp_erpnext.desk_assistant.critic import build_critic_prompt
+	prompt = build_critic_prompt(
+		intent="variance report for PR vs PI",
+		action="create_report",
+		payload={"query": "SELECT 1", "report_type": "Query Report"},
+		evidence={"sample_rows": [{"name": "X"}], "sample_columns": ["name"]},
+	)
+	record(_ok(
+		"T89n build_critic_prompt includes intent + payload + evidence sections",
+		"USER INTENT" in prompt
+		and "variance report" in prompt
+		and "SELECT 1" in prompt
+		and "sample_rows" in prompt
+		and 'JSON' in prompt and 'verdict' in prompt,
+		f"len={len(prompt)}",
+	))
+
+	# T89o: parse_critic_verdict round-trips a structured response.
+	from lazychat_mcp_erpnext.desk_assistant.critic import parse_critic_verdict
+	mock_resp = '{"verdict": "mismatch", "severity": "high", "mismatches": [{"observation": "blank rows", "why_it_matters": "join wrong"}], "suggested_revisions": ["use pr_detail"]}'
+	parsed = parse_critic_verdict(mock_resp)
+	record(_ok(
+		"T89o parse_critic_verdict round-trips fields",
+		parsed.get("verdict") == "mismatch"
+		and parsed.get("severity") == "high"
+		and len(parsed.get("mismatches", [])) == 1
+		and parsed.get("suggested_revisions") == ["use pr_detail"],
+		f"parsed={parsed}",
+	))
+
+	# T89p: parse_critic_verdict tolerates JSON wrapped in markdown fences.
+	parsed2 = parse_critic_verdict(
+		'```json\n{"verdict": "ok", "severity": "low", "mismatches": []}\n```'
+	)
+	record(_ok(
+		"T89p parse_critic_verdict tolerates ```json fences",
+		parsed2.get("verdict") == "ok",
+		f"parsed={parsed2}",
+	))
+
 	# Cleanup
 	cleaned = []
 	if created_note:
