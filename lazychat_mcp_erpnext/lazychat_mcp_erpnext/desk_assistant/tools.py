@@ -772,6 +772,55 @@ def _coerce_args(args):
 	return out
 
 
+def _form_prefill_capabilities(doctype):
+	"""Return the live _lz_items helper-script whitelist + URL pattern for a
+	doctype. Single source of truth: install.py module-level constants
+	templated into the helper Client Script's JS body. The LLM calls this
+	at compose time to learn what's prefillable on the destination form
+	without needing the prompt to enumerate fields verbatim.
+	"""
+	from lazychat_mcp_erpnext.install import (
+		LAZYCHAT_PARENT_WHITELIST,
+		LAZYCHAT_ITEM_WHITELIST,
+		LAZYCHAT_FORM_HELPER_TARGETS,
+	)
+	if not doctype:
+		return {"error": "doctype required"}
+	if not frappe.db.exists("DocType", doctype):
+		return {"error": f"DocType '{doctype}' does not exist"}
+	helper_installed = bool(frappe.db.exists(
+		"Client Script", f"Lazychat Form Helper ({doctype})"
+	))
+	is_target = doctype in LAZYCHAT_FORM_HELPER_TARGETS
+	scrub = frappe.scrub(doctype)
+	return {
+		"doctype": doctype,
+		"helper_installed": helper_installed,
+		"is_supported_target": is_target,
+		"url_pattern": (
+			f"/app/{scrub}/new"
+			"?<parent_field>=<value>&_lz_items=<base64-json-array>"
+		),
+		"parent_whitelist": list(LAZYCHAT_PARENT_WHITELIST),
+		"item_whitelist": list(LAZYCHAT_ITEM_WHITELIST),
+		"encoding": "url-safe base64 of JSON array of row objects",
+		"example_payload": [{
+			"item_code": "SAMPLE-001", "qty": 1, "rate": 100.0,
+			"uom": "Nos",
+			"pr_detail": "<row-name from tabPurchase Receipt Item>",
+			"purchase_invoice": "<parent invoice doc name>",
+			"purchase_invoice_item": "<row-name from tabPurchase Invoice Item>",
+		}],
+		"notes": (
+			"Helper Client Script reads _lz_items on form load + "
+			"re-applies via signature-detection if return_against "
+			"Make Return clobbers items. Whitelisted keys ONLY — "
+			"anything else is silently dropped. Helper only fills "
+			"when items table is empty (never clobbers user edits)."
+		),
+	}
+
+
 def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 	# Defensive: many models stringify their tool args. Normalize before
 	# dispatch so each tool's impl can rely on native types.
@@ -864,6 +913,9 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			}
 		except Exception as e:
 			return {"error": str(e)}
+
+	if name == "get_form_prefill_capabilities":
+		return _form_prefill_capabilities(args.get("doctype"))
 
 	if name == "prepare_create_doc":
 		dt = args.get("doctype")

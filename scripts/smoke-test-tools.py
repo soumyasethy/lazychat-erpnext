@@ -1526,6 +1526,30 @@ def run():
 		f"parent_n={len(LAZYCHAT_PARENT_WHITELIST)} item_n={len(LAZYCHAT_ITEM_WHITELIST)}",
 	))
 
+	# T89c: get_form_prefill_capabilities returns whitelist + URL pattern
+	# for an installed-helper doctype.
+	r = execute_tool("get_form_prefill_capabilities", {"doctype": "Purchase Invoice"})
+	record(_ok(
+		"T89c get_form_prefill_capabilities returns Purchase Invoice whitelist",
+		r.get("doctype") == "Purchase Invoice"
+		and r.get("helper_installed") is True
+		and "supplier" in (r.get("parent_whitelist") or [])
+		and "item_code" in (r.get("item_whitelist") or [])
+		and "_lz_items" in (r.get("url_pattern") or "")
+		and isinstance(r.get("example_payload"), list),
+		f"keys={list(r.keys()) if isinstance(r, dict) else type(r)}",
+	))
+
+	# T89d: returns helper_installed=False for unsupported doctype.
+	r = execute_tool("get_form_prefill_capabilities", {"doctype": "DocType"})
+	record(_ok(
+		"T89d get_form_prefill_capabilities reports helper_installed=False for non-target doctype",
+		r.get("doctype") == "DocType"
+		and r.get("helper_installed") is False
+		and "supplier" in (r.get("parent_whitelist") or []),
+		f"helper_installed={r.get('helper_installed')}",
+	))
+
 	# T88y: persistent lazychat form helper Client Scripts are seeded by
 	# install hooks on Purchase Invoice / Sales Invoice / Purchase Receipt /
 	# Delivery Note. Verify the Purchase Invoice helper exists, is enabled,

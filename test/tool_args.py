@@ -93,6 +93,7 @@ TOOL_ARGS: dict[str, dict[str, Any]] = {
     "get_doc": {"doctype": "Customer", "name": CUSTOMER},
     "get_current_context": {},
     "describe_doctype": {"doctype": "Sales Order"},
+    "get_form_prefill_capabilities": {"doctype": "Purchase Invoice"},
     "get_value": {"doctype": "Customer", "name": CUSTOMER, "fieldname": "customer_name"},
     "count_doc": {"doctype": "Customer"},
     "search_doctype": {"query": "Sales Order", "limit": 5},
@@ -415,6 +416,16 @@ def _v_describe_doctype(b: dict) -> tuple[bool, str]:
             f"fields={len(fields)}")
 
 
+def _v_get_form_prefill_capabilities(b: dict) -> tuple[bool, str]:
+    return (
+        b.get("doctype") == "Purchase Invoice"
+        and b.get("helper_installed") is True
+        and "supplier" in (b.get("parent_whitelist") or [])
+        and "item_code" in (b.get("item_whitelist") or []),
+        f"helper_installed={b.get('helper_installed')} parent_n={len(b.get('parent_whitelist') or [])}",
+    )
+
+
 def _v_aggregate(b: dict) -> tuple[bool, str]:
     rows = b.get("rows") or []
     return (b.get("ok") is True and isinstance(rows, list) and len(rows) > 0,
@@ -646,6 +657,7 @@ VALIDATORS: dict[str, Callable[[dict], tuple[bool, str]]] = {
     "get_doc": _v_get_doc,
     "get_current_context": _v_current_context,
     "describe_doctype": _v_describe_doctype,
+    "get_form_prefill_capabilities": _v_get_form_prefill_capabilities,
     "get_value": _v_get_value,
     "count_doc": _v_count_doc,
     "search_doctype": _v_search_doctype,
