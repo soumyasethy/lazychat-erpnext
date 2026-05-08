@@ -673,6 +673,16 @@ hallucinated "no POs match" output.
 Evidence:
 - [`test/evidence/cycle7-self-correcting-commit/12-PLATFORM-DELIVERS-real-data-no-hallucination.png`](test/evidence/cycle7-self-correcting-commit/12-PLATFORM-DELIVERS-real-data-no-hallucination.png)
 
+## SQL string-literal-aware DML/DDL validator (2026-05-08)
+
+Companion to the Script-Report safe_exec validation below. The user's "report with debit-note buttons" prompt was hitting a separate validator bug: `_validate_select_sql`'s DML/DDL regex `\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|...)\b` matched `Create` inside `CONCAT('<a class="btn">Create DN</a>')`, rejecting legitimate Query Reports with HTML link columns. The LLM kept falling back to Script Report as a workaround.
+
+Fix ([tools.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py)): new `_strip_sql_string_literals(sql)` helper replaces single-quoted string contents with empty literals (`''`) before applying the DML regex. Handles SQL's single-quote-doubling escape (`'It''s ok'` is one literal). Backtick identifiers are NOT stripped (legitimately can't carry DML keywords as values; LLM uses backticks for table names). The original SQL still flows to EXPLAIN unmodified.
+
+Smoke ([scripts/smoke-test-tools.py](scripts/smoke-test-tools.py)): T88f (`Create` inside `CONCAT(...)` accepted), T88g (`UPDATE/DELETE/DROP` inside string accepted), T88h (real `DROP TABLE` still rejected — caught by SELECT-prefix check), T88i (multi-statement still rejected). 176 in-process / 91 HTTP-wire all green (was 172 → +4).
+
+Manual evidence ([test/evidence/2026-05-08-tour/07-query-report-with-html-buttons-applied.jpeg](test/evidence/2026-05-08-tour/07-query-report-with-html-buttons-applied.jpeg)): replayed user's "i need a report with debit note create option..." prompt. LLM staged a **Query Report** named "Purchase Receipt vs Invoice Reconciliation" with proper `CONCAT('<a class="btn btn-xs btn-primary" href="/app/purchase-invoice/new?...&is_return=1">Create Debit Note</a>')` for both qty and rate variances. Apply card → Applied · create_report + prominent **Open Report →** button. Zero `/commit TOKEN` visible. Zero hallucination loop. The Script Report fallback is no longer needed for this canonical flow.
+
 ## Script-Report safe_exec validation + auto-open + commit-leak scrub (2026-05-08)
 
 Real-user transcript triage: LLM staged `prepare_create_report({report_type:"Script Report", script:"import frappe\n..."})`. AST passed (syntax ok, `def execute` defined). Report shipped. User opened it → `Loading...` forever. Backend trace: `ImportError: __import__ not found` on line 1. Frappe's `safe_exec` (RestrictedPython + FrappeTransformer) blocks ALL imports — `frappe`, `_`, `json` are pre-injected as globals; `import frappe` fails before `execute()` runs. Same Cycle-6 hallucination shape (Apply succeeded → user opened → broken).
