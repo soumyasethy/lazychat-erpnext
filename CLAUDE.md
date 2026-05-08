@@ -673,6 +673,36 @@ hallucinated "no POs match" output.
 Evidence:
 - [`test/evidence/cycle7-self-correcting-commit/12-PLATFORM-DELIVERS-real-data-no-hallucination.png`](test/evidence/cycle7-self-correcting-commit/12-PLATFORM-DELIVERS-real-data-no-hallucination.png)
 
+## Variance-report buttons round 2 — full auto-fill + signature-reapply + report-level button (2026-05-08)
+
+User's repeated complaint: "click button to create new doc — still not able to pass all details". Three concrete failures uncovered after the round-1 ship:
+
+**Failure A — Make Return clobber race.** When `return_against=<PI>` is set on a new Purchase Invoice, ERPNext's Make Return logic auto-fetches ALL items from the original PI and overwrites the items table — clobbering the `_lz_items` payload our helper had just injected. The original helper exited early on its `_alreadyApplied` flag, so the post-clobber items stayed as the auto-fetched original (every line, full qty, full rate) instead of the variance line we wanted.
+
+**Failure B — missing parent fields in URL.** Canonical template only set `is_return` + `return_against` + `_lz_items`. It never explicitly set `supplier` — relying on `return_against` auto-fetch to pull supplier. Async race; supplier sometimes blank on save.
+
+**Failure C — no top-right report button.** User asked for a "Debit Note" button in the report's top-right (in addition to per-row Qty/Rate buttons) for bulk processing. Frappe's `Report.javascript` field DOES support this for non-standard reports (`frappe.query_reports[<name>] = { onload: function(report) { report.page.add_inner_button(...) } }`), but the typed wrapper didn't accept a `javascript` arg.
+
+### Fix A — signature-based reapply in form helper
+
+Rewrote [`install.py:_LAZYCHAT_FORM_HELPER_SCRIPT`](lazychat_mcp_erpnext/lazychat_mcp_erpnext/install.py). Removed the `_alreadyApplied` flag. New `_sig(rows)` and `_frmSig(items)` compute a stable item-signature (`item_code|qty|rate|pr_detail`). On every `refresh` event, if the signatures don't match, the helper clears `frm.doc.items` and re-injects from `_lz_items`. Result: even if Frappe's Make Return logic clobbers our items 100ms after we set them, the next `refresh` (which Frappe fires after Make Return settles) re-applies the lazychat payload. Also bound to `return_against` / `supplier` / `customer` change events with a `setTimeout(50)` deferral to win the auto-fetch race.
+
+### Fix B — explicit supplier + richer item data + per-row Combined button
+
+Updated canonical SQL template in [claude_bridge.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/claude_bridge.py). Each button URL now carries `&supplier=<value>` parent param explicitly. `_lz_items` payload encodes `item_code`, `item_name`, `description`, `qty`, `rate`, `uom`, `pr_detail`, `purchase_receipt`, `purchase_invoice`, `purchase_invoice_item` per row — full traceability back to the original receipt + invoice line. Added a third per-row "Combined DN" button when both qty and rate differ; its `_lz_items` is a 2-element array (qty-variance row + rate-variance row at received qty). Stale single-button-per-row template removed from prompt.
+
+Helper script's `PARENT_WHITELIST` covers `supplier`, `customer`, `is_return`, `return_against`, `posting_date`, `due_date`, `set_warehouse`, `company`, `cost_center`, `project`, `currency`. `ITEM_WHITELIST` extended to: `item_code`, `item_name`, `description`, `qty`, `rate`, `amount`, `uom`, `stock_uom`, `conversion_factor`, `warehouse`, `cost_center`, `expense_account`, `income_account`, `project`, `tax_rate`, plus reference back-links `purchase_receipt`, `pr_detail`, `purchase_invoice`, `purchase_invoice_item`, `sales_order`, `so_detail`, `sales_invoice`, `sales_invoice_item`, `delivery_note`, `dn_detail`.
+
+### Fix C — top-right report button via `Report.javascript`
+
+`prepare_create_report` ([tools.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py)) now accepts an optional `javascript` arg for `Query Report` / `Script Report`. At commit, it's persisted to the Report doc's `javascript` field. Frappe loads this on report open for non-standard reports (it's how `frappe.query_reports[<name>] = { onload: ... }` gets registered). Schema description in [tool_schemas.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tool_schemas.py) walks the LLM through the canonical pattern (filter `report.data` to rows with both diffs, build `_lz_items` from row fieldnames, base64-encode, `window.open(/app/purchase-invoice/new?...)`). Prompt block in [claude_bridge.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/claude_bridge.py) shows a verbatim button-handler example.
+
+### Smoke
+
+[scripts/smoke-test-tools.py](scripts/smoke-test-tools.py): T88z (`prepare_create_report` accepts `javascript` arg), T88aa (form helper body contains `_sig`/`_frmSig`/`PARENT_WHITELIST`/`ITEM_WHITELIST`/supplier handling). 193 in-process / 91 HTTP-wire / 360 chat-ui all green (was 191/91/360 → +2).
+
+End-to-end: variance-report buttons now produce URLs with `?is_return=1&supplier=<sup>&return_against=<PI>&_lz_items=<b64>`. Click → new PI form opens, Frappe sets parent fields, Make Return auto-fetches items (race), our helper detects clobber via signature mismatch on the `refresh` event, clears + re-applies our specific variance row(s) with full back-links and item metadata. User can review and Save without manual entry.
+
 ## Client Script auto-name + persistent form-helper for variance-report buttons (2026-05-08)
 
 Two paired fixes for the recurring "click Debit Note button → empty Items table → GST HSN error" failure mode in the canonical PR-vs-PI variance flow.

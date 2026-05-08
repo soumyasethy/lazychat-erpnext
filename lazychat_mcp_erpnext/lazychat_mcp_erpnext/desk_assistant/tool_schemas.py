@@ -1033,6 +1033,22 @@ TOOL_SCHEMAS = [
 				)},
 				"columns": {"type": "array", "items": {"type": "object"}, "description": "Optional column definitions (Report Builder)"},
 				"filters": {"type": "object", "description": "Optional default filter values"},
+				"javascript": {"type": "string", "description": (
+					"Optional client-side JavaScript loaded by Frappe's Query Report page (Report.javascript). "
+					"Only honored for Query Report / Script Report; ignored for Report Builder. Use this to "
+					"add top-right inner page buttons via `report.page.add_inner_button()`. Pattern:\n"
+					"  frappe.query_reports['<ReportName>'] = {\n"
+					"    onload: function(report) {\n"
+					"      report.page.add_inner_button('Debit Note', function() {\n"
+					"        const data = report.data || []; // current rendered rows\n"
+					"        // build _lz_items array from rows where both qty and rate diff,\n"
+					"        // base64-encode JSON, navigate to /app/purchase-invoice/new?...\n"
+					"      });\n"
+					"    }\n"
+					"  };\n"
+					"Reference the lazychat _lz_items URL convention so the persistent helper "
+					"Client Script populates the items child table on the new doc."
+				)},
 			},
 			"required": ["report_name", "ref_doctype", "report_type"],
 		},
