@@ -673,6 +673,38 @@ hallucinated "no POs match" output.
 Evidence:
 - [`test/evidence/cycle7-self-correcting-commit/12-PLATFORM-DELIVERS-real-data-no-hallucination.png`](test/evidence/cycle7-self-correcting-commit/12-PLATFORM-DELIVERS-real-data-no-hallucination.png)
 
+## Debit/Credit Note alias redirect + PR↔PI item-linkage in prompt (2026-05-08)
+
+Real-user replay of the canonical "report with debit-note option per line item" prompt produced a broken Query Report: receipt_qty / qty_variance / create_dn_qty / receipt_rate / rate_variance / create_dn_rate columns all blank or `-`. AND the chat showed `describe_doctype({"doctype":"Debit Note"}) Failed after 36ms: {"error": "invalid doctype"}` mid-turn.
+
+Two LLM-knowledge gaps, both fixed at the data layer + prompt layer:
+
+### Gap 1 — "Debit Note" / "Credit Note" aren't doctypes
+
+ERPNext has no separate `Debit Note` doctype. A debit note is a Purchase Invoice with `is_return=1` and `return_against=<original PI name>` (analogously, Credit Note ≡ Sales Invoice with `is_return=1`). The LLM doesn't know this and bounces off `invalid doctype` repeatedly.
+
+**Fix** — new `_DOCTYPE_ALIASES` constant in [tools.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py) + `describe_doctype` returns a structured redirect when the requested doctype is one of: `Debit Note`, `Credit Note`, `Purchase Return`, `Sales Return`. Response shape: `{"error": "invalid doctype", "redirect": "Purchase Invoice", "hint": "Debit Note is NOT a separate doctype ... use prepare_create_doc({doctype:'Purchase Invoice', values:{is_return:1, return_against:'<PI-name>', ...}}) ..."}`. Lookup is case-insensitive (`.title()` normalization). Unknown doctypes still get the bare `invalid doctype` — no false-positive aliasing.
+
+### Gap 2 — wrong PR↔PI row linkage produces blank columns
+
+The user's deployed report joined on `pri.purchase_invoice = pii.parent AND pri.item_code = pii.item_code`. Both fields exist but the join is wrong:
+- `Purchase Receipt Item.purchase_invoice` is sparsely populated (only set when PR was created from PI; most receipts come first, no back-ref).
+- Joining by `item_code` alone matches across receipts, producing Cartesian/wrong rows.
+
+**Canonical row-to-row link**: `Purchase Invoice Item.pr_detail` → `Purchase Receipt Item.name` (or equivalently `Purchase Receipt Item.purchase_invoice_item` → `Purchase Invoice Item.name`).
+
+**Fix** — system prompt addition in [claude_bridge.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/claude_bridge.py) and chat-ui mirror in [routerSystemPrompt.ts](../lazychat.ai/apps/chat-ui/src/lib/routerSystemPrompt.ts). Two new blocks under `CHILD-TABLE LINKS`:
+- **ITEM-LEVEL PR↔PI LINKAGE**: explicit table of the four directional links + canonical join pattern + explicit "DO NOT join on item_code alone" / "DO NOT rely on pri.purchase_invoice alone" warnings.
+- **DEBIT NOTE / CREDIT NOTE**: spell out the `is_return=1` flag + URL pattern for HTML link buttons (`/app/purchase-invoice/new?is_return=1&return_against=<PI-name>`) + explicit "NEVER call describe_doctype('Debit Note')" rule (it returns the redirect hint anyway, but better to skip it).
+
+### Tests (4 new, in-process)
+
+[scripts/smoke-test-tools.py](scripts/smoke-test-tools.py): T88l (Debit Note → Purchase Invoice redirect with `is_return` in hint), T88m (Credit Note → Sales Invoice), T88n (case-insensitive: "debit note" lowercase still redirects), T88o (genuinely unknown doctype gets bare `invalid doctype` with no false-positive `redirect`/`hint`).
+
+Suite: 178 → **182** in-process. 91 HTTP-wire / 355 chat-ui unchanged (no chat-ui code change — the prompt itself is what teaches the LLM).
+
+Manual replay verification: replay the user's prompt; LLM (a) doesn't bounce off `Debit Note` lookups, (b) joins PI items to PR items via `pii.pr_detail = pri.name`, (c) populated receipt columns are now non-blank.
+
 ## MariaDB LIMIT-in-IN guard + EXPLAIN-probe 1235 surfacing (2026-05-08)
 
 Real-user replay of "report with debit-note option per line item" prompt: LLM staged a Query Report whose JOIN's `ON` clause used `pri.parent IN (SELECT DISTINCT prci.parent FROM ... WHERE ... LIMIT 1)`. Preview-time gates (`_validate_select_sql` regex + `_probe_select_sql_explain`) accepted it. Opening the report → `pymysql.err.NotSupportedError: (1235, "This version of MariaDB doesn't yet support 'LIMIT & IN/ALL/ANY/SOME subquery'")`.
