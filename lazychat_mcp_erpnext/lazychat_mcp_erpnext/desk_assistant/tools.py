@@ -951,6 +951,26 @@ def _validate_prepare_payload(doctype, values, *, child_tables=None):
 				"hint": hint,
 			}
 
+	# Link-target existence check.
+	if isinstance(values, dict):
+		_meta = frappe.get_meta(doctype)
+		_link_fields = {f.fieldname: f.options for f in _meta.fields
+		                if f.fieldtype == "Link" and f.options}
+		for k, target_doctype in _link_fields.items():
+			v = values.get(k)
+			if not v or not isinstance(v, str):
+				continue
+			if not frappe.db.exists(target_doctype, v):
+				return {
+					"error_kind": "reference",
+					"error": f"{target_doctype} '{v}' does not exist (referenced by {doctype}.{k})",
+					"hint": (
+						f"Use search_link({{doctype:'{target_doctype}', txt:'<partial-name>'}})" 
+						f" to find the correct name, or get_list({{doctype:'{target_doctype}'," 
+						f" limit:5}}) to browse."
+					),
+				}
+
 	# Child-table validation
 	if child_tables:
 		for child_field, child_doctype in child_tables.items():
