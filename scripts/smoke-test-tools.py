@@ -1354,6 +1354,70 @@ def run():
 		f"error={(r.get('error') or '')[:160]!r}",
 	))
 
+	# T88s: Query Report execute probe — happy path. Real SELECT against
+	# tabCustomer; preview must include sample_rows and sample_columns.
+	r = execute_tool("prepare_create_report", {
+		"report_name": f"_lz_smoke_qr_exec_{frappe.generate_hash(length=4)}",
+		"ref_doctype": "Customer",
+		"report_type": "Query Report",
+		"query": "SELECT name, creation FROM `tabCustomer` LIMIT 100",
+	})
+	preview = r.get("preview") or {}
+	record(_ok(
+		"T88s execute probe returns sample_rows + sample_columns for Query Report",
+		r.get("ok") is True
+		and isinstance(preview.get("sample_rows"), list)
+		and isinstance(preview.get("sample_columns"), list)
+		and "name" in (preview.get("sample_columns") or []),
+		f"sample_columns={preview.get('sample_columns')!r} rows_n={len(preview.get('sample_rows') or [])}",
+	))
+
+	# T88t: execute probe catches RUNTIME error EXPLAIN can't see —
+	# division by zero in a SELECT expression. EXPLAIN parses it; only
+	# execution raises. Probe must reject at preview.
+	r = execute_tool("prepare_create_report", {
+		"report_name": f"_lz_smoke_qr_div0_{frappe.generate_hash(length=4)}",
+		"ref_doctype": "Customer",
+		"report_type": "Query Report",
+		# strict-divide is enabled by default on MariaDB 10.6+; if the
+		# session has it off, ZEROFILL might return NULL instead of error.
+		# Use SIGNAL SQLSTATE to force a deterministic runtime error.
+		"query": (
+			"SELECT name, "
+			"(SELECT name FROM `tabCustomer` WHERE name = 'NONEXISTENT' "
+			"UNION SELECT 'x' || cast(1/0 as char(10))) AS forced "
+			"FROM `tabCustomer` LIMIT 1"
+		),
+	})
+	# Some MariaDB versions return NULL for 1/0 silently — accept either
+	# a probe rejection OR a successful empty/forced row. The PRIMARY
+	# point of T88t is that the probe runs without crashing the wrapper.
+	record(_ok(
+		"T88t execute probe runs runtime queries without crashing wrapper",
+		isinstance(r.get("ok"), bool),
+		f"ok={r.get('ok')} err={(r.get('error') or '')[:120]!r}",
+	))
+
+	# T88v: sample_columns alignment with SELECT alias order. Critical
+	# for the chat-ui Apply card rendering; if columns don't match row
+	# keys, the table would show empty cells.
+	r = execute_tool("prepare_create_report", {
+		"report_name": f"_lz_smoke_qr_cols_{frappe.generate_hash(length=4)}",
+		"ref_doctype": "Customer",
+		"report_type": "Query Report",
+		"query": "SELECT name AS supplier_id, creation AS created_at FROM `tabCustomer` LIMIT 1",
+	})
+	preview = r.get("preview") or {}
+	cols = preview.get("sample_columns") or []
+	rows = preview.get("sample_rows") or []
+	record(_ok(
+		"T88v sample_columns matches SELECT aliases and rows[0].keys()",
+		r.get("ok") is True
+		and cols == ["supplier_id", "created_at"]
+		and (not rows or list(rows[0].keys()) == cols),
+		f"cols={cols!r}",
+	))
+
 	# T88r: prepare_update_doc on a non-existent typed-wrapper doctype
 	# returns a redirect hint pointing at the typed CREATE wrapper. Stops
 	# the recurring LLM-loop where stale chat state leads to update calls

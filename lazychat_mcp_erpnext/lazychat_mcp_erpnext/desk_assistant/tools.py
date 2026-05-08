@@ -463,6 +463,60 @@ def _probe_select_sql_explain(query):
 		return None
 
 
+def _probe_select_sql_execute(query, sample_size=5, timeout_sec=8):
+	"""Actually EXECUTE the LLM-supplied SELECT against the live DB with a
+	bounded sample size and server-side statement timeout. Catches runtime
+	errors EXPLAIN can't see (wrong-typed arithmetic, certain optimizer
+	constraints, slow queries, MariaDB version-gated features) and returns
+	sample rows so the LLM/user can verify shape before commit.
+
+	Returns:
+	  {"ok": True, "rows": [...sample_size rows], "columns": [name, ...],
+	   "row_count_capped": bool}                                — success
+	  {"ok": False, "error": "<text>", "hint": "<actionable>"}  — runtime err
+	"""
+	try:
+		stripped = _strip_leading_sql_comments((query or "").strip().rstrip(";"))
+		if not stripped:
+			return {"ok": False, "error": "empty query", "hint": None}
+		# Substitute %(name)s placeholders to NULL — same convention as the
+		# EXPLAIN probe; safe because we wrap in an outer SELECT * LIMIT N.
+		executable = _SQL_PLACEHOLDER_RE.sub("NULL", stripped)
+		# Wrap so the caller's ORDER BY / GROUP BY / LIMIT / aggregate behavior
+		# is preserved. Outer LIMIT ensures we never pull more than sample_size
+		# rows even if the inner query is unbounded.
+		wrapped = f"SELECT * FROM ({executable}) AS _lz_probe LIMIT {int(sample_size)}"
+		# MariaDB session-level statement timeout. SET STATEMENT applies to
+		# the SINGLE following statement only (auto-resets), so this doesn't
+		# leak into other Frappe queries on the same connection.
+		timed = f"SET STATEMENT MAX_STATEMENT_TIME={int(timeout_sec)} FOR {wrapped}"
+		rows = frappe.db.sql(timed, as_dict=True)
+		columns = list(rows[0].keys()) if rows else []
+		return {
+			"ok": True,
+			"rows": rows,
+			"columns": columns,
+			"row_count_capped": len(rows) >= sample_size,
+		}
+	except Exception as e:
+		wrapped_err = _wrap_db_error(e, query, "execute_probe")
+		# Unlike the EXPLAIN probe, surface ALL error_kinds — runtime errors
+		# are exactly what this probe is designed to catch.
+		msg = wrapped_err.get("error") or str(e)
+		hint = wrapped_err.get("hint")
+		# Detect MariaDB statement-timeout (codes 1969 / 3024 — varies by
+		# version) and convert to a user-actionable hint.
+		err_str = str(e)
+		if "1969" in err_str or "3024" in err_str or "max_statement_time" in err_str.lower() or "exceeded" in err_str.lower():
+			hint = (
+				f"Query execution exceeded the {timeout_sec}s preview timeout. "
+				"This usually means a missing JOIN condition (Cartesian product), "
+				"or a WHERE filter that's too broad. Add filters that constrain "
+				"the result set before staging."
+			)
+		return {"ok": False, "error": msg, "hint": hint}
+
+
 def _attr_chain(node):
 	"""For an AST Attribute node like `frappe.db.sql`, return ['frappe', 'db', 'sql'].
 	Returns [] for non-Name/Attribute roots so callers can ignore complex receivers.
@@ -2747,6 +2801,12 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				f"patch:{{...}}}}). To replace, delete the existing Report "
 				f"first via prepare_delete_doc."
 			)}
+		# Sample data captured by the execute probe — populated for Query
+		# Reports below, embedded in the preview response so the LLM (and
+		# the Apply card) can verify shape before commit.
+		sample_rows = []
+		sample_columns = []
+		sample_truncated = False
 		if report_type == "Query Report":
 			if not query:
 				return {"error": "query is required for Query Report"}
@@ -2756,6 +2816,19 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			explain_error = _probe_select_sql_explain(query)
 			if explain_error:
 				return {"error": explain_error}
+			# Layer 3 — actual execution with bounded sample size + statement
+			# timeout. Catches runtime errors EXPLAIN can't see + gives a
+			# sample of the actual result shape. This closes the gap where
+			# the LLM ships a query that EXPLAIN accepts but execution
+			# rejects (or returns wrong shape).
+			exec_probe = _probe_select_sql_execute(query, sample_size=5, timeout_sec=8)
+			if not exec_probe.get("ok"):
+				err = exec_probe.get("error") or "query failed at execution"
+				hint = exec_probe.get("hint")
+				return {"error": f"{err}\nHint: {hint}" if hint else err}
+			sample_rows = exec_probe.get("rows") or []
+			sample_columns = exec_probe.get("columns") or []
+			sample_truncated = bool(exec_probe.get("row_count_capped"))
 		if report_type == "Script Report":
 			# Production bug 2026-05-08: a Script Report stored without a Python
 			# `report_script` body opens to a blank page in Desk and the LLM has
@@ -2826,6 +2899,13 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 					if report_type == "Report Builder"
 					else f"/app/query-report/{report_name}"
 				),
+				# Real-execution sample (Query Report only). Empty for other
+				# report types. The LLM is instructed to inspect these to
+				# verify shape; the chat-ui Apply card renders them as a
+				# table so the user can also visually confirm.
+				"sample_rows": sample_rows,
+				"sample_columns": sample_columns,
+				"sample_truncated": sample_truncated,
 			},
 			"expires_in_sec": PREP_TTL_SEC,
 			"confirm_with": "click the inline Apply button to confirm",
@@ -4500,6 +4580,14 @@ def commit_prepared(token, **extras):
 				probe_err = _probe_select_sql_explain(rep_values["query"])
 				if probe_err:
 					return {"ok": False, "error": f"query failed EXPLAIN at commit: {probe_err}"}
+				# Re-execute with bounded sample at commit so a stale/altered
+				# token can't ship a query that fails at report-open time.
+				exec_probe = _probe_select_sql_execute(rep_values["query"], sample_size=1, timeout_sec=8)
+				if not exec_probe.get("ok"):
+					return {
+						"ok": False,
+						"error": f"query failed execution probe at commit: {exec_probe.get('error')}",
+					}
 			doc = frappe.get_doc(rep_values).insert(ignore_permissions=False)
 			# Persist columns / filters as JSON on the report's `json` field
 			# (Report Builder convention) when supplied. Query Report renders
