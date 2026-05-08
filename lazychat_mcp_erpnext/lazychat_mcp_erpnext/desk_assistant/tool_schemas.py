@@ -56,6 +56,27 @@ TOOL_SCHEMAS = [
 		},
 	},
 	{
+		"name": "get_form_prefill_capabilities",
+		"description": (
+			"Return the live _lz_items URL-prefill whitelist for a doctype "
+			"(parent fields + item child-row fields the persistent helper "
+			"Client Script honors). Call this BEFORE composing a Query Report "
+			"with HTML buttons that prefill a new doc — the response tells you "
+			"exactly which fields you can encode in the URL. Returns "
+			"{doctype, helper_installed, is_supported_target, url_pattern, "
+			"parent_whitelist, item_whitelist, example_payload}. Doctypes with "
+			"helper_installed=true: Purchase Invoice, Sales Invoice, Purchase "
+			"Receipt, Delivery Note (others can be added via install.py)."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"doctype": {"type": "string", "description": "Target DocType (must exist)"},
+			},
+			"required": ["doctype"],
+		},
+	},
+	{
 		"name": "prepare_create_doc",
 		"description": (
 			"STAGE creating a new document. Does NOT actually create. Returns "
