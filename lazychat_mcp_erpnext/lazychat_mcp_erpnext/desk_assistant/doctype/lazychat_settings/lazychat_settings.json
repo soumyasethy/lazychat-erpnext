@@ -19,6 +19,8 @@
   "section_security",
   "allow_email",
   "allow_dangerous_tools",
+  "cycle9_section",
+  "cycle9_enabled",
   "section_help",
   "help_html"
  ],
@@ -115,6 +117,18 @@
    "fieldtype": "Check",
    "label": "Allow prepare_run_sql + prepare_run_python Tools",
    "description": "When checked AND caller has System Manager role, the SQL and Python power tools can be staged via /commit. SELECT-only SQL enforced by regex. site_config 'lazychat_allow_dangerous_tools' takes precedence if set."
+  },
+  {
+   "fieldname": "cycle9_section",
+   "fieldtype": "Section Break",
+   "label": "Cycle 9 — Auto-discovery + Verification (experimental)"
+  },
+  {
+   "default": "0",
+   "fieldname": "cycle9_enabled",
+   "fieldtype": "Check",
+   "label": "Enable Cycle 9 (auto-discovery, iterative verification, critic LLM, exemplar memory, live grounding, PEVR)",
+   "description": "When OFF, the assistant behaves exactly as it did pre-Cycle 9 (Cycle 8 behavior). When ON, all Cycle 9 capabilities activate, gated by Effort level."
   },
   {
    "default": "0",

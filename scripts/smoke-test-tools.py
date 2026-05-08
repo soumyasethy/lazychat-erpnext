@@ -1500,6 +1500,15 @@ def run():
 		f"len={len(body)}",
 	))
 
+	# T89a: cycle9_enabled flag defaults false; site_config override works.
+	from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+	settings = get_lazychat_settings()
+	record(_ok(
+		"T89a cycle9_enabled defaults false",
+		settings.get("cycle9_enabled") is False,
+		f"cycle9_enabled={settings.get('cycle9_enabled')!r}",
+	))
+
 	# T88y: persistent lazychat form helper Client Scripts are seeded by
 	# install hooks on Purchase Invoice / Sales Invoice / Purchase Receipt /
 	# Delivery Note. Verify the Purchase Invoice helper exists, is enabled,
