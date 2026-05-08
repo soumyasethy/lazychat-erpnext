@@ -673,6 +673,21 @@ hallucinated "no POs match" output.
 Evidence:
 - [`test/evidence/cycle7-self-correcting-commit/12-PLATFORM-DELIVERS-real-data-no-hallucination.png`](test/evidence/cycle7-self-correcting-commit/12-PLATFORM-DELIVERS-real-data-no-hallucination.png)
 
+## Canonical PR↔PI variance-report SQL template in system prompt (2026-05-08)
+
+After the alias-redirect + linkage-knowledge fix landed, the LLM correctly used `pii.pr_detail = pri.name` BUT still produced reports with: (a) loose `WHERE` filter that matched non-variance rows, (b) missing `pi.docstatus = 1`, (c) un-COALESCE'd NULL receipts producing dropouts, (d) overflowing button labels visibly truncated to "Create Debit Note (Q". User shot this in the foot 5+ times running the same prompt.
+
+**Fix** — added a verbatim **canonical Query Report SQL template** to `_system_prompt` in [claude_bridge.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/claude_bridge.py) under CHILD-TABLE LINKS, plus 5 explicit quality rules:
+1. Filter to actual variances: `WHERE (pii.qty <> COALESCE(pri.qty, 0) OR pii.rate <> COALESCE(pri.rate, 0))`.
+2. `pi.docstatus = 1` on the parent invoice — never include drafts.
+3. `COALESCE(pri.X, 0)` on every receipt-side reference — services/direct-invoice items have NULL pri.* and naive arithmetic drops them out.
+4. Short button labels (≤12 chars: "Debit Note ↗") — Frappe Query Report columns auto-size to content; long labels visibly truncate.
+5. Empty string `''` for the non-action ELSE branch (cleaner than `'-'` on button columns).
+
+The chat-ui [routerSystemPrompt.ts](../lazychat.ai/apps/chat-ui/src/lib/routerSystemPrompt.ts) gets a condensed mirror of the 5 rules under the existing PR↔PI section.
+
+Pure prompt addition, no code/schema/test churn. 182 in-process / 91 HTTP-wire / 355 chat-ui all green. Bad reports deleted from the bench.
+
 ## Debit/Credit Note alias redirect + PR↔PI item-linkage in prompt (2026-05-08)
 
 Real-user replay of the canonical "report with debit-note option per line item" prompt produced a broken Query Report: receipt_qty / qty_variance / create_dn_qty / receipt_rate / rate_variance / create_dn_rate columns all blank or `-`. AND the chat showed `describe_doctype({"doctype":"Debit Note"}) Failed after 36ms: {"error": "invalid doctype"}` mid-turn.
