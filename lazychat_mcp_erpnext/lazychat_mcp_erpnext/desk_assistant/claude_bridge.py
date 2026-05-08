@@ -215,6 +215,23 @@ WRITE / WORKFLOW / COMMS (always two-phase via prepare_* + /commit):
            JOIN `tabPurchase Receipt Item` pri ON pri.parent = pr.name
            WHERE pri.purchase_order = '...'
 
+  ITEM-LEVEL PR↔PI LINKAGE (canonical, row-to-row):
+    • `Purchase Invoice Item.pr_detail`              → Purchase Receipt Item.name
+    • `Purchase Invoice Item.purchase_receipt`       → Purchase Receipt.name (parent ref)
+    • `Purchase Receipt Item.purchase_invoice_item`  → Purchase Invoice Item.name (back-link)
+    • `Purchase Receipt Item.purchase_invoice`       → Purchase Invoice.name (back-link, sparse — only set when PR was made FROM the PI)
+  For receipt-vs-invoice variance reports, ALWAYS join on the row-level link
+  `pii.pr_detail = pri.name` (or equivalently `pri.purchase_invoice_item = pii.name`).
+  DO NOT join on `item_code` alone — items repeat across PRs/PIs and you'll get
+  bogus matches. DO NOT rely on `pri.purchase_invoice` alone — it's only populated
+  for invoice-first flows and most receipts won't have it set.
+
+  ERPNext doesn't have separate "Debit Note" / "Credit Note" doctypes. They're
+  Purchase Invoice / Sales Invoice with `is_return=1` (and `return_against=<original>`).
+  For Query Reports with a "Create Debit Note" link button, the URL is
+  `/app/purchase-invoice/new?is_return=1&return_against=<PI-name>`. NEVER call
+  describe_doctype("Debit Note") — it returns a redirect hint pointing here.
+
 - prepare_run_sql — STAGES a SELECT query for user-approval (Apply button) instead of running
   it immediately. Use ONLY when the user has explicitly asked to review the SQL before it runs.
   For analytical questions that need the data NOW, use `run_sql_select` instead — staging-then-

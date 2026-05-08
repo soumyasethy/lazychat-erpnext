@@ -1354,6 +1354,46 @@ def run():
 		f"error={(r.get('error') or '')[:160]!r}",
 	))
 
+	# T88l: describe_doctype on a business-term alias ("Debit Note") returns
+	# an actionable redirect with hint, not a bare "invalid doctype". This
+	# stops the recurring loop where the LLM bounces off the error and
+	# never finds the real doctype (Purchase Invoice with is_return=1).
+	r = execute_tool("describe_doctype", {"doctype": "Debit Note"})
+	record(_ok(
+		"T88l describe_doctype('Debit Note') returns alias redirect",
+		r.get("error") == "invalid doctype"
+		and r.get("redirect") == "Purchase Invoice"
+		and "is_return" in (r.get("hint") or ""),
+		f"redirect={r.get('redirect')!r} hint={(r.get('hint') or '')[:120]!r}",
+	))
+
+	# T88m: same alias-redirect for "Credit Note" → Sales Invoice.
+	r = execute_tool("describe_doctype", {"doctype": "Credit Note"})
+	record(_ok(
+		"T88m describe_doctype('Credit Note') returns alias redirect",
+		r.get("error") == "invalid doctype"
+		and r.get("redirect") == "Sales Invoice"
+		and "is_return" in (r.get("hint") or ""),
+		f"redirect={r.get('redirect')!r}",
+	))
+
+	# T88n: case-insensitive — "debit note" (lowercase) also redirects.
+	r = execute_tool("describe_doctype", {"doctype": "debit note"})
+	record(_ok(
+		"T88n describe_doctype alias is case-insensitive",
+		r.get("redirect") == "Purchase Invoice",
+		f"redirect={r.get('redirect')!r}",
+	))
+
+	# T88o: a genuinely unknown doctype still returns plain "invalid doctype"
+	# without a redirect (no false-positive aliasing).
+	r = execute_tool("describe_doctype", {"doctype": "Frob Quux"})
+	record(_ok(
+		"T88o unknown doctype still bare 'invalid doctype' (no false alias)",
+		r.get("error") == "invalid doctype" and "redirect" not in r and "hint" not in r,
+		f"r={r!r}",
+	))
+
 	# T88k: nested subquery shape that escapes the static regex (LIMIT not
 	# directly inside IN — separated by an extra paren), but EXPLAIN catches
 	# 1235. _wrap_db_error must classify it as `syntax` so the probe

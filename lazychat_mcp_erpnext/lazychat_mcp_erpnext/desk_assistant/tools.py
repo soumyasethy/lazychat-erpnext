@@ -172,6 +172,44 @@ _CHILD_TABLE_LINKS = {
 	"against_purchase_order": "Purchase Receipt Item",
 }
 
+# Common business-term aliases that AREN'T separate doctypes in ERPNext.
+# When the LLM calls describe_doctype with one of these, return an
+# actionable redirect so it routes to the real doctype with the correct
+# `is_return=1` flag instead of bouncing off an "invalid doctype" error.
+# Keys are Title-Cased; lookup normalizes incoming `doctype` arg.
+_DOCTYPE_ALIASES = {
+	"Debit Note": (
+		"Purchase Invoice",
+		"Debit Note is NOT a separate doctype in ERPNext. It's a Purchase "
+		"Invoice with `is_return=1` (and typically `return_against=<original PI name>`). "
+		"Use describe_doctype('Purchase Invoice') for the schema, and "
+		"prepare_create_doc({doctype:'Purchase Invoice', values:{is_return:1, "
+		"return_against:'<PI-name>', supplier:'...', items:[...]}}) to create one. "
+		"For HTML link buttons in Query Reports, use "
+		"`/app/purchase-invoice/new?is_return=1&return_against=<PI>`.",
+	),
+	"Credit Note": (
+		"Sales Invoice",
+		"Credit Note is NOT a separate doctype in ERPNext. It's a Sales "
+		"Invoice with `is_return=1` (and `return_against=<original SI name>`). "
+		"Use describe_doctype('Sales Invoice') and "
+		"prepare_create_doc({doctype:'Sales Invoice', values:{is_return:1, "
+		"return_against:'<SI-name>', customer:'...', items:[...]}}).",
+	),
+	"Purchase Return": (
+		"Purchase Invoice",
+		"Purchase Return is NOT a separate doctype. It's a Purchase Invoice "
+		"with `is_return=1` (or a Purchase Receipt with `is_return=1` for "
+		"stock-only returns). See Debit Note for the invoice path.",
+	),
+	"Sales Return": (
+		"Sales Invoice",
+		"Sales Return is NOT a separate doctype. It's a Sales Invoice with "
+		"`is_return=1` (or a Delivery Note with `is_return=1` for stock-only). "
+		"See Credit Note for the invoice path.",
+	),
+}
+
 
 def _wrap_db_error(e, query, action):
 	"""Build a structured, LLM-actionable error response for a DB exception
@@ -734,6 +772,16 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 	if name == "describe_doctype":
 		dt = args.get("doctype")
 		if not dt or not frappe.db.exists("DocType", dt):
+			# Common business-term aliases that aren't doctypes in ERPNext.
+			# Each entry: (target_doctype, hint). Returned with error so the
+			# LLM sees both that the lookup failed AND what to do instead.
+			alias = _DOCTYPE_ALIASES.get((dt or "").strip().title())
+			if alias:
+				return {
+					"error": "invalid doctype",
+					"redirect": alias[0],
+					"hint": alias[1],
+				}
 			return {"error": "invalid doctype"}
 		if not frappe.has_permission(dt, "read"):
 			return {"error": "no read permission"}
