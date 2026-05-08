@@ -1,3 +1,4 @@
+import difflib as _difflib
 import hashlib
 import io
 import json
@@ -895,6 +896,89 @@ def _doctype_relationships(doctype):
 	}
 
 
+def _meta_fieldnames(doctype):
+	"""Return the set of valid fieldnames on a doctype (header fields only,
+	NOT child-table fieldnames). Used by _validate_prepare_payload."""
+	try:
+		meta = frappe.get_meta(doctype)
+		names = {f.fieldname for f in meta.fields}
+		# Add system fields that aren't in meta.fields
+		names.update({"name", "owner", "creation", "modified", "modified_by",
+		              "docstatus", "idx", "parent", "parentfield", "parenttype"})
+		return names
+	except Exception:
+		return set()
+
+
+def _validate_prepare_payload(doctype, values, *, child_tables=None):
+	"""Universal preview-time validator for prepare_* payloads. Returns
+	None on success, or {error_kind, error, hint} on failure.
+
+	Catches:
+	- Unknown fields on the parent doctype (typos like 'cusomer_group')
+	- Unknown fields on child-table rows
+	- Permission missing
+	(Link-target existence + HTML cell scan added in M1.5/M1.6.)
+	"""
+	if not doctype:
+		return {"error_kind": "schema", "error": "doctype required"}
+	if not frappe.db.exists("DocType", doctype):
+		return {"error_kind": "schema",
+		        "error": f"DocType '{doctype}' does not exist"}
+	# Permission re-check at preview time
+	if not frappe.has_permission(doctype, "create"):
+		return {"error_kind": "permission",
+		        "error": f"no create permission on {doctype}"}
+
+	header_fields = _meta_fieldnames(doctype)
+	if isinstance(values, dict):
+		for k in values.keys():
+			if k in header_fields:
+				continue
+			# Skip child-table fieldnames (handled separately)
+			if isinstance(values[k], list):
+				continue
+			# Unknown field — find closest match
+			suggestions = _difflib.get_close_matches(k, list(header_fields), n=3, cutoff=0.6)
+			hint = (
+				f"Did you mean: {', '.join(suggestions)}?"
+				if suggestions else
+				f"Field '{k}' not on {doctype}. Call describe_doctype('{doctype}') to see valid fields."
+			)
+			return {
+				"error_kind": "schema",
+				"error": f"Unknown field '{k}' on {doctype}",
+				"hint": hint,
+			}
+
+	# Child-table validation
+	if child_tables:
+		for child_field, child_doctype in child_tables.items():
+			rows = (values or {}).get(child_field) or []
+			if not isinstance(rows, list):
+				continue
+			child_fields = _meta_fieldnames(child_doctype)
+			for i, row in enumerate(rows):
+				if not isinstance(row, dict):
+					continue
+				for k in row.keys():
+					if k in child_fields:
+						continue
+					suggestions = _difflib.get_close_matches(k, list(child_fields), n=3, cutoff=0.6)
+					hint = (
+						f"Did you mean: {', '.join(suggestions)}?"
+						if suggestions else
+						f"Field '{k}' not on {child_doctype} (child rows of {doctype}.{child_field})."
+					)
+					return {
+						"error_kind": "schema",
+						"error": f"Unknown field '{k}' on {child_doctype} child row [{i}]",
+						"hint": hint,
+					}
+
+	return None
+
+
 def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 	# Defensive: many models stringify their tool args. Normalize before
 	# dispatch so each tool's impl can rely on native types.
@@ -1017,6 +1101,17 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			)}
 		if not frappe.has_permission(dt, "create"):
 			return {"error": "no create permission"}
+		# Universal payload validator (M1.4) — only runs when cycle9_enabled.
+		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		_settings = get_lazychat_settings()
+		if _settings.get("cycle9_enabled"):
+			# Build child_tables map: {fieldname: child_doctype} from doctype meta.
+			_meta = frappe.get_meta(dt)
+			_child_map = {f.fieldname: f.options for f in _meta.fields
+			              if f.fieldtype == "Table"}
+			_v = _validate_prepare_payload(dt, values, child_tables=_child_map)
+			if _v is not None:
+				return _v
 		token = _stage_action("create", {"doctype": dt, "values": values})
 		return {
 			"ok": True,
