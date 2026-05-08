@@ -1665,6 +1665,24 @@ def run():
 		frappe.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 0)
 		frappe.db.commit()
 
+	# T89k: prepare_create_note with typo'd field rejected (proves universal
+	# validator fires across all typed wrappers, not just prepare_create_doc).
+	frappe.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 1)
+	try:
+		r = execute_tool("prepare_create_note", {
+			"title": f"_lz_smoke_note_typo_{frappe.generate_hash(length=4)}",
+			"contnet": "<p>typo: contnet not content</p>",  # typo
+		})
+		record(_ok(
+			"T89k prepare_create_note rejects typo'd field (universal validator wired)",
+			r.get("error_kind") == "schema"
+			and "contnet" in (r.get("error") or ""),
+			f"err={(r.get('error') or '')[:140]!r}",
+		))
+	finally:
+		frappe.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 0)
+		frappe.db.commit()
+
 	# T88y: persistent lazychat form helper Client Scripts are seeded by
 	# install hooks on Purchase Invoice / Sales Invoice / Purchase Receipt /
 	# Delivery Note. Verify the Purchase Invoice helper exists, is enabled,
