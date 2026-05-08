@@ -1575,6 +1575,30 @@ def run():
 		f"links_n={len(r.get('links') or [])}",
 	))
 
+	# T89g: prepare_create_doc with typo'd field name returns error_kind=schema
+	# + did_you_mean suggestion. Universal payload validator catches it BEFORE
+	# the user clicks Apply. Toggles cycle9_enabled on for the test, then off.
+	frappe.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 1)
+	frappe.cache().delete_value("lazychat_settings_cached")  # if cache key exists; harmless if not
+	try:
+		r = execute_tool("prepare_create_doc", {
+			"doctype": "Customer",
+			"values": {
+				"customer_name": f"_lz_smoke_field_typo_{frappe.generate_hash(length=4)}",
+				"cusomer_group": "All Customer Groups",  # typo: cusomer not customer
+			},
+		})
+		record(_ok(
+			"T89g prepare_create_doc rejects unknown field with did_you_mean hint",
+			r.get("error_kind") == "schema"
+			and "cusomer_group" in (r.get("error") or "")
+			and "customer_group" in (r.get("hint") or ""),
+			f"err={(r.get('error') or '')[:140]!r} hint={(r.get('hint') or '')[:140]!r}",
+		))
+	finally:
+		frappe.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 0)
+		frappe.db.commit()
+
 	# T88y: persistent lazychat form helper Client Scripts are seeded by
 	# install hooks on Purchase Invoice / Sales Invoice / Purchase Receipt /
 	# Delivery Note. Verify the Purchase Invoice helper exists, is enabled,
