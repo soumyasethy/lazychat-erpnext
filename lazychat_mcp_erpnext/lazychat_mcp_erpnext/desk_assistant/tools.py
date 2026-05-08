@@ -193,6 +193,38 @@ def _wrap_db_error(e, query, action):
 	return resp
 
 
+# Frappe Query Reports parameterize filters with `%(filter_name)s`. EXPLAIN
+# can't bind these, so we substitute NULL before probing — EXPLAIN doesn't
+# fetch rows, so the literal NULL is fine for plan validation.
+_SQL_PLACEHOLDER_RE = re.compile(r"%\([^)]+\)s")
+
+
+def _probe_select_sql_explain(query):
+	"""EXPLAIN-probe a SELECT against the live DB so table-not-found /
+	column-not-found / syntax errors surface at preview time instead of
+	at report-open time. Returns None on success, an error string with
+	hint on schema/syntax failure. Other DB errors (permission, deadlock)
+	pass through to avoid fail-closing on transient issues.
+
+	Companion to _validate_select_sql, which is regex-only and can't see
+	whether `tabPurchase_Order` is a real table or LLM hallucination.
+	"""
+	try:
+		stripped = _strip_leading_sql_comments((query or "").strip().rstrip(";"))
+		if not stripped:
+			return None
+		explain_query = _SQL_PLACEHOLDER_RE.sub("NULL", stripped)
+		frappe.db.sql("EXPLAIN " + explain_query)
+		return None
+	except Exception as e:
+		wrapped = _wrap_db_error(e, query, "explain_probe")
+		if wrapped.get("error_kind") in ("schema", "syntax"):
+			err = wrapped.get("error") or str(e)
+			hint = wrapped.get("hint")
+			return f"{err}\nHint: {hint}" if hint else str(err)
+		return None
+
+
 def _attr_chain(node):
 	"""For an AST Attribute node like `frappe.db.sql`, return ['frappe', 'db', 'sql'].
 	Returns [] for non-Name/Attribute roots so callers can ignore complex receivers.
@@ -2426,6 +2458,9 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			validation_error = _validate_select_sql(query)
 			if validation_error:
 				return {"error": validation_error}
+			explain_error = _probe_select_sql_explain(query)
+			if explain_error:
+				return {"error": explain_error}
 		token = _stage_action(
 			"create_report",
 			{
@@ -4113,6 +4148,9 @@ def commit_prepared(token, **extras):
 				err = _validate_select_sql(rep_values["query"])
 				if err:
 					return {"ok": False, "error": f"query failed validation at commit: {err}"}
+				probe_err = _probe_select_sql_explain(rep_values["query"])
+				if probe_err:
+					return {"ok": False, "error": f"query failed EXPLAIN at commit: {probe_err}"}
 			doc = frappe.get_doc(rep_values).insert(ignore_permissions=False)
 			# Persist columns / filters as JSON on the report's `json` field
 			# (Report Builder convention) when supplied. Query Report renders

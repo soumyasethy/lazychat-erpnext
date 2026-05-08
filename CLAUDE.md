@@ -673,6 +673,16 @@ hallucinated "no POs match" output.
 Evidence:
 - [`test/evidence/cycle7-self-correcting-commit/12-PLATFORM-DELIVERS-real-data-no-hallucination.png`](test/evidence/cycle7-self-correcting-commit/12-PLATFORM-DELIVERS-real-data-no-hallucination.png)
 
+## EXPLAIN-probe for `prepare_create_report` Query Reports (2026-05-08)
+
+Production bug: an LLM-staged Query Report with `FROM tabPurchase_Order` (underscored, fictional) passed the regex-only `_validate_select_sql` and shipped to disk. User clicked Apply → row stored → opened the report → 1146 "Table doesn't exist" with no recovery path. Same gap for unknown columns (1054).
+
+Fix ([tools.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py)): new `_probe_select_sql_explain(query)` runs `EXPLAIN <query>` against the live DB inside `prepare_create_report` (Query Report path), with `%(filter_name)s` placeholders substituted to `NULL` so legitimate parameterized reports pass. On schema/syntax failure, returns `_wrap_db_error`'s structured hint — LLM sees "Table `tabpurchase_order` doesn't exist. ERPNext doctype tables are `tab<Doctype Name>` (with the space, no underscore)…" in the same turn and re-stages. Permission/transient errors pass through (don't fail-close on DB locks). Same probe also runs at `commit_prepared` time as defense-in-depth (line ~4148 in `tools.py`).
+
+Smoke coverage ([scripts/smoke-test-tools.py](scripts/smoke-test-tools.py)): T87a (bad table rejected), T87b (valid SQL passes), T87c (unknown column rejected), T87d (`%(name)s` placeholder tolerated). 158 in-process / 91 HTTP-wire still 100% green.
+
+Out of scope: probe doesn't catch logic bugs (correct schema, wrong join keys producing zero rows). Doesn't run on `prepare_run_sql` / `run_sql_select` since those execute the query directly — DB errors already surface naturally.
+
 ## Self-correcting `/commit` for run_sql / run_python (2026-05-07)
 
 Before this change: when `prepare_run_sql` / `prepare_run_python` failed at

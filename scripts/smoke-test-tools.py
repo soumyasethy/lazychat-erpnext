@@ -1071,6 +1071,69 @@ def run():
 		not r.get("ok") and "view" in (r.get("error") or ""),
 	))
 
+	# T87a: prepare_create_report Query Report — EXPLAIN probe rejects bogus
+	# table name. Regression for the production bug where an LLM-staged
+	# query referencing `tabPurchase_Order` (underscored, fictional) passed
+	# regex-only validation and shipped to disk; user only saw the 1146 at
+	# open time. The probe must catch this at preview time.
+	r = execute_tool("prepare_create_report", {
+		"report_name": "_lazychat_smoke_bad_table",
+		"ref_doctype": "Customer",
+		"report_type": "Query Report",
+		"query": "SELECT name FROM tabPurchase_Order LIMIT 1",
+	})
+	err = (r.get("error") or "").lower()
+	record(_ok(
+		"T87a prepare_create_report Query Report rejects nonexistent table at preview",
+		not r.get("ok") and ("doesn't exist" in err or "table" in err),
+		f"error={(r.get('error') or '')[:120]!r}",
+	))
+
+	# T87b: prepare_create_report Query Report — happy path with a real
+	# backtick-quoted DocType table. EXPLAIN must NOT block valid SQL.
+	r = execute_tool("prepare_create_report", {
+		"report_name": f"_lazychat_smoke_qr_{frappe.generate_hash(length=4)}",
+		"ref_doctype": "Customer",
+		"report_type": "Query Report",
+		"query": "SELECT name FROM `tabCustomer` LIMIT 1",
+	})
+	record(_ok(
+		"T87b prepare_create_report Query Report stages valid SQL",
+		r.get("ok") is True and bool(r.get("preview_token")),
+		f"summary={r.get('summary')!r}",
+	))
+
+	# T87c: prepare_create_report Query Report — EXPLAIN probe rejects
+	# unknown column. The other half of the production gap.
+	r = execute_tool("prepare_create_report", {
+		"report_name": "_lazychat_smoke_bad_col",
+		"ref_doctype": "Customer",
+		"report_type": "Query Report",
+		"query": "SELECT _no_such_column_ FROM `tabCustomer` LIMIT 1",
+	})
+	err = (r.get("error") or "").lower()
+	record(_ok(
+		"T87c prepare_create_report Query Report rejects unknown column at preview",
+		not r.get("ok") and ("unknown column" in err or "column" in err),
+		f"error={(r.get('error') or '')[:120]!r}",
+	))
+
+	# T87d: prepare_create_report Query Report — placeholder substitution.
+	# Frappe Query Reports support `%(filter_name)s` filters; the EXPLAIN
+	# probe must not trip on these. We substitute placeholders with NULL
+	# before EXPLAIN-ing so legitimate parameterized reports pass through.
+	r = execute_tool("prepare_create_report", {
+		"report_name": f"_lazychat_smoke_qr_param_{frappe.generate_hash(length=4)}",
+		"ref_doctype": "Customer",
+		"report_type": "Query Report",
+		"query": "SELECT name FROM `tabCustomer` WHERE name = %(customer)s LIMIT 1",
+	})
+	record(_ok(
+		"T87d prepare_create_report Query Report tolerates %(name)s placeholders",
+		r.get("ok") is True and bool(r.get("preview_token")),
+		f"summary={r.get('summary')!r}",
+	))
+
 	# ----------------------------------------------------------------
 	# Commit 1 — typed wrappers for ERPNext "Tools" workspace
 	# ----------------------------------------------------------------
