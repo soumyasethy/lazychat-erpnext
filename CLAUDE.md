@@ -673,6 +673,14 @@ hallucinated "no POs match" output.
 Evidence:
 - [`test/evidence/cycle7-self-correcting-commit/12-PLATFORM-DELIVERS-real-data-no-hallucination.png`](test/evidence/cycle7-self-correcting-commit/12-PLATFORM-DELIVERS-real-data-no-hallucination.png)
 
+## Script Report `script` body required (2026-05-08)
+
+Production bug observed in real chat transcript: LLM staged `prepare_create_report({report_type:"Script Report"})` with NO `script` arg → wrapper accepted → empty Report row created → user opened it → **blank page**. LLM had no way to know the body was empty so narrated "interactive buttons added" while nothing functional shipped. Same Cycle 6 hallucination shape, just for Script Reports.
+
+Fix ([tools.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py)): wrapper now requires non-empty `script` arg whenever `report_type=="Script Report"`. AST-validated for Python syntax + must contain `def execute` symbol. At commit, payload's script is persisted to the Report's `report_script` field with `script_type="Python"`. Tool schema updated ([tool_schemas.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tool_schemas.py)) so the model sees the requirement and either supplies a body or falls back to Query Report. Defense-in-depth re-check at commit too.
+
+Smoke ([scripts/smoke-test-tools.py](scripts/smoke-test-tools.py)): T87e (missing body rejected), T87f (valid body stages), T87g (whitespace-only rejected). 161 in-process / 91 HTTP-wire still 100% green.
+
 ## EXPLAIN-probe for `prepare_create_report` Query Reports (2026-05-08)
 
 Production bug: an LLM-staged Query Report with `FROM tabPurchase_Order` (underscored, fictional) passed the regex-only `_validate_select_sql` and shipped to disk. User clicked Apply → row stored → opened the report → 1146 "Table doesn't exist" with no recovery path. Same gap for unknown columns (1054).

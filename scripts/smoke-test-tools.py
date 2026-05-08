@@ -1134,6 +1134,49 @@ def run():
 		f"summary={r.get('summary')!r}",
 	))
 
+	# T87e: prepare_create_report Script Report — REJECT empty script body.
+	# Production bug 2026-05-08: wrapper accepted Script Report with no
+	# `script` arg and stored an empty Report row. User opened report → blank,
+	# LLM hallucinated success. Force the wrapper to require a Python body.
+	r = execute_tool("prepare_create_report", {
+		"report_name": "_lazychat_smoke_script_no_body",
+		"ref_doctype": "Customer",
+		"report_type": "Script Report",
+	})
+	err = (r.get("error") or "").lower()
+	record(_ok(
+		"T87e prepare_create_report Script Report rejects missing script body",
+		not r.get("ok") and "script" in err,
+		f"error={(r.get('error') or '')[:120]!r}",
+	))
+
+	# T87f: prepare_create_report Script Report happy path with script body.
+	r = execute_tool("prepare_create_report", {
+		"report_name": f"_lazychat_smoke_script_{frappe.generate_hash(length=4)}",
+		"ref_doctype": "Customer",
+		"report_type": "Script Report",
+		"script": "def execute(filters=None):\n\tcolumns = [{'label': 'Name', 'fieldname': 'name', 'fieldtype': 'Data'}]\n\tdata = [{'name': 'smoke'}]\n\treturn columns, data\n",
+	})
+	record(_ok(
+		"T87f prepare_create_report Script Report stages with valid script body",
+		r.get("ok") is True and bool(r.get("preview_token")),
+		f"summary={r.get('summary')!r}",
+	))
+
+	# T87g: prepare_create_report Script Report rejects whitespace-only script.
+	r = execute_tool("prepare_create_report", {
+		"report_name": "_lazychat_smoke_script_blank",
+		"ref_doctype": "Customer",
+		"report_type": "Script Report",
+		"script": "   \n\t  \n",
+	})
+	err = (r.get("error") or "").lower()
+	record(_ok(
+		"T87g prepare_create_report Script Report rejects whitespace-only script",
+		not r.get("ok") and "script" in err,
+		f"error={(r.get('error') or '')[:120]!r}",
+	))
+
 	# ----------------------------------------------------------------
 	# Commit 1 — typed wrappers for ERPNext "Tools" workspace
 	# ----------------------------------------------------------------
