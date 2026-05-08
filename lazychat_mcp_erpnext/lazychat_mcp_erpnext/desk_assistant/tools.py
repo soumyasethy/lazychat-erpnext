@@ -121,6 +121,25 @@ def _validate_select_sql(sql):
 	defanged = _strip_sql_string_literals(uncommented)
 	if SQL_DML_PATTERN.search(defanged):
 		return "DML/DDL keywords not allowed (INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/...)"
+	# MariaDB rejects LIMIT inside IN/ANY/ALL/SOME subqueries with
+	# NotSupportedError(1235). EXPLAIN does NOT catch it — the optimizer
+	# parses fine, the restriction fires only at execution. Static regex
+	# is the only reliable preview-time guard. Scan against `defanged` so
+	# HTML link content like CONCAT('<a href="?limit=10">') doesn't false-
+	# positive. `[^()]*` bounds the match to a single subquery (no nested
+	# parens cross-match).
+	if re.search(
+		r"\b(IN|ANY|ALL|SOME)\s*\(\s*SELECT\b[^()]*\bLIMIT\b",
+		defanged,
+		re.IGNORECASE | re.DOTALL,
+	):
+		return (
+			"MariaDB does not support LIMIT inside IN/ANY/ALL/SOME subqueries "
+			"(NotSupportedError 1235). Rewrite using a JOIN on a derived table: "
+			"`SELECT a.* FROM tabA a JOIN (SELECT name FROM tabB LIMIT N) b "
+			"ON a.name = b.name`. Or remove the LIMIT and add WHERE filters that "
+			"constrain the subquery instead."
+		)
 	return None  # OK
 
 
@@ -222,6 +241,23 @@ def _wrap_db_error(e, query, action):
 			"Common causes: missing backticks around table/column names that "
 			"contain spaces, unbalanced parentheses, or DML/DDL keywords "
 			"(only SELECT is allowed)."
+		)
+		return resp
+
+	# MariaDB rejects LIMIT inside IN/ALL/ANY/SOME subqueries with
+	# NotSupportedError(1235). EXPLAIN catches it (raises 1235 at parse
+	# time), but only if the caller surfaces non-schema/non-syntax errors.
+	# Flag as `syntax` so _probe_select_sql_explain re-raises it to the LLM.
+	if "1235" in msg or (
+		"LIMIT" in msg and ("IN/ALL/ANY/SOME" in msg or "subquery" in msg.lower())
+	):
+		resp["error_kind"] = "syntax"
+		resp["hint"] = (
+			"MariaDB does not support LIMIT inside IN/ANY/ALL/SOME subqueries "
+			"(NotSupportedError 1235). Rewrite using a JOIN on a derived table: "
+			"`SELECT a.* FROM tabA a JOIN (SELECT name FROM tabB LIMIT N) b "
+			"ON a.name = b.name`. Or remove the LIMIT and add WHERE filters that "
+			"constrain the subquery instead."
 		)
 		return resp
 
