@@ -2478,6 +2478,38 @@ def run():
 		f"parsed={parsed2}",
 	))
 
+	# T89q: critique_composition gracefully handles missing critic provider config.
+	# When no LLM Model row exists for "claude-haiku-4-5", the function should
+	# return skipped=True with a reason rather than throwing.
+	from lazychat_mcp_erpnext.desk_assistant.critic import critique_composition
+	r = critique_composition(
+		intent="test smoke critique",
+		action="create_report",
+		payload={"query": "SELECT 1"},
+		evidence={"sample_rows": []},
+		effort="high",  # forces critic invocation
+	)
+	# Either provider works (returns verdict shape) OR fails gracefully (skipped=True).
+	# Both are acceptable; THROW is not.
+	record(_ok(
+		"T89q critique_composition (effort=high) returns dict with verdict OR skipped",
+		isinstance(r, dict)
+		and ("verdict" in r or r.get("skipped") is True),
+		f"keys={list(r.keys()) if isinstance(r, dict) else type(r)}",
+	))
+
+	# T89r: critique_composition skipped when effort=low.
+	r2 = critique_composition(
+		intent="test", action="create_doc",
+		payload={"doctype": "Customer"}, evidence={},
+		effort="low",
+	)
+	record(_ok(
+		"T89r critique_composition skipped at effort=low",
+		r2.get("skipped") is True,
+		f"r2={r2}",
+	))
+
 	# Cleanup
 	cleaned = []
 	if created_note:
