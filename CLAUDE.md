@@ -673,6 +673,28 @@ hallucinated "no POs match" output.
 Evidence:
 - [`test/evidence/cycle7-self-correcting-commit/12-PLATFORM-DELIVERS-real-data-no-hallucination.png`](test/evidence/cycle7-self-correcting-commit/12-PLATFORM-DELIVERS-real-data-no-hallucination.png)
 
+## Client Script auto-name + persistent form-helper for variance-report buttons (2026-05-08)
+
+Two paired fixes for the recurring "click Debit Note button → empty Items table → GST HSN error" failure mode in the canonical PR-vs-PI variance flow.
+
+**Bug 1 — `prepare_create_client_script` "Please set the document name"**: Frappe's Client Script doctype uses `autoname: Prompt`, which requires explicit `name` at insert time. The wrapper schema said "auto-names if omitted" (wrong) and the commit handler accepted a name-less payload, producing `frappe.exceptions.MandatoryError: Please set the document name`. Real-user trigger: the LLM tried to install a per-report Client Script for items prefill; both attempts failed.
+
+Fix in [tools.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py): `prepare_create_client_script` now auto-derives `name = "<DocType> <View> (lazychat <6char-hash>)"` when omitted (deterministic on the script body so re-staging the same script collides cleanly), with a `(2)`/`(3)` collision-suffix loop. Schema description in [tool_schemas.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tool_schemas.py) corrected to spell out the autoname=Prompt requirement.
+
+**Bug 2 — Items child table can't be set via URL params**: Frappe's new-form route handler reads URL params for parent fields only — `?items[0][item_code]=...` is silently ignored. The variance report's "Debit Note ↗" button was correctly setting `is_return=1`, `return_against`, and `supplier`, but the Items child table stayed empty → user got "GST HSN Code is mandatory for Overseas Purchase Invoice" the moment they tried to save. This is a hard platform limitation; URL-only prefill cannot reach child rows.
+
+Fix: ship a persistent helper Client Script via `install.py` `seed_lazychat_form_helpers()`. Seeded at both `after_install` and `after_migrate` (idempotent — rewrites only when body differs). One Client Script per target doctype: `Purchase Invoice`, `Sales Invoice`, `Purchase Receipt`, `Delivery Note`. Each script reads `_lz_items` (URL-safe base64-encoded JSON array) on `onload_post_render` + `refresh`, populates `frm.doc.items` with whitelisted fields (`item_code`, `qty`, `rate`, `amount`, `uom`, `warehouse`, `purchase_receipt`, `pr_detail`, `sales_order`, `so_detail`, `description`), and triggers ERPNext's `item_code` handler so taxes/HSN/UOM auto-fill. Defense rules:
+- Only fills when items table is empty — never clobbers user edits.
+- Whitelist keys only — LLM cannot inject arbitrary doc fields.
+- Sets `is_return=1` and `return_against=<value>` from URL params only when not already set.
+- Idempotent flag (`frm.__lz_helper_applied`) prevents double-fill on `refresh` re-fires.
+
+System prompt in [claude_bridge.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/claude_bridge.py) + chat-ui mirror in [routerSystemPrompt.ts](../lazychat.ai/apps/chat-ui/src/lib/routerSystemPrompt.ts) teach the LLM the URL convention and update the canonical variance-report SQL template to embed `&_lz_items=<TO_BASE64(JSON)>` per button. Explicit "DO NOT generate per-report Client Scripts — the persistent helper already handles this" rule prevents the LLM from re-discovering the broken auto-author pattern.
+
+**Smoke** ([scripts/smoke-test-tools.py](scripts/smoke-test-tools.py)): T88w (auto-derived name pattern), T88x (explicit name passes through), T88y (all 4 helper scripts installed + enabled + dt-correct + script body contains `_lz_items`). 191 in-process / 91 HTTP-wire / 360 chat-ui all green (was 188/91/360 → +3 in-process).
+
+End-to-end: variance report renders Debit Note buttons whose URLs encode the line-item delta. Clicking lands on `/app/purchase-invoice/new` with `is_return=1` + `return_against` set (parent fields, native Frappe path) AND the items table prefilled by the helper script. The user can review and Save without hitting HSN-mandatory or empty-items errors.
+
 ## Real-execution probe for Query Report SELECT at preview time (2026-05-08)
 
 User's complaint after multiple report-failure replays: *"can't we have something to check directly DB query so we'll be 100% confident on output?"* — every prior gate (`_validate_select_sql` regex, `_probe_select_sql_explain`) accepted queries that EXPLAIN parses cleanly but execution rejects, OR that produce wrong-shaped data with no error at all.

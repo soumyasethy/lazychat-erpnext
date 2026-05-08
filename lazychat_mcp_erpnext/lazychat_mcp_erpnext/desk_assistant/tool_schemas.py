@@ -1565,7 +1565,7 @@ TOOL_SCHEMAS = [
 				"view": {"type": "string", "enum": ["Form", "List"], "default": "Form"},
 				"script": {"type": "string", "description": "JS source. Use frappe.ui.form.on(dt, {...}) for Form view; frappe.listview_settings[dt] = {...} for List."},
 				"enabled": {"type": "integer", "enum": [0, 1], "default": 1},
-				"name": {"type": "string", "description": "Optional Client Script doc name. Frappe auto-names if omitted."},
+				"name": {"type": "string", "description": "Optional Client Script doc name. Lazychat auto-derives '<DocType> <View> (lazychat <hash>)' when omitted (Frappe's autoname is Prompt — it requires an explicit name)."},
 			},
 			"required": ["dt", "script"],
 		},

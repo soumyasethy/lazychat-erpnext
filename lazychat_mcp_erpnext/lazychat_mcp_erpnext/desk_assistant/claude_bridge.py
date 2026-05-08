@@ -232,6 +232,40 @@ WRITE / WORKFLOW / COMMS (always two-phase via prepare_* + /commit):
   `/app/purchase-invoice/new?is_return=1&return_against=<PI-name>`. NEVER call
   describe_doctype("Debit Note") — it returns a redirect hint pointing here.
 
+  AUTO-FILL ITEMS FROM A QUERY-REPORT BUTTON (lazychat URL convention):
+  Frappe's new-form route handler reads URL params for PARENT fields only —
+  child-table rows like `items` cannot be set from `?items[0][item_code]=…`.
+  Lazychat ships a persistent helper Client Script (auto-installed on
+  Purchase Invoice / Sales Invoice / Purchase Receipt / Delivery Note) that
+  reads a `_lz_items` query param — base64-encoded JSON array of row
+  objects — and populates the Items child table on form load. So when you
+  emit a "Create Debit Note" button that should prefill the affected line
+  item, append `&_lz_items=<TO_BASE64(JSON)>` to the URL. Pattern:
+
+```sql
+CONCAT(
+  '<a href="/app/purchase-invoice/new?is_return=1&return_against=',
+  pii.parent,
+  '&_lz_items=',
+  TO_BASE64(CONCAT(
+    '[{"item_code":"', pii.item_code,
+    '","qty":', (pii.qty - COALESCE(pri.qty, 0)),
+    ',"rate":', pii.rate,
+    ',"pr_detail":"', COALESCE(pri.name, ''),
+    '","purchase_receipt":"', COALESCE(pri.parent, ''), '"}]'
+  )),
+  '" class="btn btn-xs btn-primary">Debit Note ↗</a>'
+) AS 'Qty DN'
+```
+
+  Whitelisted item-row keys the helper script honors: `item_code`, `qty`,
+  `rate`, `amount`, `uom`, `warehouse`, `purchase_receipt`, `pr_detail`,
+  `sales_order`, `so_detail`, `description`. Anything else is ignored
+  (security: the LLM cannot inject arbitrary doc fields). The helper only
+  prefills when the items table is empty, so user edits are never clobbered.
+  DO NOT generate a fresh per-report Client Script for this — the
+  persistent helper already handles it.
+
   CANONICAL VARIANCE-REPORT TEMPLATE — use this verbatim when the user asks
   for "report with debit-note option per line item" or any PR-vs-PI variance:
 
@@ -245,14 +279,24 @@ SELECT
   (pii.qty - COALESCE(pri.qty, 0))                   AS 'Qty Diff',
   CASE WHEN pii.qty - COALESCE(pri.qty, 0) <> 0
     THEN CONCAT('<a href="/app/purchase-invoice/new?is_return=1&return_against=',
-                pii.parent, '" class="btn btn-xs btn-primary">Debit Note ↗</a>')
+                pii.parent, '&_lz_items=',
+                TO_BASE64(CONCAT('[{"item_code":"', pii.item_code,
+                                 '","qty":', (pii.qty - COALESCE(pri.qty, 0)),
+                                 ',"rate":', pii.rate,
+                                 ',"pr_detail":"', COALESCE(pri.name, ''), '"}]')),
+                '" class="btn btn-xs btn-primary">Debit Note ↗</a>')
     ELSE '' END                                      AS 'Qty DN',
   COALESCE(pri.rate, 0)                              AS 'Receipt Rate',
   pii.rate                                           AS 'Invoice Rate',
   (pii.rate - COALESCE(pri.rate, 0))                 AS 'Rate Diff',
   CASE WHEN pii.rate - COALESCE(pri.rate, 0) <> 0
     THEN CONCAT('<a href="/app/purchase-invoice/new?is_return=1&return_against=',
-                pii.parent, '" class="btn btn-xs btn-warning">Debit Note ↗</a>')
+                pii.parent, '&_lz_items=',
+                TO_BASE64(CONCAT('[{"item_code":"', pii.item_code,
+                                 '","qty":', pii.qty,
+                                 ',"rate":', (pii.rate - COALESCE(pri.rate, 0)),
+                                 ',"pr_detail":"', COALESCE(pri.name, ''), '"}]')),
+                '" class="btn btn-xs btn-warning">Debit Note ↗</a>')
     ELSE '' END                                      AS 'Rate DN'
 FROM `tabPurchase Invoice Item` pii
 JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent

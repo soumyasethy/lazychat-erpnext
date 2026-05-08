@@ -10,6 +10,7 @@ _ASSET_ICON = "/assets/lazychat_mcp_erpnext/images/agilitas.icon.svg"
 def run_after_migrate():
 	seed_llm_defaults()
 	seed_lazychat_settings()
+	seed_lazychat_form_helpers()
 	patch_agilitas_branding()
 	lazychat_setup_check()
 
@@ -24,6 +25,7 @@ def after_install():
 	"""
 	seed_llm_defaults()
 	seed_lazychat_settings()
+	seed_lazychat_form_helpers()
 	lazychat_setup_check()
 	_print_welcome_banner()
 
@@ -137,6 +139,135 @@ def seed_llm_defaults():
 		else:
 			continue
 		frappe.get_doc(row).insert(ignore_permissions=True, ignore_links=True)
+	frappe.db.commit()
+
+
+_LAZYCHAT_FORM_HELPER_SCRIPT = r"""
+// Lazychat form-fill helper — seeded by lazychat_mcp_erpnext install hooks.
+// Reads URL params on a NEW form and prefills child-table rows that URL params
+// alone can't reach (Frappe's new-form route handler ignores child-table query
+// params). The variance-report HTML buttons emit URLs like:
+//   /app/purchase-invoice/new?is_return=1&return_against=PI-XXX&_lz_items=<base64-json>
+// where _lz_items is a base64 of a JSON array of {item_code, qty, rate,
+// purchase_receipt?, pr_detail?, ...} rows. Items are only injected when the
+// items table is empty, so this is safe for hand-edited drafts.
+(function () {
+  function _decode(b64) {
+    try {
+      var bin = atob(decodeURIComponent(b64));
+      var pct = bin.split('').map(function (c) {
+        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+      }).join('');
+      return JSON.parse(decodeURIComponent(pct));
+    } catch (e) {
+      try { return JSON.parse(atob(b64)); } catch (e2) { return null; }
+    }
+  }
+  function _params() {
+    try { return new URLSearchParams(window.location.search); }
+    catch (e) { return new URLSearchParams(''); }
+  }
+  function _alreadyApplied(frm) { return !!(frm.__lz_helper_applied); }
+  function _markApplied(frm) { frm.__lz_helper_applied = true; }
+
+  function lazychatPrefill(frm) {
+    if (!frm || !frm.is_new || !frm.is_new()) return;
+    if (_alreadyApplied(frm)) return;
+    var p = _params();
+    var rawItems = p.get('_lz_items');
+    var isReturn = p.get('_lz_is_return') === '1' || p.get('is_return') === '1';
+    var returnAgainst = p.get('return_against') || p.get('_lz_return_against');
+
+    // Parent-level return flags (URL params CAN set parent fields on new
+    // forms, but only after a tick — Frappe wipes them while wiring defaults).
+    if (isReturn && frm.doc && !frm.doc.is_return) {
+      frm.set_value('is_return', 1);
+    }
+    if (returnAgainst && frm.doc && !frm.doc.return_against) {
+      frm.set_value('return_against', returnAgainst);
+    }
+
+    if (!rawItems) return;
+    var rows = _decode(rawItems);
+    if (!Array.isArray(rows) || rows.length === 0) return;
+    if (frm.doc.items && frm.doc.items.length > 0) {
+      // Don't clobber existing rows (e.g. user already added items).
+      var hasRealRow = frm.doc.items.some(function (r) { return r.item_code; });
+      if (hasRealRow) { _markApplied(frm); return; }
+      // All-blank rows -> safe to clear.
+      frm.clear_table('items');
+    }
+    rows.forEach(function (row) {
+      if (!row || typeof row !== 'object') return;
+      var d = frm.add_child('items');
+      // Whitelist of fields we'll let the URL set. Everything else is
+      // computed by ERPNext's own item-fetch handlers when item_code is set.
+      ['item_code', 'qty', 'rate', 'amount', 'uom', 'warehouse',
+       'purchase_receipt', 'pr_detail', 'sales_order', 'so_detail',
+       'description'].forEach(function (k) {
+        if (row[k] !== undefined && row[k] !== null) d[k] = row[k];
+      });
+    });
+    _markApplied(frm);
+    frm.refresh_field('items');
+    // Trigger ERPNext's item_code handler so taxes/HSN/UOM auto-fill.
+    (frm.doc.items || []).forEach(function (row) {
+      if (row.item_code) {
+        try { frappe.model.trigger('item_code', row.item_code, row); } catch (e) {}
+      }
+    });
+  }
+
+  if (window.frappe && frappe.ui && frappe.ui.form) {
+    frappe.ui.form.on('__DT__', {
+      onload_post_render: lazychatPrefill,
+      refresh: lazychatPrefill,
+    });
+  }
+})();
+""".strip()
+
+_LAZYCHAT_FORM_HELPER_NAME = "Lazychat Form Helper"
+_LAZYCHAT_FORM_HELPER_TARGETS = ("Purchase Invoice", "Sales Invoice", "Purchase Receipt", "Delivery Note")
+
+
+def seed_lazychat_form_helpers():
+	"""Idempotently install one Client Script per target doctype that reads
+	URL params (`_lz_items`, `_lz_is_return`, `return_against`) and prefills
+	the items child table. This is what makes the variance-report HTML buttons
+	actually populate the form — URL params alone can't reach child rows.
+
+	Re-running is safe: existing scripts are updated to the latest body if it
+	differs (e.g. after an app upgrade). Only modifies/creates scripts whose
+	`name` matches the lazychat-managed prefix; never touches user scripts.
+	"""
+	if not frappe.db.exists("DocType", "Client Script"):
+		return  # Frappe core not migrated yet (shouldn't happen in practice)
+	for dt in _LAZYCHAT_FORM_HELPER_TARGETS:
+		if not frappe.db.exists("DocType", dt):
+			continue  # site doesn't have this doctype (e.g. no Stock module)
+		body = _LAZYCHAT_FORM_HELPER_SCRIPT.replace("__DT__", dt)
+		name = f"{_LAZYCHAT_FORM_HELPER_NAME} ({dt})"
+		try:
+			if frappe.db.exists("Client Script", name):
+				cs = frappe.get_doc("Client Script", name)
+				if (cs.script or "") != body or cs.enabled != 1 or cs.view != "Form":
+					cs.script = body
+					cs.enabled = 1
+					cs.view = "Form"
+					cs.dt = dt
+					cs.save(ignore_permissions=True)
+			else:
+				frappe.get_doc({
+					"doctype": "Client Script",
+					"name": name,
+					"dt": dt,
+					"view": "Form",
+					"enabled": 1,
+					"script": body,
+				}).insert(ignore_permissions=True)
+		except Exception:
+			frappe.log_error(frappe.get_traceback(), f"lazychat_mcp_erpnext.seed_lazychat_form_helpers/{dt}")
 	frappe.db.commit()
 
 
