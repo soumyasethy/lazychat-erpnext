@@ -232,6 +232,93 @@ _TYPED_WRAPPER_FOR_DOCTYPE = {
 }
 
 
+# Frappe Script Reports execute inside `safe_exec` (RestrictedPython +
+# FrappeTransformer). All `import` statements are rejected at compile
+# time; `frappe`, `_`, `json`, and a curated subset of frappe.* are
+# pre-injected as globals. The LLM's instinct is `import frappe` —
+# which fails with `ImportError: __import__ not found` BEFORE execute()
+# runs. We catch this at preview so the LLM sees an actionable hint
+# instead of shipping a broken Report row.
+_SAFE_EXEC_FORBIDDEN_FRAPPE_DB = {
+	"set_value", "set_many", "delete", "sql_ddl", "multisql",
+	"commit", "rollback", "savepoint", "release_savepoint",
+}
+_SAFE_EXEC_FORBIDDEN_FRAPPE = {
+	"sendmail", "publish_realtime", "publish_progress",
+	"enqueue", "enqueue_doc", "delete_doc", "rename_doc", "copy_doc",
+}
+_SAFE_EXEC_FORBIDDEN_BUILTINS = {
+	"__import__", "compile", "exec", "eval", "open", "input", "breakpoint",
+}
+
+
+def _validate_script_report_body(script):
+	"""AST-validate a Script Report body against safe_exec rules.
+
+	Returns None on success, an error string with hint on failure.
+	Catches the most common LLM mistakes at preview time so the wrapper
+	can surface actionable errors INSTEAD of shipping a Report whose
+	body explodes the moment the user opens it.
+	"""
+	import ast as _ast
+	try:
+		tree = _ast.parse(script)
+	except SyntaxError as e:
+		return f"script has Python syntax error: {e.msg} (line {e.lineno})"
+	for node in _ast.walk(tree):
+		if isinstance(node, (_ast.Import, _ast.ImportFrom)):
+			return (
+				"Script Reports run in safe_exec — `import` statements are "
+				"FORBIDDEN. `frappe`, `_`, `json` are pre-injected as globals. "
+				"Remove `import frappe` / `from frappe import _` from the top "
+				"of your script. Use `frappe.db.get_list(...)` or `frappe.qb` "
+				"directly. PREFER report_type='Query Report' with HTML link "
+				"columns when buttons are needed — Query Reports avoid this "
+				"sandbox entirely."
+			)
+		if isinstance(node, _ast.Call):
+			f = node.func
+			if isinstance(f, _ast.Name) and f.id in _SAFE_EXEC_FORBIDDEN_BUILTINS:
+				return (
+					f"`{f.id}(...)` is not allowed in safe_exec. Remove it. "
+					f"safe_exec strips dangerous builtins; only the curated "
+					f"subset (abs, all, any, bool, dict, list, range, set, "
+					f"sorted, sum, ...) is available."
+				)
+			chain = _attr_chain(f)
+			if (
+				len(chain) >= 3
+				and chain[0] == "frappe"
+				and chain[1] == "db"
+				and chain[2] in _SAFE_EXEC_FORBIDDEN_FRAPPE_DB
+			):
+				return (
+					f"`frappe.db.{chain[2]}(...)` is a write call — Script "
+					f"Reports are read-only. Use `frappe.db.get_list/"
+					f"get_value/get_all/count` or `frappe.qb` for queries."
+				)
+			if (
+				len(chain) >= 2
+				and chain[0] == "frappe"
+				and chain[1] in _SAFE_EXEC_FORBIDDEN_FRAPPE
+			):
+				return (
+					f"`frappe.{chain[1]}(...)` is a side-effect call — Script "
+					f"Reports are read-only and must not enqueue jobs, send "
+					f"emails, or mutate documents."
+				)
+	# Structural sanity — must define `execute` returning two-tuple
+	if not any(
+		isinstance(n, _ast.FunctionDef) and n.name == "execute"
+		for n in _ast.walk(tree)
+	):
+		return (
+			"script must define a top-level `def execute(filters=None):` "
+			"returning (columns, data)"
+		)
+	return None
+
+
 def _probe_select_sql_explain(query):
 	"""EXPLAIN-probe a SELECT against the live DB so table-not-found /
 	column-not-found / syntax errors surface at preview time instead of
@@ -2530,19 +2617,38 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			if not script:
 				return {"error": (
 					"Script Reports require a `script` body (Python with `def execute(filters=None)` "
-					"returning (columns, data)). Either pass the full Python source as `script`, "
-					"or use report_type='Query Report' with a SELECT statement instead."
+					"returning (columns, data)). PREFER report_type='Query Report' with HTML <a> "
+					"link columns for buttons — Query Reports support HTML in cell values "
+					"(e.g. CONCAT('<a href=\"/app/...\">Click</a>')) and avoid the safe_exec "
+					"sandbox entirely. Either pass the full Python source as `script`, or "
+					"switch to Query Report."
 				)}
-			# AST-validate so syntax errors surface at preview, not at open time.
+			# Reject imports, dangerous builtins, write-side frappe.db.*, and
+			# side-effect frappe.* calls. Catches the most common LLM mistakes
+			# (`import frappe`, `from frappe import _`, `frappe.db.set_value`,
+			# `__import__('os')`) BEFORE the report ships and breaks at open time.
+			validation_err = _validate_script_report_body(script)
+			if validation_err:
+				return {"error": validation_err}
+			# Defense-in-depth: dry-run the body through Frappe's actual
+			# safe_exec to catch subtle runtime errors AST can't see (leading-
+			# underscore attribute access, unsafe getattr, etc.). Wrapped so
+			# an import-time failure of safe_exec doesn't break the wrapper.
 			try:
-				import ast as _ast
-				_ast.parse(script)
-			except SyntaxError as e:
-				return {"error": f"script has Python syntax error: {e.msg} (line {e.lineno})"}
-			# Cheap structural check — the report engine calls `execute(filters)`,
-			# so the script must define that name.
-			if "def execute" not in script:
-				return {"error": "script must define a top-level `def execute(filters=None):` returning (columns, data)"}
+				from frappe.utils.safe_exec import safe_exec as _safe_exec
+				_loc = {"filters": frappe._dict({}), "data": None, "result": None}
+				_safe_exec(script, None, _loc, script_filename="lazychat-preview-probe")
+			except ImportError:
+				# safe_exec not importable on this Frappe version — skip dry-run
+				pass
+			except Exception as _e:
+				_msg = str(_e)
+				return {"error": (
+					f"Script failed safe_exec dry-run at preview: "
+					f"{type(_e).__name__}: {_msg[:200]}. Remove the offending "
+					f"construct or switch to report_type='Query Report' for a "
+					f"simpler path that supports HTML link columns."
+				)}
 		token = _stage_action(
 			"create_report",
 			{

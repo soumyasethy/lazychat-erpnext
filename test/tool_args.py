@@ -153,9 +153,13 @@ TOOL_ARGS: dict[str, dict[str, Any]] = {
     "cancel_job": {"job_id": JOB_ID},
 
     # --- Mutations (prepare_* — staged only, never committed by harness) ---
+    # ToDo (not Note) since 2026-05-08 — Note has a typed wrapper
+    # (`prepare_create_note`) and the generic prepare_create_doc path is
+    # refused for Note. ToDo has no typed wrapper, so it remains valid for
+    # the generic-path probe.
     "prepare_create_doc": {
-        "doctype": "Note",
-        "values": {"title": "_lazychat_smoke_create_probe", "content": "smoke test"},
+        "doctype": "ToDo",
+        "values": {"description": "_lazychat_smoke_create_probe", "status": "Open"},
     },
     "prepare_update_doc": {
         "doctype": "Note", "name": NOTE_NAME,
