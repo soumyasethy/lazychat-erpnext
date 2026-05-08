@@ -486,6 +486,12 @@ When debugging *"my report URL gave 404 even though the chat said it was
 created"*: confirm the chat-ui bundle was rebuilt after this fix landed
 (`?v=` query in iframe URL should be > `1778066844`).
 
+## Cycle 8c — Panel-shim grayscale filter for `pushTheme` (2026-05-08)
+
+Companion to lazychat.ai "Cycle 8c". Frappe's dark theme sets `--primary-color` to gray-900 (`#171717`); pushing this as the chat-ui brand accent rendered everything near-black. The shim's [`pushTheme()`](lazychat_mcp_erpnext/lazychat_mcp_erpnext/public/js/lazychat_panel.bundle.js) now calls a new `isGrayscale(color)` helper (R≈G≈B within 12 units) and skips the `setThemeTokens` push when the resolved primary is grayscale. Logs `[lazychat] skipped pushing grayscale primary: <hex>` for triage. The chat-ui side has matching defense-in-depth in [`extensions.ts`](../lazychat.ai/apps/chat-ui/src/store/extensions.ts) that filters grayscale tokens at `setThemeTokens` and `onRehydrateStorage` time. End result: in dark mode, chat-ui's own warm-orange `--color-primary` default (`#d97757` from theme.css) shows through instead of Frappe's UI-color near-black. Distinct host brand colors (purples, blues, custom hues) pass through unchanged.
+
+Manual test: set Frappe theme primary, switch Desk to dark mode, hard-reload Desk → chat-panel accent dots / Apply pills / focus rings should be warm orange (chat-ui default), NOT near-black. DevTools → Application → Local Storage → `lazychat:extensions:v1` → `state.themeTokens` should be `{}` (the grayscale token was correctly filtered out).
+
 ## Cycle 8 — Real Modes + Effort backend (2026-05-08)
 
 The Cycle-1 ModesPanel radios + 4-step Effort dot scale in chat-ui became real working features. See `../lazychat.ai/CLAUDE.md` "Cycle 8" for the chat-ui half. Backend half ships in [`api.py`](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/api.py) + [`claude_bridge.py`](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/claude_bridge.py) — pure additive, zero regression to the 154 in-process / 91 HTTP-wire smoke gates.
