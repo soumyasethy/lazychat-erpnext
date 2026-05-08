@@ -673,6 +673,22 @@ hallucinated "no POs match" output.
 Evidence:
 - [`test/evidence/cycle7-self-correcting-commit/12-PLATFORM-DELIVERS-real-data-no-hallucination.png`](test/evidence/cycle7-self-correcting-commit/12-PLATFORM-DELIVERS-real-data-no-hallucination.png)
 
+## Real-execution probe for Query Report SELECT at preview time (2026-05-08)
+
+User's complaint after multiple report-failure replays: *"can't we have something to check directly DB query so we'll be 100% confident on output?"* — every prior gate (`_validate_select_sql` regex, `_probe_select_sql_explain`) accepted queries that EXPLAIN parses cleanly but execution rejects, OR that produce wrong-shaped data with no error at all.
+
+**New 3rd-layer gate** in [tools.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py): `_probe_select_sql_execute(query, sample_size=5, timeout_sec=8)`. Wraps the LLM-supplied SELECT in `SELECT * FROM (<query>) AS _lz_probe LIMIT N` and runs it under a `SET STATEMENT MAX_STATEMENT_TIME=8 FOR ...` server-side statement timeout. Reuses `_strip_leading_sql_comments` + `_SQL_PLACEHOLDER_RE` + `_wrap_db_error` from the EXPLAIN probe. Returns `{ok: True, rows, columns, row_count_capped}` on success or `{ok: False, error, hint}` with a timeout-specific hint when MariaDB raises codes 1969/3024.
+
+Wired into both:
+- `prepare_create_report` Query Report branch — runs after the EXPLAIN probe, blocks staging on failure, captures `sample_rows` + `sample_columns` into the preview response.
+- `commit_prepared_action` create_report path — re-runs at commit (sample_size=1) so a stale/altered token can't ship a query that fails at report-open time.
+
+The preview response now includes `sample_rows` / `sample_columns` / `sample_truncated` keys (Query Report only — empty for other types). The chat-ui's Apply card renders these as a compact table; see sibling repo's [`Cycle 8g` section](../lazychat.ai/CLAUDE.md) for the visual rendering.
+
+**Smoke** ([scripts/smoke-test-tools.py](scripts/smoke-test-tools.py)): T88s (happy path — sample_rows + sample_columns include "name"), T88t (probe runs runtime queries without crashing), T88v (sample_columns matches SELECT aliases and `rows[0].keys()`). 188 in-process / 91 HTTP-wire all green (was 185 → +3).
+
+End-to-end: stages a Query Report with the canonical PR↔PI variance template → preview returns 5 sample rows → user/Apply card displays them → commit succeeds → `query-report` route renders all 6,882 rows.
+
 ## prepare_update_doc redirects to typed-create wrapper on non-existent target (2026-05-08)
 
 Stale-state regression — multi-turn chat where the LLM "remembered" creating a Report we'd deleted between sessions. LLM called `prepare_update_doc({doctype:'Report', name:'X'})`, the doc didn't exist, the wrapper returned a bare `"X not found"` error, and the LLM hallucinated **"Perfect! I've updated..."** in its narration anyway (TOOL-ERROR HONESTY rule isn't bullet-proof against model drift).
