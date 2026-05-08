@@ -1354,6 +1354,22 @@ def run():
 		f"error={(r.get('error') or '')[:160]!r}",
 	))
 
+	# T88r: prepare_update_doc on a non-existent typed-wrapper doctype
+	# returns a redirect hint pointing at the typed CREATE wrapper. Stops
+	# the recurring LLM-loop where stale chat state leads to update calls
+	# on docs we've deleted, and the LLM then hallucinates success.
+	r = execute_tool("prepare_update_doc", {
+		"doctype": "Report",
+		"name": "_lz_smoke_does_not_exist_xyz",
+		"patch": {"query": "SELECT 1"},
+	})
+	record(_ok(
+		"T88r prepare_update_doc on non-existent Report redirects to prepare_create_report",
+		"does not exist" in (r.get("error") or "")
+		and "prepare_create_report" in (r.get("error") or ""),
+		f"err={(r.get('error') or '')[:160]!r}",
+	))
+
 	# T88p: prepare_create_report previews must point at /app/query-report/
 	# for Query AND Script Reports — Frappe routes both there. The generic
 	# /app/report/<name> path is Report-Builder-only and gives "Sorry I
