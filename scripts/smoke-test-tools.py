@@ -2407,6 +2407,35 @@ def run():
 			f"tool={tool} error={(r.get('error') or '')[:80]!r}",
 		))
 
+	# T89l: composition session opens on first call, resumes on intent_hash match.
+	from lazychat_mcp_erpnext.desk_assistant.composition import (
+		open_or_resume_session, append_iteration, finalize_session,
+	)
+	intent = "Test variance report for PR vs PI for Customer X"
+	sess1 = open_or_resume_session(intent_summary=intent, action="create_report")
+	assert sess1["iteration_count"] == 0, f"expected 0, got {sess1['iteration_count']}"
+	# resume by same intent
+	sess2 = open_or_resume_session(intent_summary=intent, action="create_report")
+	record(_ok(
+		"T89l composition session resumes by intent_hash",
+		sess1["intent_hash"] == sess2["intent_hash"]
+		and sess2["iteration_count"] == 0,
+		f"hash1={sess1['intent_hash']} hash2={sess2['intent_hash']}",
+	))
+
+	# T89m: append_iteration grows iterations array; finalize closes session.
+	sess3 = append_iteration(sess1["intent_hash"], {
+		"payload": {"q": "select 1"}, "probe_result": {"rows": []},
+		"analyze_verdict": {"ok": True, "issues": [], "fixes": []}
+	})
+	record(_ok(
+		"T89m append_iteration grows iterations + persists",
+		sess3["iteration_count"] == 1
+		and len(sess3["iterations"]) == 1,
+		f"iter_count={sess3['iteration_count']}",
+	))
+	finalize_session(sess1["intent_hash"], "ok")
+
 	# Cleanup
 	cleaned = []
 	if created_note:
