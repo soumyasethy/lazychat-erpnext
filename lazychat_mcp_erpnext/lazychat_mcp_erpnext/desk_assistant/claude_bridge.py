@@ -233,193 +233,26 @@ WRITE / WORKFLOW / COMMS (always two-phase via prepare_* + /commit):
   describe_doctype("Debit Note") — it returns a redirect hint pointing here.
 
   AUTO-FILL ITEMS FROM A QUERY-REPORT BUTTON (lazychat URL convention):
-  Frappe's new-form route handler reads URL params for PARENT fields only —
-  child-table rows like `items` cannot be set from `?items[0][item_code]=…`.
-  Lazychat ships a persistent helper Client Script (auto-installed on
-  Purchase Invoice / Sales Invoice / Purchase Receipt / Delivery Note) that
-  reads `_lz_items` (base64-encoded JSON array) and populates the Items
-  child table on form load. The helper ALSO sets parent fields from the
-  URL (supplier, customer, is_return, return_against, posting_date, ...)
-  AND re-applies items after `return_against` triggers Frappe's Make
-  Return auto-fetch (which would otherwise overwrite our injected rows).
+  Frappe's new-form route handler reads URL params for PARENT fields only.
+  Lazychat ships a persistent helper Client Script that reads `_lz_items`
+  (base64-encoded JSON array) and populates the Items child table on form
+  load. To learn the exact whitelisted keys + URL pattern for a target
+  doctype, call `get_form_prefill_capabilities(doctype)`. To learn the
+  canonical row-level joins (e.g. PR↔PI via `pr_detail`, NOT `item_code`)
+  call `get_doctype_relationships(doctype)`. ALWAYS call those two tools
+  before composing variance/comparison Query Reports — they replace the
+  hardcoded templates that lived here pre-Cycle 9.
 
-  ALWAYS include `supplier=<value>` (or `customer=` for sales-side returns)
-  as a parent URL param — do NOT rely on `return_against` alone to wire it,
-  because the auto-fetch is async and may race the user clicking Save.
+  REPORT-LEVEL TOP-RIGHT BUTTON:
+  prepare_create_report accepts a `javascript` arg persisted to
+  Report.javascript. Use it for top-right `report.page.add_inner_button(...)`.
 
-  Pattern (3 buttons per row — Qty DN, Rate DN, Combined DN when both):
-
-```sql
--- Per-row helpers (reuse via subselect or repeat the CONCATs):
-SELECT
-  pii.parent                                  AS 'Purchase Invoice',
-  pi.supplier                                 AS 'Supplier',
-  pii.item_code                               AS 'Item',
-  COALESCE(pri.qty, 0)                        AS 'Receipt Qty',
-  pii.qty                                     AS 'Invoice Qty',
-  (pii.qty - COALESCE(pri.qty, 0))            AS 'Qty Diff',
-  CASE WHEN (pii.qty - COALESCE(pri.qty, 0)) <> 0
-    THEN CONCAT(
-      '<a href="/app/purchase-invoice/new?is_return=1&supplier=', pi.supplier,
-      '&return_against=', pii.parent,
-      '&_lz_items=', TO_BASE64(CONCAT(
-        '[{"item_code":"', pii.item_code,
-        '","item_name":"', COALESCE(pii.item_name, pii.item_code),
-        '","description":"', COALESCE(pii.item_name, pii.item_code),
-        '","qty":', (pii.qty - COALESCE(pri.qty, 0)),
-        ',"rate":', pii.rate,
-        ',"uom":"', COALESCE(pii.uom, ''),
-        '","pr_detail":"', COALESCE(pri.name, ''),
-        '","purchase_receipt":"', COALESCE(pri.parent, ''),
-        '","purchase_invoice":"', pii.parent,
-        '","purchase_invoice_item":"', pii.name, '"}]'
-      )),
-      '" class="btn btn-xs btn-primary">Qty DN ↗</a>')
-    ELSE '' END                               AS 'Qty Action',
-  COALESCE(pri.rate, 0)                       AS 'Receipt Rate',
-  pii.rate                                    AS 'Invoice Rate',
-  (pii.rate - COALESCE(pri.rate, 0))          AS 'Rate Diff',
-  CASE WHEN (pii.rate - COALESCE(pri.rate, 0)) <> 0
-    THEN CONCAT(
-      '<a href="/app/purchase-invoice/new?is_return=1&supplier=', pi.supplier,
-      '&return_against=', pii.parent,
-      '&_lz_items=', TO_BASE64(CONCAT(
-        '[{"item_code":"', pii.item_code,
-        '","item_name":"', COALESCE(pii.item_name, pii.item_code),
-        '","description":"Rate variance: ',
-        COALESCE(pri.rate, 0), ' vs ', pii.rate,
-        '","qty":', pii.qty,
-        ',"rate":', (pii.rate - COALESCE(pri.rate, 0)),
-        ',"uom":"', COALESCE(pii.uom, ''),
-        '","pr_detail":"', COALESCE(pri.name, ''),
-        '","purchase_receipt":"', COALESCE(pri.parent, ''),
-        '","purchase_invoice":"', pii.parent,
-        '","purchase_invoice_item":"', pii.name, '"}]'
-      )),
-      '" class="btn btn-xs btn-warning">Rate DN ↗</a>')
-    ELSE '' END                               AS 'Rate Action',
-  CASE WHEN (pii.qty - COALESCE(pri.qty, 0)) <> 0
-    AND  (pii.rate - COALESCE(pri.rate, 0)) <> 0
-    THEN CONCAT(
-      '<a href="/app/purchase-invoice/new?is_return=1&supplier=', pi.supplier,
-      '&return_against=', pii.parent,
-      '&_lz_items=', TO_BASE64(CONCAT(
-        '[{"item_code":"', pii.item_code,
-        '","item_name":"', COALESCE(pii.item_name, pii.item_code),
-        '","description":"Combined qty+rate variance",',
-        '"qty":', (pii.qty - COALESCE(pri.qty, 0)),
-        ',"rate":', pii.rate,
-        ',"uom":"', COALESCE(pii.uom, ''),
-        '","pr_detail":"', COALESCE(pri.name, ''),
-        '","purchase_receipt":"', COALESCE(pri.parent, ''),
-        '","purchase_invoice":"', pii.parent,
-        '","purchase_invoice_item":"', pii.name, '"},',
-        '{"item_code":"', pii.item_code,
-        '","item_name":"', COALESCE(pii.item_name, pii.item_code),
-        '","description":"Rate adjustment for received qty",',
-        '"qty":', COALESCE(pri.qty, 0),
-        ',"rate":', (pii.rate - COALESCE(pri.rate, 0)),
-        ',"uom":"', COALESCE(pii.uom, ''),
-        '","pr_detail":"', COALESCE(pri.name, ''),
-        '","purchase_receipt":"', COALESCE(pri.parent, ''),
-        '","purchase_invoice":"', pii.parent,
-        '","purchase_invoice_item":"', pii.name, '"}]'
-      )),
-      '" class="btn btn-xs btn-danger">Combined DN ↗</a>')
-    ELSE '' END                               AS 'Combined'
-FROM `tabPurchase Invoice Item` pii
-JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent
-LEFT JOIN `tabPurchase Receipt Item` pri ON pri.name = pii.pr_detail
-WHERE pi.docstatus = 1
-  AND (pii.qty <> COALESCE(pri.qty, 0) OR pii.rate <> COALESCE(pri.rate, 0))
-ORDER BY pi.posting_date DESC, pii.parent, pii.idx
-```
-
-  Whitelisted item-row keys the helper script honors: `item_code`,
-  `item_name`, `description`, `qty`, `rate`, `amount`, `uom`, `stock_uom`,
-  `conversion_factor`, `warehouse`, `cost_center`, `expense_account`,
-  `income_account`, `project`, `tax_rate`, plus reference back-links
-  `purchase_receipt`, `pr_detail`, `purchase_invoice`,
-  `purchase_invoice_item`, `sales_order`, `so_detail`, `sales_invoice`,
-  `sales_invoice_item`, `delivery_note`, `dn_detail`. Anything else is
-  ignored (security: the LLM cannot inject arbitrary doc fields).
-  Whitelisted parent-level URL params: `supplier`, `customer`,
-  `is_return`, `return_against`, `posting_date`, `due_date`,
-  `set_warehouse`, `company`, `cost_center`, `project`, `currency`.
-
-  The helper detects clobber by signature and re-applies, so even if
-  ERPNext's Make Return logic auto-fetches all items from the original
-  invoice when `return_against` settles, your `_lz_items` payload wins.
-  DO NOT generate a fresh per-report Client Script for this — the
-  persistent helper already handles it.
-
-  REPORT-LEVEL "DEBIT NOTE" BUTTON (top-right):
-  When the user asks for a top-right report button to bulk-create a Debit
-  Note from variance rows (e.g. "show only when both qty AND rate diff,
-  open a single DN with all selected rows"), pass a `javascript` arg to
-  prepare_create_report containing a Frappe `query_reports[<name>]` block.
-  Frappe loads this as `Report.javascript` for non-standard Query/Script
-  Reports. Pattern:
-
-```javascript
-frappe.query_reports["<EXACT REPORT NAME>"] = {
-  onload: function(report) {
-    report.page.add_inner_button("Debit Note", function() {
-      const both = (report.data || []).filter(function(r) {
-        // Use the column FIELDNAMES you defined in the SQL/columns.
-        return Number(r.qty_diff) !== 0 && Number(r.rate_diff) !== 0;
-      });
-      if (!both.length) {
-        frappe.msgprint("No rows have BOTH qty and rate variance.");
-        return;
-      }
-      // All rows must share the same supplier + return_against to bulk
-      // into ONE DN. Group by parent invoice if mixed.
-      const supplier = both[0].supplier;
-      const ra = both[0].purchase_invoice;
-      const items = both.map(function(r) {
-        return {
-          item_code: r.item, qty: r.qty_diff, rate: r.invoice_rate,
-          uom: r.uom, pr_detail: r.pr_detail,
-          purchase_invoice: r.purchase_invoice,
-          purchase_invoice_item: r.purchase_invoice_item,
-        };
-      });
-      const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(items))));
-      const url = "/app/purchase-invoice/new?is_return=1"
-        + "&supplier=" + encodeURIComponent(supplier)
-        + "&return_against=" + encodeURIComponent(ra)
-        + "&_lz_items=" + b64;
-      window.open(url, "_blank");
-    });
-  }
-};
-```
-
-  Critical: the report's column `fieldname`s are what the JS reads
-  (`r.qty_diff`, `r.rate_diff`, etc.) — NOT the column labels. If you
-  emit the SQL with `AS 'Qty Diff'`, the fieldname is auto-derived
-  (lowercased, spaces→underscores) but it's safer to set explicit
-  `columns` in prepare_create_report. The column metadata is stored
-  alongside the SQL.
-
-  Critical rules embedded in the canonical template above:
-  • `pii.parent` is the PI doc name (string) — not a join target. The parent doc
-    JOIN goes through `pi.name = pii.parent`.
-  • `pi.docstatus = 1` (parent invoice submitted) — without this, drafts pollute results.
-  • `WHERE` filters to ACTUAL variances only — `pii.qty <> COALESCE(pri.qty, 0)
-    OR pii.rate <> COALESCE(pri.rate, 0)`. Don't ship a "variance report" that shows
-    matched rows; the user opens it to find discrepancies, equal rows are noise.
-  • `COALESCE(pri.qty, 0)` is mandatory because LEFT JOIN — services and direct-
-    invoice items have NO receipt match (pri.* is NULL); naive subtraction yields NULL,
-    naive comparison fails the `<> 0` filter, the row drops out invisibly.
-  • Button label is SHORT (≤ ~12 chars: "Debit Note ↗"). Frappe Query Report columns
-    auto-size to content — long labels like "Create Debit Note (Qty Diff)" overflow
-    and get visually truncated. Compact labels stay readable.
-  • Use `''` (empty string) for non-action cells, not `'-'` — looks cleaner on
-    columns dominated by buttons.
-  • For Sales-side variance (SO/DN/SI), substitute: `Sales Invoice Item.so_detail`
-    → `Sales Order Item.name`, `Sales Invoice Item.dn_detail` → `Delivery Note Item.name`.
+  Quality tips for variance/comparison SQL:
+  • COALESCE on every LEFT-JOIN reference (NULL → 0 prevents row dropout).
+  • `pi.docstatus = 1` (or equivalent) — exclude drafts/cancellations.
+  • Filter to actual variances: `WHERE col_a <> COALESCE(col_b, 0)`.
+  • Short button labels (≤12 chars: "Debit Note ↗") — long labels truncate.
+  • Use `''` not `'-'` for the non-action ELSE branch in CASE expressions.
 
 - prepare_run_sql — STAGES a SELECT query for user-approval (Apply button) instead of running
   it immediately. Use ONLY when the user has explicitly asked to review the SQL before it runs.
