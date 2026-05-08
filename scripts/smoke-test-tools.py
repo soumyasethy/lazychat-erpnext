@@ -1550,6 +1550,31 @@ def run():
 		f"helper_installed={r.get('helper_installed')}",
 	))
 
+	# T89e: get_doctype_relationships surfaces canonical PR↔PI row link
+	# (the recurring blank-receipt-columns bug source).
+	r = execute_tool("get_doctype_relationships", {"doctype": "Purchase Invoice Item"})
+	row_links = r.get("row_link_to") or []
+	record(_ok(
+		"T89e get_doctype_relationships('Purchase Invoice Item') has pr_detail row link",
+		any(
+			rl.get("target") == "Purchase Receipt Item"
+			and rl.get("via") == "pr_detail"
+			and "pr_detail" in (rl.get("join") or "")
+			for rl in row_links
+		),
+		f"row_link_to={row_links!r}",
+	))
+
+	# T89f: doctype without curated hints still returns base info from describe_doctype.
+	r = execute_tool("get_doctype_relationships", {"doctype": "Customer"})
+	record(_ok(
+		"T89f get_doctype_relationships falls back to describe_doctype for uncurated doctypes",
+		r.get("doctype") == "Customer"
+		and isinstance(r.get("links"), list)
+		and r.get("row_link_to") == [],
+		f"links_n={len(r.get('links') or [])}",
+	))
+
 	# T88y: persistent lazychat form helper Client Scripts are seeded by
 	# install hooks on Purchase Invoice / Sales Invoice / Purchase Receipt /
 	# Delivery Note. Verify the Purchase Invoice helper exists, is enabled,

@@ -821,6 +821,80 @@ def _form_prefill_capabilities(doctype):
 	}
 
 
+_RELATIONSHIP_HINTS = {
+	"Purchase Invoice Item": {
+		"row_link_to": [{
+			"target": "Purchase Receipt Item",
+			"via": "pr_detail",
+			"join": "pii.pr_detail = pri.name",
+			"warning": (
+				"DO NOT join on item_code alone — items repeat across PRs/PIs "
+				"and the result is Cartesian. DO NOT rely on pri.purchase_invoice "
+				"alone — that field is sparsely populated."
+			),
+		}],
+		"parent_link_to": [{
+			"target": "Purchase Receipt", "via": "purchase_receipt",
+			"note": "Sparse — only set when PR was made FROM the PI.",
+		}],
+	},
+	"Sales Invoice Item": {
+		"row_link_to": [{
+			"target": "Sales Order Item", "via": "so_detail",
+			"join": "sii.so_detail = soi.name",
+		}, {
+			"target": "Delivery Note Item", "via": "dn_detail",
+			"join": "sii.dn_detail = dni.name",
+		}],
+	},
+	"Stock Ledger Entry": {
+		"row_link_to": [{
+			"target": "Purchase Receipt Item", "via": "voucher_detail_no",
+			"join": (
+				"sle.voucher_detail_no = pri.name "
+				"AND sle.voucher_type = 'Purchase Receipt'"
+			),
+		}],
+	},
+	"Purchase Receipt Item": {
+		"row_link_to": [{
+			"target": "Purchase Order Item", "via": "purchase_order_item",
+			"join": "pri.purchase_order_item = poi.name",
+		}],
+	},
+	"Delivery Note Item": {
+		"row_link_to": [{
+			"target": "Sales Order Item", "via": "so_detail",
+			"join": "dni.so_detail = soi.name",
+		}],
+	},
+}
+
+
+def _doctype_relationships(doctype):
+	"""Return canonical row-level joins + parent-level back-links for a
+	doctype. Built from the LLM-callable `describe_doctype` PLUS a small
+	curated map of common-pattern overrides where doctype-naive joins
+	produce wrong results (e.g. PR↔PI item-code joins giving blank
+	receipt columns)."""
+	if not doctype:
+		return {"error": "doctype required"}
+	base = execute_tool("describe_doctype", {"doctype": doctype})
+	if isinstance(base, dict) and base.get("error"):
+		return base
+	if not isinstance(base, dict):
+		base = {}
+	hints = _RELATIONSHIP_HINTS.get(doctype, {})
+	return {
+		"doctype": doctype,
+		"child_tables": base.get("child_tables", []),
+		"links": base.get("links", []),
+		"row_link_to": hints.get("row_link_to", []),
+		"parent_link_to": hints.get("parent_link_to", []),
+		"hint_curated": doctype in _RELATIONSHIP_HINTS,
+	}
+
+
 def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 	# Defensive: many models stringify their tool args. Normalize before
 	# dispatch so each tool's impl can rely on native types.
@@ -916,6 +990,9 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 
 	if name == "get_form_prefill_capabilities":
 		return _form_prefill_capabilities(args.get("doctype"))
+
+	if name == "get_doctype_relationships":
+		return _doctype_relationships(args.get("doctype"))
 
 	if name == "prepare_create_doc":
 		dt = args.get("doctype")
