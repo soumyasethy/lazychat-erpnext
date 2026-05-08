@@ -2440,6 +2440,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		ref_dt = args.get("ref_doctype")
 		report_type = args.get("report_type") or "Report Builder"
 		query = (args.get("query") or "").strip()
+		script = (args.get("script") or args.get("report_script") or "").strip()
 		columns = args.get("columns") or []
 		filters = args.get("filters") or {}
 		if not report_name or not ref_dt:
@@ -2461,6 +2462,27 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			explain_error = _probe_select_sql_explain(query)
 			if explain_error:
 				return {"error": explain_error}
+		if report_type == "Script Report":
+			# Production bug 2026-05-08: a Script Report stored without a Python
+			# `report_script` body opens to a blank page in Desk and the LLM has
+			# no way to know it shipped empty. Force the body up front; the
+			# minimal valid shape is `def execute(filters=None): return [], []`.
+			if not script:
+				return {"error": (
+					"Script Reports require a `script` body (Python with `def execute(filters=None)` "
+					"returning (columns, data)). Either pass the full Python source as `script`, "
+					"or use report_type='Query Report' with a SELECT statement instead."
+				)}
+			# AST-validate so syntax errors surface at preview, not at open time.
+			try:
+				import ast as _ast
+				_ast.parse(script)
+			except SyntaxError as e:
+				return {"error": f"script has Python syntax error: {e.msg} (line {e.lineno})"}
+			# Cheap structural check — the report engine calls `execute(filters)`,
+			# so the script must define that name.
+			if "def execute" not in script:
+				return {"error": "script must define a top-level `def execute(filters=None):` returning (columns, data)"}
 		token = _stage_action(
 			"create_report",
 			{
@@ -2468,6 +2490,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				"ref_doctype": ref_dt,
 				"report_type": report_type,
 				"query": query,
+				"script": script,
 				"columns": columns,
 				"filters": filters,
 			},
@@ -4142,6 +4165,13 @@ def commit_prepared(token, **extras):
 			}
 			if payload["report_type"] == "Query Report":
 				rep_values["query"] = payload["query"]
+			if payload["report_type"] == "Script Report":
+				# Refuse at commit too — defense-in-depth against payload tampering.
+				body = (payload.get("script") or "").strip()
+				if not body:
+					return {"ok": False, "error": "Script Report payload missing `script` body at commit"}
+				rep_values["report_script"] = body
+				rep_values["script_type"] = "Python"
 			# Re-validate Query Report SQL at commit time — the staging machinery
 			# already validated it, but defense-in-depth is cheap.
 			if rep_values.get("query"):
