@@ -673,6 +673,22 @@ hallucinated "no POs match" output.
 Evidence:
 - [`test/evidence/cycle7-self-correcting-commit/12-PLATFORM-DELIVERS-real-data-no-hallucination.png`](test/evidence/cycle7-self-correcting-commit/12-PLATFORM-DELIVERS-real-data-no-hallucination.png)
 
+## Query/Script Report URL routing fix — `/app/query-report/<name>` (2026-05-08)
+
+Production bug: clicking the post-Apply "Open Report →" button on a created Query Report (or Script Report) opened `/app/report/<name>`, which Frappe's router treats as Report Builder only — landed the user on **"Sorry! I could not find what you were looking for"** (and triggered a `TypeError: getdoctype() missing 1 required positional argument: 'doctype'` in the backend trace).
+
+**Cause** — two paths in [tools.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py) generated the wrong URL for Query/Script Reports:
+1. `prepare_create_report` preview `open_url` (line ~2803): used `/app/query-report/` for Query Reports but `/app/report/` for Script Reports — but Frappe routes Script Reports at `/app/query-report/` too. Only Report Builder reports use `/app/report/<name>`.
+2. `commit_prepared_action` response `link` (line ~4928): used the generic `f"/app/{frappe.scrub(doc.doctype)}/{doc.name}"` pattern, which produces `/app/report/<name>` for any Report doc regardless of `report_type`.
+
+**Fix** — both paths now special-case the Report doctype:
+- Preview: `if report_type == "Report Builder" → /app/report/{name}` else `/app/query-report/{name}`. Covers Query Report AND Script Report.
+- Commit: same logic on the doc's `report_type` attribute, falls back to the generic scrub pattern for non-Report doctypes (unchanged behavior).
+
+**Smoke** (T88p, T88q in [scripts/smoke-test-tools.py](scripts/smoke-test-tools.py)): preview `open_url` for Query Report AND Script Report both start with `/app/query-report/`. 184 in-process / 91 HTTP-wire / 355 chat-ui all green.
+
+Real-user trigger 2026-05-08: replays of "report with debit-note option per line item" prompt produced reports the LLM thought were saved correctly, but clicking Open dead-ended at the not-found page. Now clicking Open lands on the actual report.
+
 ## Canonical PR↔PI variance-report SQL template in system prompt (2026-05-08)
 
 After the alias-redirect + linkage-knowledge fix landed, the LLM correctly used `pii.pr_detail = pri.name` BUT still produced reports with: (a) loose `WHERE` filter that matched non-variance rows, (b) missing `pi.docstatus = 1`, (c) un-COALESCE'd NULL receipts producing dropouts, (d) overflowing button labels visibly truncated to "Create Debit Note (Q". User shot this in the foot 5+ times running the same prompt.
