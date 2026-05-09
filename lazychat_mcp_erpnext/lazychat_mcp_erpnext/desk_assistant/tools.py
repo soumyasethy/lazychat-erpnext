@@ -1629,13 +1629,37 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		if not meta.is_submittable:
 			return {"error": f"{dt} is not submittable"}
 		token = _stage_action("submit", {"doctype": dt, "name": dn})
-		return {
+		response_dict = {
 			"ok": True,
 			"preview_token": token,
 			"summary": f"Will submit {dt}/{dn}",
 			"expires_in_sec": PREP_TTL_SEC,
 			"confirm_with": "click the inline Apply button to confirm",
 		}
+		# Cycle 12 — M2: critic verdict (cycle9-gated). Evidence is the
+		# pre-submit doc shape — current workflow state + whether a
+		# workflow is active for the doctype — so critic can flag
+		# submitting before validation or wrong-state submission.
+		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		if get_lazychat_settings().get("cycle9_enabled"):
+			try:
+				_current_state = frappe.db.get_value(dt, dn, "workflow_state") or None
+			except Exception:
+				_current_state = None
+			_has_workflow = bool(frappe.db.exists("Workflow", {"document_type": dt, "is_active": 1}))
+			_attach_critic_feedback(
+				response_dict,
+				args=args,
+				action="submit",
+				default_intent=f"submit {dt}/{dn}",
+				payload={"doctype": dt, "name": dn},
+				evidence={
+					"is_submittable": True,
+					"current_state": _current_state,
+					"has_workflow": _has_workflow,
+				},
+			)
+		return response_dict
 
 	if name == "list_workflow_actions":
 		dt = args.get("doctype")
