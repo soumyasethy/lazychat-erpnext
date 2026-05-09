@@ -486,6 +486,28 @@ When debugging *"my report URL gave 404 even though the chat said it was
 created"*: confirm the chat-ui bundle was rebuilt after this fix landed
 (`?v=` query in iframe URL should be > `1778066844`).
 
+## Cycle 11 — M4: Live tool progress + visible inactivity (2026-05-09)
+
+Eliminates the "response gets stuck and slow" UX dead-zone reported by the
+user. Server side: 1 file changed.
+
+- `desk_assistant/critic.py:critique_composition` — wraps the
+  `adapter.chat(...)` call with a deterministic 30s timeout via
+  `concurrent.futures.ThreadPoolExecutor + Future.result(timeout=30)`.
+  Without this, a hung critic LLM (network stall, slow upstream) blocked
+  the parent `prepare_*` response indefinitely; with it, the call returns
+  `{skipped: True, reason: "critic LLM call timed out after 30s"}` so the
+  chat-ui's "verifier skipped" tag fires reliably. Stdlib only — no new
+  dependency.
+
+**Smoke**: 231 → **232** (+1: T92d critique_composition returns
+`{skipped: True, reason}` when critic LLM unavailable). HTTP-wire 94/94
+unchanged.
+
+Companion chat-ui story (per-tool elapsed in LiveStatus + 2-strike SSE
+inactivity policy + critic phase visibility) in
+[../lazychat.ai/CLAUDE.md](../lazychat.ai/CLAUDE.md) "Cycle 11 — M4".
+
 ## Cycle 11 — M3: SQL pre-flight hard gate + critic visibility (2026-05-09)
 
 Two independent fixes shipped together. Both gated on `cycle9_enabled` (no
