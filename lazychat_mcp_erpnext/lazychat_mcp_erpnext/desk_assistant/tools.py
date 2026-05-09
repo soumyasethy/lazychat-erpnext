@@ -4212,7 +4212,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				"affected_count_at_prepare": affected_count,
 			},
 		)
-		return {
+		response_dict = {
 			"ok": True,
 			"preview_token": token,
 			"summary": f"Will update {affected_count} {dt} doc(s) — {len(patch)} field(s)",
@@ -4227,6 +4227,28 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"expires_in_sec": PREP_TTL_SEC,
 			"confirm_with": "click the inline Apply button to confirm",
 		}
+		# Cycle 12 — M2: critic verdict (cycle9-gated). affected_count is
+		# already computed by the bulk-update gate — pass it as evidence so
+		# the critic can flag overly-broad bulk operations without re-scanning.
+		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		if get_lazychat_settings().get("cycle9_enabled"):
+			_attach_critic_feedback(
+				response_dict,
+				args=args,
+				action="bulk_update",
+				default_intent=f"bulk update {dt}",
+				payload={
+					"doctype": dt,
+					"patch_keys": list(patch.keys()),
+					"filter_keys": list(filters.keys()),
+				},
+				evidence={
+					"affected_count": affected_count,
+					"patch_fields": list(patch.keys()),
+					"filter_keys": list(filters.keys()),
+				},
+			)
+		return response_dict
 
 	if name == "prepare_download_backup":
 		with_files = bool(args.get("with_files"))

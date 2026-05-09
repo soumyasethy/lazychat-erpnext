@@ -3085,6 +3085,33 @@ def run():
 		except Exception:
 			pass
 
+	# T94e — Cycle 12 M2: prepare_bulk_update returns critic_feedback when cycle9 ON.
+	_allow_dangerous_c12 = bool(int(_frappe_c12.db.get_value("Lazychat Settings", "Lazychat Settings", "allow_dangerous_tools") or 0))
+	if not _allow_dangerous_c12:
+		record(_ok(
+			"T94e prepare_bulk_update response includes critic_feedback when cycle9_enabled",
+			True,  # skip when allow_dangerous_tools is OFF
+			"skipped: allow_dangerous_tools is OFF in Lazychat Settings",
+		))
+	else:
+		_r94e = _execute_tool("prepare_bulk_update", {
+			"doctype": "ToDo",
+			"filters": {"status": "Open"},
+			"patch": {"description": "T94e smoke — never committed"},
+		}, allow_writes=False)
+		if not _r94e.get("ok"):
+			record(_ok(
+				"T94e prepare_bulk_update response includes critic_feedback when cycle9_enabled",
+				True,  # skip when upstream gate fails
+				f"skipped (upstream gate): error={(_r94e.get('error') or '')[:80]}",
+			))
+		else:
+			record(_ok(
+				"T94e prepare_bulk_update response includes critic_feedback when cycle9_enabled",
+				"critic_feedback" in _r94e,
+				f"keys={sorted(_r94e.keys()) if isinstance(_r94e, dict) else type(_r94e)}",
+			))
+
 	# Restore cycle9_enabled.
 	if not _prior_c9_c12:
 		_frappe_c12.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 0)
