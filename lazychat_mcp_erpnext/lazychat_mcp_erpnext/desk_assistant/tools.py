@@ -1471,6 +1471,26 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 					response_dict["examples_from_history"] = []
 			else:
 				response_dict["examples_from_history"] = []
+
+			# Cycle 12 — M1: critic verdict. Mirrors prepare_create_report (M3).
+			# Evidence is shape-only (field names + count) so the critic
+			# grades whether the right fields are populated for the intent
+			# without leaking raw user values.
+			try:
+				from lazychat_mcp_erpnext.desk_assistant.critic import critique_composition
+				_critic_intent = args.get("_intent_summary") or f"create {dt}"
+				response_dict["critic_feedback"] = critique_composition(
+					_critic_intent,
+					"create_doc",
+					{"doctype": dt, "values_keys": list(values.keys()), "values_count": len(values)},
+					{"doctype": dt, "fields_set": list(values.keys())},
+					effort=args.get("_effort") or "medium",
+				)
+			except Exception as _critic_err:
+				response_dict["critic_feedback"] = {
+					"skipped": True,
+					"reason": f"critic call raised: {type(_critic_err).__name__}: {str(_critic_err)[:80]}",
+				}
 		return response_dict
 
 	if name == "prepare_update_doc":
@@ -1549,6 +1569,34 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 					response_dict["examples_from_history"] = []
 			else:
 				response_dict["examples_from_history"] = []
+
+			# Cycle 12 — M1: critic verdict. Evidence includes BEFORE state
+			# (current field values being patched) so the critic can flag
+			# dangerous patches — wiping required fields, clearing workflow
+			# status, downgrading numeric values without explicit intent.
+			try:
+				from lazychat_mcp_erpnext.desk_assistant.critic import critique_composition
+				_critic_intent = args.get("_intent_summary") or f"update {dt}/{dn}"
+				_patch_fields = list(patch.keys()) if isinstance(patch, dict) else []
+				_before_values = {}
+				if _patch_fields:
+					try:
+						_row = frappe.db.get_value(dt, dn, _patch_fields, as_dict=True) or {}
+						_before_values = {k: _row.get(k) for k in _patch_fields if k in _row}
+					except Exception:
+						_before_values = {}
+				response_dict["critic_feedback"] = critique_composition(
+					_critic_intent,
+					"update_doc",
+					{"doctype": dt, "name": dn, "patch": patch},
+					{"before_values": _before_values, "patch_fields": _patch_fields},
+					effort=args.get("_effort") or "medium",
+				)
+			except Exception as _critic_err:
+				response_dict["critic_feedback"] = {
+					"skipped": True,
+					"reason": f"critic call raised: {type(_critic_err).__name__}: {str(_critic_err)[:80]}",
+				}
 		return response_dict
 
 	if name == "prepare_submit_doc":
@@ -2513,6 +2561,27 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 					response_dict["examples_from_history"] = []
 			else:
 				response_dict["examples_from_history"] = []
+
+			# Cycle 12 — M1: critic verdict. Evidence is the query text
+			# (capped 2000 chars). No execute-probe sample because the
+			# raw-SQL gate doesn't run one — the critic grades the query
+			# shape against the user intent (e.g. wrong table, missing
+			# WHERE clause, JOIN that won't return what was asked).
+			try:
+				from lazychat_mcp_erpnext.desk_assistant.critic import critique_composition
+				_critic_intent = args.get("_intent_summary") or "run SQL"
+				response_dict["critic_feedback"] = critique_composition(
+					_critic_intent,
+					"run_sql",
+					{"query": query[:2000]},
+					{"query": query[:2000], "limit": limit},
+					effort=args.get("_effort") or "medium",
+				)
+			except Exception as _critic_err:
+				response_dict["critic_feedback"] = {
+					"skipped": True,
+					"reason": f"critic call raised: {type(_critic_err).__name__}: {str(_critic_err)[:80]}",
+				}
 		return response_dict
 
 	if name == "prepare_run_python":
@@ -2524,7 +2593,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			return {"error": "code required"}
 		timeout = min(int(args.get("timeout") or 30), 120)
 		token = _stage_action("run_python", {"code": code, "timeout": timeout})
-		return {
+		response_dict = {
 			"ok": True,
 			"preview_token": token,
 			"summary": f"Will execute Python code (timeout {timeout}s) with full Frappe access",
@@ -2532,6 +2601,64 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"expires_in_sec": PREP_TTL_SEC,
 			"confirm_with": "click the inline Apply button to confirm",
 		}
+		# Cycle 12 — M1: critic verdict. Evidence includes a cheap AST
+		# summary (top-level imports + called symbols) so the critic can
+		# flag scripts that touch unexpected modules or call dangerous
+		# functions — without dry-running the script (which would need
+		# its own sandbox layer). The full source is also passed so the
+		# critic can spot logic errors.
+		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings as _gls_py
+		if _gls_py().get("cycle9_enabled"):
+			try:
+				import ast as _ast
+				from lazychat_mcp_erpnext.desk_assistant.critic import critique_composition
+				_critic_intent = args.get("_intent_summary") or "run Python"
+				_imports: list[str] = []
+				_calls: list[str] = []
+				try:
+					_tree = _ast.parse(code)
+					for _node in _ast.walk(_tree):
+						if isinstance(_node, _ast.Import):
+							for _a in _node.names:
+								_imports.append(_a.name)
+						elif isinstance(_node, _ast.ImportFrom):
+							_mod = _node.module or ""
+							for _a in _node.names:
+								_imports.append(f"{_mod}.{_a.name}" if _mod else _a.name)
+						elif isinstance(_node, _ast.Call):
+							_func = _node.func
+							if isinstance(_func, _ast.Name):
+								_calls.append(_func.id)
+							elif isinstance(_func, _ast.Attribute):
+								# Walk attribute chain (e.g. frappe.db.get_value)
+								_parts: list[str] = [_func.attr]
+								_cur = _func.value
+								while isinstance(_cur, _ast.Attribute):
+									_parts.append(_cur.attr)
+									_cur = _cur.value
+								if isinstance(_cur, _ast.Name):
+									_parts.append(_cur.id)
+								_calls.append(".".join(reversed(_parts)))
+				except SyntaxError:
+					# Critic still gets the raw source even if AST parse fails.
+					pass
+				_ast_summary = {
+					"imports": sorted(set(_imports))[:20],
+					"calls": sorted(set(_calls))[:30],
+				}
+				response_dict["critic_feedback"] = critique_composition(
+					_critic_intent,
+					"run_python",
+					{"code": code[:1500], "timeout": timeout},
+					{"code": code[:1500], "ast_summary": _ast_summary},
+					effort=args.get("_effort") or "medium",
+				)
+			except Exception as _critic_err:
+				response_dict["critic_feedback"] = {
+					"skipped": True,
+					"reason": f"critic call raised: {type(_critic_err).__name__}: {str(_critic_err)[:80]}",
+				}
+		return response_dict
 
 	if name == "prepare_share_doc":
 		dt = args.get("doctype")
