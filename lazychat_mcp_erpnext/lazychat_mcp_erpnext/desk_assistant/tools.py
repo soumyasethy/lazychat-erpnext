@@ -824,6 +824,21 @@ def _form_prefill_capabilities(doctype):
 	}
 
 
+def prepare_form_prefill(doctype, parent_fields=None, items=None, ttl=None):
+	"""Tool wrapper around api.prepare_form_prefill. Stages a form-prefill
+	payload server-side and returns a short URL the assistant can embed in
+	a Query Report HTML link button. ALWAYS prefer this over `_lz_items` URL
+	payloads when items count >= 5 OR total payload size could exceed ~1 KB
+	(HTTP 414 Request-URI Too Long otherwise on the Frappe dev server).
+
+	Returns:
+	  Same shape as api.prepare_form_prefill: {ok, token, url} on success,
+	  {ok: False, error} on validation failure.
+	"""
+	from lazychat_mcp_erpnext.desk_assistant.api import prepare_form_prefill as _api_prepare_form_prefill
+	return _api_prepare_form_prefill(doctype=doctype, parent_fields=parent_fields, items=items, ttl=ttl)
+
+
 _RELATIONSHIP_HINTS = {
 	"Purchase Invoice Item": {
 		"row_link_to": [{
@@ -1382,6 +1397,9 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 
 	if name == "get_form_prefill_capabilities":
 		return _form_prefill_capabilities(args.get("doctype"))
+
+	if name == "prepare_form_prefill":
+		return prepare_form_prefill(**args)
 
 	if name == "get_doctype_relationships":
 		return _doctype_relationships(args.get("doctype"))

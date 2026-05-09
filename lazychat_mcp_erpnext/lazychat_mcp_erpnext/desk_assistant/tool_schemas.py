@@ -77,6 +77,44 @@ TOOL_SCHEMAS = [
 		},
 	},
 	{
+		"name": "prepare_form_prefill",
+		"description": (
+			"Stage a form-prefill payload for a new-doc URL. Returns a short opaque "
+			"token and a tiny URL (`/app/<dt>/new?_lz_token=<22-char>`) that the "
+			"persistent Client Script will fetch and apply via `frappe.route_options` "
+			"on form load. ALWAYS prefer this over the legacy `_lz_items=<base64>` URL "
+			"convention when items count >= 5 OR total payload could exceed ~1 KB — "
+			"the URL-embedded base64 approach hits HTTP 414 Request-URI Too Long for "
+			"large reports (50+ rows). Token is single-use, user-bound, 5-min TTL "
+			"(override via `ttl` arg, max 3600s). Re-checks create permission at "
+			"staging time. Use the returned `url` directly in Query Report HTML "
+			"link buttons (e.g. `<a href=\"<url>\">Debit Note</a>`)."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"doctype": {
+					"type": "string",
+					"description": "Target DocType (e.g. 'Purchase Invoice', 'Sales Invoice')."
+				},
+				"parent_fields": {
+					"type": "object",
+					"description": "Parent-level field values to apply (e.g. {'supplier': 'X', 'is_return': 1, 'return_against': 'PI-001'}). May be empty."
+				},
+				"items": {
+					"type": "array",
+					"description": "List of item-row dicts to populate the items child table. Each dict can include item_code, qty, rate, uom, warehouse, pr_detail, etc. (see `get_form_prefill_capabilities(doctype)` for the whitelisted keys per doctype). May be empty.",
+					"items": {"type": "object"},
+				},
+				"ttl": {
+					"type": "integer",
+					"description": "Optional TTL seconds (clamped to [60, 3600]; default 300)."
+				},
+			},
+			"required": ["doctype"],
+		},
+	},
+	{
 		"name": "get_doctype_relationships",
 		"description": (
 			"Return canonical row-level + parent-level join hints for a doctype. "
