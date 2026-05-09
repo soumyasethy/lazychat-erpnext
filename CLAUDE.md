@@ -532,42 +532,53 @@ notice.
 cross-user denial via Guest). HTTP-wire: 93 → 94 (+1: `prepare_form_prefill`
 validator).
 
-### ⚠️ Known follow-up: Frappe v15 URL-stripping breaks form prefill
+### M2.1: Frappe v15 URL-stripping fix (panel-shim IIFE capture)
 
-During T7 ship-gate, discovered Frappe v15 redirects `/app/<dt>/new?<params>`
-to `/app/<dt>/new-<dt>-<random>` and **strips the entire query string** before
-form `onload` fires. This affects BOTH the new `_lz_token` AND the legacy
-`_lz_items` URL conventions — neither can be read from `window.location.search`
-by the persistent Client Script.
+T7 ship-gate revealed Frappe v15 redirects `/app/<dt>/new?<params>` to
+`/app/<dt>/new-<dt>-<random>` and **strips the entire query string** before
+form `onload` fires. This broke BOTH the new `_lz_token` AND the pre-existing
+`_lz_items` URL conventions — by the time the persistent Client Script's
+`lazychatPrefill` runs, `window.location.search` is empty.
 
-The 414 problem IS solved by M2 at the URL-length level (the token URL stays
-under 100 chars). But the FORM PREFILL itself doesn't fire because the Client
-Script can't see the URL params. This is a pre-existing Frappe-layer issue
-(not an M2 regression — `_lz_items` was already broken in this Frappe version)
-that surfaced during M2 verification.
+**Fix (M2.1, shipped same day):** the panel-shim
+[`lazychat_panel.bundle.js`](lazychat_mcp_erpnext/lazychat_mcp_erpnext/public/js/lazychat_panel.bundle.js)
+loads via `app_include_js` at HTML-parse time — BEFORE Frappe's router
+redirects. Added an IIFE-time capture:
 
-**Remediation paths for a future cycle (M2.1):**
-1. **IIFE-capture**: Read `window.location.search` at IIFE-execution time
-   (page load is BEFORE Frappe redirects), store in module-level variable,
-   use it in `lazychatPrefill`. Works for full-page-load navigation; SPA
-   `frappe.set_route` calls would need explicit `frappe.route_options` set.
-2. **Route-options interception**: Hook `frappe.app.before_route` (if it
-   exists in Frappe v15) to capture URL params before consumption.
-3. **Form-name persisted token**: Generate the new doc's name server-side
-   and stash the token in a doctype field so the form-load handler can
-   read it back.
+```js
+try {
+  if (typeof window !== "undefined" && window.__lazychat_initial_search === undefined) {
+    window.__lazychat_initial_search = window.location.search || "";
+  }
+} catch (_) {}
+```
 
-The current M2 ship is **server-side complete + Client Script delivery
-pending the URL-capture fix**. Use the existing `_lz_items` pattern at your
-own risk in this Frappe version (also broken by the same URL-stripping).
+The persistent Client Script's IIFE then prefers `window.__lazychat_initial_search`
+over the (empty) live URL. Falls back to live URL if the global isn't set
+(e.g., if the panel-shim is disabled).
 
-**Manual verification status (T7):**
+This fixes BOTH paths in one stroke — `_lz_token` AND legacy `_lz_items`.
+Verified end-to-end via Playwright:
+[evidence](test/evidence/cycle-11-m2/01-pi-prefilled-via-lz-token.png) shows
+`Supplier: ACME-M21` + `Is Return ✓` populated on a fresh PI form after
+navigation to `/app/purchase-invoice/new?_lz_token=...` — even though
+`window.location.search` is empty by the time the Client Script reads it.
+
+**Manual verification (T7) — ALL PASS:**
 - ✅ `prepare_form_prefill` endpoint round-trip (stage + fetch + single-use + cross-user denial) — verified via `bench execute` and HTTP curl.
-- ✅ URL is tiny (`?_lz_token=22-char`, total length ~46 chars on `to-do` route).
+- ✅ URL is tiny (`?_lz_token=22-char`, total length ~46 chars).
 - ✅ Tool registry count incremented to 94.
 - ✅ Server smoke 228/0/2; HTTP-wire 94/94.
-- ⚠️ Form prefill does NOT visually populate — Frappe URL-stripping issue (see
-  above). Affects legacy path identically.
+- ✅ Form prefill DOES visually populate — supplier + is_return + items table all flow through to the new-doc form.
+- ✅ Legacy `_lz_items` path also fixed by the same panel-shim capture.
+
+**SPA navigation caveat (acceptable):** The panel-shim IIFE captures only at
+full page load. For in-app `frappe.set_route` clicks (no page reload), the
+captured value is from the original page load. Workaround: emit
+`<a href="/app/<dt>/new?_lz_token=...">` anchor links (which Frappe does NOT
+intercept on `/new` routes — verified during T7), so the click triggers a
+full reload and the IIFE re-captures. This matches the canonical Query
+Report HTML cell pattern.
 
 ## Cycle 10 — chat-ui admin panel + allow-all defaults (2026-05-09)
 
