@@ -486,6 +486,89 @@ When debugging *"my report URL gave 404 even though the chat said it was
 created"*: confirm the chat-ui bundle was rebuilt after this fix landed
 (`?v=` query in iframe URL should be > `1778066844`).
 
+## Cycle 11 — M2: Stage-and-redirect form prefill (kills HTTP 414) (2026-05-09)
+
+Replaces inline `_lz_items=<base64-json>` URL convention with a server-staged
+token. For Query Report HTML buttons that prefill a new-doc form, the token-
+based URL stays under 100 chars regardless of payload size — eliminates HTTP
+414 "Request-URI Too Long" for 50+ item variance reports.
+
+**New endpoints in `desk_assistant/api.py`:**
+- `prepare_form_prefill(doctype, parent_fields, items, ttl)` — stages payload in
+  `frappe.cache()` with 22-char `secrets.token_urlsafe(16)` token, 5-min TTL
+  (clamped to [60, 3600]). Re-checks `frappe.has_permission(dt, ptype="create")`.
+  Returns `{ok, token, url}` where `url = "/app/<scrub>/new?_lz_token=<22-char>"`.
+- `fetch_form_prefill(token)` — single-use (consumes on first read), user-bound
+  (refuses cross-user reads via `_retrieve_prefill` user-binding check).
+
+Helpers `_stage_prefill` / `_retrieve_prefill` mirror the existing
+`_stage_action` / `_retrieve_action` pattern (`tools.py:644-665`) with a
+distinct cache prefix `lazychat:prefill:` (vs `lazychat_prep:`).
+
+**New tool wrapper in `tools.py`:** `prepare_form_prefill` is a thin re-export
+registered in `tool_schemas.py`. Schema description teaches the LLM to ALWAYS
+prefer this over `_lz_items` URL when items count >= 5 OR payload could exceed
+~1 KB. `fetch_form_prefill` is NOT exposed as a tool (LLM can stage but not
+retrieve).
+
+**Persistent Client Script (`install.py`):** the helper auto-installed on
+Purchase Invoice / Sales Invoice / Purchase Receipt / Delivery Note gains a
+`_lz_token` decoder branch. Reads `?_lz_token=` from URL, calls
+`frappe.call("lazychat_mcp_erpnext.desk_assistant.api.fetch_form_prefill",
+{token})`, caches the payload on `frm.__lz_token_payload` (single-use
+server-side, but Make Return reapply needs a second invocation), applies
+parent_fields via `frm.set_value` and items via `applyItems(frm, rows)`.
+Race guard: `frm.__lz_token_fetching` flag prevents the 5 form events
+(`onload_post_render`, `refresh`, `return_against`, `supplier`, `customer`)
+from dispatching parallel fetches that would consume the single-use token
+twice. Legacy `_lz_items` decoder retained with `console.warn` deprecation
+notice.
+
+**Prompts updated:** `claude_bridge.py` AUTO-FILL block teaches
+`prepare_form_prefill` first; chat-ui mirror at
+`lazychat.ai/apps/chat-ui/src/lib/routerSystemPrompt.ts:69` updated identically.
+
+**Smoke**: 225 → 228 (+3: T91a/b/c covering round-trip, single-use semantics,
+cross-user denial via Guest). HTTP-wire: 93 → 94 (+1: `prepare_form_prefill`
+validator).
+
+### ⚠️ Known follow-up: Frappe v15 URL-stripping breaks form prefill
+
+During T7 ship-gate, discovered Frappe v15 redirects `/app/<dt>/new?<params>`
+to `/app/<dt>/new-<dt>-<random>` and **strips the entire query string** before
+form `onload` fires. This affects BOTH the new `_lz_token` AND the legacy
+`_lz_items` URL conventions — neither can be read from `window.location.search`
+by the persistent Client Script.
+
+The 414 problem IS solved by M2 at the URL-length level (the token URL stays
+under 100 chars). But the FORM PREFILL itself doesn't fire because the Client
+Script can't see the URL params. This is a pre-existing Frappe-layer issue
+(not an M2 regression — `_lz_items` was already broken in this Frappe version)
+that surfaced during M2 verification.
+
+**Remediation paths for a future cycle (M2.1):**
+1. **IIFE-capture**: Read `window.location.search` at IIFE-execution time
+   (page load is BEFORE Frappe redirects), store in module-level variable,
+   use it in `lazychatPrefill`. Works for full-page-load navigation; SPA
+   `frappe.set_route` calls would need explicit `frappe.route_options` set.
+2. **Route-options interception**: Hook `frappe.app.before_route` (if it
+   exists in Frappe v15) to capture URL params before consumption.
+3. **Form-name persisted token**: Generate the new doc's name server-side
+   and stash the token in a doctype field so the form-load handler can
+   read it back.
+
+The current M2 ship is **server-side complete + Client Script delivery
+pending the URL-capture fix**. Use the existing `_lz_items` pattern at your
+own risk in this Frappe version (also broken by the same URL-stripping).
+
+**Manual verification status (T7):**
+- ✅ `prepare_form_prefill` endpoint round-trip (stage + fetch + single-use + cross-user denial) — verified via `bench execute` and HTTP curl.
+- ✅ URL is tiny (`?_lz_token=22-char`, total length ~46 chars on `to-do` route).
+- ✅ Tool registry count incremented to 94.
+- ✅ Server smoke 228/0/2; HTTP-wire 94/94.
+- ⚠️ Form prefill does NOT visually populate — Frappe URL-stripping issue (see
+  above). Affects legacy path identically.
+
 ## Cycle 10 — chat-ui admin panel + allow-all defaults (2026-05-09)
 
 User principle: *"reduce cognitive load on user erp side. we should fully
