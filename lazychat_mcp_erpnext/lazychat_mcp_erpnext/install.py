@@ -186,6 +186,24 @@ _LAZYCHAT_FORM_HELPER_SCRIPT = r"""
 // We detect the clobber by signature mismatch on each `refresh` event and
 // re-inject. This wins the race regardless of timing.
 (function () {
+  // Cycle 11 — M2.1: read the URL query string captured by the panel-shim
+  // (`lazychat_panel.bundle.js`) at HTML-parse time, BEFORE Frappe v15's
+  // `/new` route handler redirects to `/new-<dt>-<id>` and strips the query
+  // string. By the time this Client Script's IIFE runs (via Frappe boot,
+  // which happens AFTER the redirect), `window.location.search` is empty —
+  // so we read the captured value from `window.__lazychat_initial_search`
+  // instead. Falls back to live URL for SPA navigation cases where the
+  // panel-shim's capture is stale (in-app `frappe.set_route` calls don't
+  // re-run the panel-shim IIFE).
+  var _capturedSearch = '';
+  try {
+    if (window.__lazychat_initial_search) {
+      _capturedSearch = String(window.__lazychat_initial_search).replace(/^\?/, '');
+    } else {
+      _capturedSearch = (window.location.search || '').replace(/^\?/, '');
+    }
+  } catch (e) {}
+
   // Decode URL-safe base64 (handles +/= and percent-encoded variants).
   function _decode(b64) {
     if (!b64) return null;
@@ -202,9 +220,22 @@ _LAZYCHAT_FORM_HELPER_SCRIPT = r"""
       try { return JSON.parse(atob(b64)); } catch (e2) { return null; }
     }
   }
+  // Returns a wrapper that prefers live URL params (in case Frappe didn't
+  // strip them) and falls back to the capture from script-load time.
   function _params() {
-    try { return new URLSearchParams(window.location.search); }
-    catch (e) { return new URLSearchParams(''); }
+    var live;
+    try { live = new URLSearchParams(window.location.search); }
+    catch (e) { live = new URLSearchParams(''); }
+    var captured;
+    try { captured = new URLSearchParams(_capturedSearch); }
+    catch (e) { captured = new URLSearchParams(''); }
+    return {
+      get: function (k) {
+        var v = live.get(k);
+        if (v != null) return v;
+        return captured.get(k);
+      },
+    };
   }
   // Stable signature of a parsed _lz_items array — used to tell our rows
   // apart from auto-fetched / user-added rows.
