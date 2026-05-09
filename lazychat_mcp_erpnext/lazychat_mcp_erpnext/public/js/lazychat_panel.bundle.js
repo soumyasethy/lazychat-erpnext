@@ -759,6 +759,82 @@
 			}
 		});
 
+		/* M4.2 — inspectRoute: open a hidden same-origin iframe, poll for
+		 * cur_frm readiness, capture DOM state per captureSpec, post back. */
+		function capturePerSpec(cf, spec, url) {
+			const out = { url: url || (cf && cf.doc && cf.doc.name) || "", form: {}, items: [] };
+			if (Array.isArray(spec.form_fields)) {
+				spec.form_fields.forEach(function (k) {
+					try { out.form[k] = cf.doc[k]; } catch (e) { out.form[k] = null; }
+				});
+			}
+			if (spec.child_table && cf.doc && Array.isArray(cf.doc[spec.child_table])) {
+				const rows = cf.doc[spec.child_table];
+				if (spec.child_table_count) out.items_count = rows.length;
+				if (Array.isArray(spec.child_row_fields)) {
+					out.items = rows.map(function (r) {
+						const o = {};
+						spec.child_row_fields.forEach(function (k) {
+							try { o[k] = r[k]; } catch (e) { o[k] = null; }
+						});
+						return o;
+					});
+				}
+			}
+			if (spec.buttons_in_page) {
+				out.buttons = [];
+				try {
+					const btns = (cf.page && cf.page.inner_toolbar && cf.page.inner_toolbar.find("button.btn")) || [];
+					btns.each && btns.each(function () {
+						out.buttons.push((this.textContent || "").trim());
+					});
+				} catch (e) { /* ignore */ }
+			}
+			return out;
+		}
+
+		function handleInspectRoute(payload) {
+			const spec = (payload && payload.captureSpec) || {};
+			const requestId = payload && payload.requestId;
+			const route = payload && payload.route;
+			const timeout = spec.timeout_ms || 5000;
+
+			if (!route || !requestId) {
+				bridge.send("inspectRouteResponse", { requestId: requestId, ok: false, captured: null, error: "missing route or requestId" });
+				return;
+			}
+
+			const hidden = document.createElement("iframe");
+			hidden.style.cssText = "display:none;width:1px;height:1px;border:0;";
+			hidden.setAttribute("aria-hidden", "true");
+			hidden.src = route;
+			document.body.appendChild(hidden);
+
+			const tStart = Date.now();
+			const poll = setInterval(function () {
+				try {
+					const win = hidden.contentWindow;
+					const cf = win && win.cur_frm;
+					if (cf && cf.doc && cf.is_new && cf.is_new()) {
+						const captured = capturePerSpec(cf, spec, win.location && win.location.href);
+						clearInterval(poll);
+						bridge.send("inspectRouteResponse", { requestId: requestId, ok: true, captured: captured });
+						try { document.body.removeChild(hidden); } catch (e) { /* ignore */ }
+						return;
+					}
+				} catch (e) { /* cross-origin guard or not yet ready */ }
+				if (Date.now() - tStart > timeout) {
+					clearInterval(poll);
+					bridge.send("inspectRouteResponse", { requestId: requestId, ok: false, captured: null, error: "timeout after " + timeout + "ms" });
+					try { document.body.removeChild(hidden); } catch (e) { /* ignore */ }
+				}
+			}, 200);
+		}
+
+		bridge.on("inspectRoute", (payload) => {
+			handleInspectRoute(payload);
+		});
+
 		/* Tier A — agent emits markdown links like [SO26001040](/app/sales-order/SO26001040);
 		 * the chat-ui intercepts the click and sends `navigateDesk { route, openInNewTab? }`.
 		 * For /app/<doctype>/<name?> we navigate the Desk via frappe.set_route — this is
