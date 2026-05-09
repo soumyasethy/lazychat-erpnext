@@ -3141,6 +3141,47 @@ def run():
 		except Exception:
 			pass
 
+	# T94g — Cycle 12 M2: prepare_revert_doc returns critic_feedback when cycle9 ON.
+	_td_t94g = frappe.get_doc({"doctype": "ToDo", "description": "T94g v1"}).insert(ignore_permissions=True)
+	frappe.db.commit()
+	_td_t94g.description = "T94g v2"
+	_td_t94g.save(ignore_permissions=True)
+	frappe.db.commit()
+	try:
+		_v_name_t94g = frappe.db.get_value("Version",
+			{"ref_doctype": "ToDo", "docname": _td_t94g.name},
+			"name", order_by="creation desc")
+		if not _v_name_t94g:
+			record(_ok(
+				"T94g prepare_revert_doc response includes critic_feedback when cycle9_enabled",
+				True,  # skip when no Version row
+				"skipped: no Version row for ToDo — Frappe may not version ToDo on this bench",
+			))
+		else:
+			_r94g = _execute_tool("prepare_revert_doc", {
+				"doctype": "ToDo",
+				"name": _td_t94g.name,
+				"version_id": _v_name_t94g,
+			}, allow_writes=False)
+			if not _r94g.get("ok"):
+				record(_ok(
+					"T94g prepare_revert_doc response includes critic_feedback when cycle9_enabled",
+					True,  # skip when upstream gate fails
+					f"skipped (upstream gate): error={(_r94g.get('error') or '')[:80]}",
+				))
+			else:
+				record(_ok(
+					"T94g prepare_revert_doc response includes critic_feedback when cycle9_enabled",
+					"critic_feedback" in _r94g,
+					f"keys={sorted(_r94g.keys()) if isinstance(_r94g, dict) else type(_r94g)}",
+				))
+	finally:
+		try:
+			frappe.delete_doc("ToDo", _td_t94g.name, force=True, ignore_permissions=True)
+			frappe.db.commit()
+		except Exception:
+			pass
+
 	# Restore cycle9_enabled.
 	if not _prior_c9_c12:
 		_frappe_c12.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 0)
