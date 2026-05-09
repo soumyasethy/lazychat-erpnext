@@ -2621,6 +2621,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		# critic can spot logic errors.
 		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings as _gls_py
 		if _gls_py().get("cycle9_enabled"):
+			_ast_summary: dict = {"imports": [], "calls": []}
 			try:
 				import ast as _ast
 				_imports: list[str] = []
@@ -2656,20 +2657,18 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 					"imports": sorted(set(_imports))[:20],
 					"calls": sorted(set(_calls))[:30],
 				}
-				_attach_critic_feedback(
-					response_dict,
-					args=args,
-					action="run_python",
-					default_intent="run Python",
-					payload={"code": code[:1500], "timeout": timeout},
-					evidence={"code": code[:1500], "ast_summary": _ast_summary},
-				)
 			except Exception as _ast_err:
-				# AST walk failed (syntax error pre-validated above, but defensive)
-				response_dict["critic_feedback"] = {
-					"skipped": True,
-					"reason": f"AST walk failed: {type(_ast_err).__name__}: {str(_ast_err)[:80]}",
-				}
+				# AST walk failed (syntax error pre-validated above, but defensive).
+				# Critic still runs below with empty AST summary.
+				pass
+			_attach_critic_feedback(
+				response_dict,
+				args=args,
+				action="run_python",
+				default_intent="run Python",
+				payload={"code": code[:1500], "timeout": timeout},
+				evidence={"code": code[:1500], "ast_summary": _ast_summary},
+			)
 		return response_dict
 
 	if name == "prepare_share_doc":
