@@ -2825,6 +2825,31 @@ def run():
 		f"sql_phase={r.get('sql_phase')} error={(r.get('error') or '')[:80]}",
 	))
 
+	# T92c: prepare_create_report response includes critic_feedback when cycle9_enabled.
+	# (Verdict content depends on whether a critic LLM provider is configured;
+	# the FIELD presence is what we assert — server-side wiring works.)
+	import frappe as _frappe_m3
+	_prior_c9 = bool(int(_frappe_m3.db.get_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled") or 0))
+	if not _prior_c9:
+		_frappe_m3.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 1)
+		_frappe_m3.db.commit()
+	r = _execute_tool("prepare_create_report", {
+		"report_name": "_lz_m3_critic_smoke",
+		"ref_doctype": "ToDo",
+		"report_type": "Query Report",
+		"query": "SELECT name, status FROM tabToDo LIMIT 3",
+		"_effort": "high",
+	})
+	record(_ok(
+		"T92c prepare_create_report response includes critic_feedback when cycle9_enabled",
+		r.get("ok") is True and "critic_feedback" in r,
+		f"keys={sorted(r.keys()) if isinstance(r, dict) else type(r)}",
+	))
+	# Restore the prior cycle9_enabled value.
+	if not _prior_c9:
+		_frappe_m3.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 0)
+		_frappe_m3.db.commit()
+
 	# Cleanup
 	cleaned = []
 	if created_note:
