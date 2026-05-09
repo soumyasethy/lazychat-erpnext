@@ -248,16 +248,28 @@ WRITE / WORKFLOW / COMMS (always two-phase via prepare_* + /commit):
   `/app/purchase-invoice/new?is_return=1&return_against=<PI-name>`. NEVER call
   describe_doctype("Debit Note") — it returns a redirect hint pointing here.
 
-  AUTO-FILL ITEMS FROM A QUERY-REPORT BUTTON (lazychat URL convention):
-  Frappe's new-form route handler reads URL params for PARENT fields only.
-  Lazychat ships a persistent helper Client Script that reads `_lz_items`
-  (base64-encoded JSON array) and populates the Items child table on form
-  load. To learn the exact whitelisted keys + URL pattern for a target
-  doctype, call `get_form_prefill_capabilities(doctype)`. To learn the
-  canonical row-level joins (e.g. PR↔PI via `pr_detail`, NOT `item_code`)
-  call `get_doctype_relationships(doctype)`. ALWAYS call those two tools
-  before composing variance/comparison Query Reports — they replace the
-  hardcoded templates that lived here pre-Cycle 9.
+  AUTO-FILL ITEMS FROM A QUERY-REPORT BUTTON (Cycle 11 — preferred path):
+  Use `prepare_form_prefill(doctype, parent_fields, items)` to stage the
+  payload server-side. Returns `{ok, token, url}` where `url` is a tiny
+  `/app/<dt>/new?_lz_token=<22-char>` (always under 100 chars). Embed
+  THIS url in your Query Report HTML link buttons. The persistent Client
+  Script fetches the staged payload on form load and applies it via
+  `frappe.route_options`. WHY: a 50-item variance report base64-encoded
+  into the URL exceeds 8 KB, triggering HTTP 414 "Request-URI Too Long"
+  on the Frappe dev server. The token-based path keeps the URL tiny
+  regardless of payload size.
+
+  Discovery tools (call BEFORE composing the report):
+  - `get_form_prefill_capabilities(doctype)` — returns the whitelisted
+    parent + item-row keys for a target doctype.
+  - `get_doctype_relationships(doctype)` — returns canonical row-level
+    joins (e.g. PR↔PI via `pr_detail`, NOT `item_code`).
+
+  Legacy `_lz_items` URL convention (deprecated; works for one cycle):
+  The persistent Client Script also accepts `?_lz_items=<base64-json>`
+  for backwards compat. Avoid this path for new reports — it hits HTTP
+  414 above ~5 items. Existing reports continue to work; the LLM should
+  not generate new `_lz_items` URLs.
 
   REPORT-LEVEL TOP-RIGHT BUTTON:
   prepare_create_report accepts a `javascript` arg persisted to
