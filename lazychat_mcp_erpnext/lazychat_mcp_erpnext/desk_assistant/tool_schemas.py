@@ -1076,7 +1076,12 @@ TOOL_SCHEMAS = [
 			"Stage a new Frappe Report (Report Builder / Query Report / Script Report). Use this "
 			"INSTEAD of prepare_create_doc({doctype:'Report'}) — it validates ref_doctype, report_type, "
 			"and Query-Report SQL up front so the model gets actionable errors at preview time. "
-			"Two-phase: returns preview_token + open_url; the user runs `/commit TOKEN` to apply."
+			"Two-phase: returns preview_token + open_url; the user runs `/commit TOKEN` to apply. "
+			"Cycle 11 M3 SQL gate: Query Report SQL is validated (regex), then EXPLAINed, then "
+			"sample-executed (LIMIT 5, 8s timeout). All three MUST pass before a preview_token is "
+			"issued. On failure, response is `{ok: false, error, sql_error, sql_phase: "
+			"'validate'|'explain'|'execute', suggestion}` — route on sql_phase to apply targeted "
+			"fixes (call describe_doctype if sql_phase === 'explain', etc.)."
 		),
 		"input_schema": {
 			"type": "object",

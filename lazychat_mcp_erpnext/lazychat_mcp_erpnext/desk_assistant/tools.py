@@ -3451,13 +3451,31 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		sample_truncated = False
 		if report_type == "Query Report":
 			if not query:
-				return {"error": "query is required for Query Report"}
+				return {"ok": False, "error": "query is required for Query Report"}
+			# Cycle 11 — M3: structured SQL gate. EXPLAIN + sample-execute
+			# are MANDATORY before issuing a preview_token; failures return
+			# a structured shape (`sql_phase` + `suggestion`) instead of a
+			# flat error string so the LLM can route on phase and apply
+			# targeted fixes (validate vs explain vs execute) in the same
+			# turn instead of guessing what failed.
 			validation_error = _validate_select_sql(query)
 			if validation_error:
-				return {"error": validation_error}
+				return {
+					"ok": False,
+					"error": validation_error,
+					"sql_error": validation_error,
+					"sql_phase": "validate",
+					"suggestion": "SELECT/WITH only; no DML/DDL keywords; no multi-statement.",
+				}
 			explain_error = _probe_select_sql_explain(query)
 			if explain_error:
-				return {"error": explain_error}
+				return {
+					"ok": False,
+					"error": explain_error,
+					"sql_error": explain_error,
+					"sql_phase": "explain",
+					"suggestion": "Run describe_doctype on the parent (and any joined doctypes) to verify table + column names BEFORE re-staging.",
+				}
 			# Layer 3 — actual execution with bounded sample size + statement
 			# timeout. Catches runtime errors EXPLAIN can't see + gives a
 			# sample of the actual result shape. This closes the gap where
@@ -3467,7 +3485,13 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			if not exec_probe.get("ok"):
 				err = exec_probe.get("error") or "query failed at execution"
 				hint = exec_probe.get("hint")
-				return {"error": f"{err}\nHint: {hint}" if hint else err}
+				return {
+					"ok": False,
+					"error": f"{err}\nHint: {hint}" if hint else err,
+					"sql_error": err,
+					"sql_phase": "execute",
+					"suggestion": hint or "Inspect the query for runtime issues (NULL handling, divide-by-zero, missing JOIN keys); EXPLAIN passed but execution failed.",
+				}
 			sample_rows = exec_probe.get("rows") or []
 			sample_columns = exec_probe.get("columns") or []
 			sample_truncated = bool(exec_probe.get("row_count_capped"))
