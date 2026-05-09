@@ -293,11 +293,20 @@ _LAZYCHAT_FORM_HELPER_SCRIPT = r"""
         });
         return;
       }
+      // Race guard: 5 event handlers (onload_post_render, refresh, plus 3
+      // field-change handlers) all call lazychatPrefill in quick succession
+      // during form load. Without this flag, a second invocation dispatches
+      // a parallel fetch that consumes the single-use token from the
+      // server-side cache and produces a benign "{ok: false}" log. Flag
+      // ensures only the first event triggers the network call.
+      if (frm.__lz_token_fetching) return;
+      frm.__lz_token_fetching = true;
       // First fetch — single-use, server consumes on read.
       frappe.call({
         method: "lazychat_mcp_erpnext.lazychat_mcp_erpnext.desk_assistant.api.fetch_form_prefill",
         args: { token: token },
         callback: function (r) {
+          frm.__lz_token_fetching = false;
           if (!r || !r.message || !r.message.ok) {
             console.warn("[lazychat] fetch_form_prefill failed:", r && r.message && r.message.error);
             return;
