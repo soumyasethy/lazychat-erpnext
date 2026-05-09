@@ -486,6 +486,54 @@ When debugging *"my report URL gave 404 even though the chat said it was
 created"*: confirm the chat-ui bundle was rebuilt after this fix landed
 (`?v=` query in iframe URL should be > `1778066844`).
 
+## Cycle 9 — M3: Schema knowledge graph + cross-session exemplar memory (2026-05-09)
+
+Two new server-side modules + new doctype + commit-side learning hook:
+
+- `desk_assistant/schema_graph.py` — per-conversation Redis cache for
+  describe_doctype results (30-min TTL). `describe_doctype` was promoted
+  from inline-in-dispatcher to a standalone function with optional
+  `conversation_id` kwarg. Cache hit returns `{**cached, "_from_cache": True}`
+  flag. Doctype-naive callers (e.g. `_doctype_relationships` from M1.3)
+  use the standalone function without conversation_id, so they see the
+  full meta-fetch path. T89t/u cover round-trip + isolation.
+
+- `Lazychat Exemplar` doctype (NEW) — cross-session learning store.
+  Fields: intent_signature, action, target_doctype, payload_template
+  (anonymized JSON), success_count, reject_count, trust_score, last_used,
+  created_by_user. Autoname `LZE-<sig>-<########>`. Permissions: System
+  Manager full + All read.
+
+- `tools.py:_intent_signature(action, target_doctype, intent_text)` —
+  builds compact key `<action>:<target_doctype>:<sha1_12char>` from
+  filtered+sorted+deduped intent keywords (12-word stopword set).
+
+- `tools.py:_anonymize_payload(payload)` — recursively replaces
+  dict/list values with `<value>` / `<bool>` / `<number>` markers,
+  preserving structure. Used before persisting an exemplar so no real
+  field values leak into the cross-session store.
+
+- `tools.py:recall_exemplars(action, target_doctype, intent_text, limit=3)` —
+  exact-signature match first, falls back to action+doctype broad match;
+  ranks by trust_score desc + last_used desc; deduplicates on name.
+
+- `tools.py:persist_exemplar(action, target_doctype, payload, intent_text)` —
+  increments existing on signature collision (success_count++ + last_used);
+  creates new row otherwise. Called from `commit_prepared_action` success
+  path inside a try/except — persist failure NEVER breaks a commit.
+
+- `prepare_*` responses (when cycle9_enabled) augmented with
+  `examples_from_history: List[ExemplarRow]` — recalled at compose time
+  and gated by `EFFORT_MAP[effort]["exemplar_top_n"]` (low: 0, medium: 1,
+  high: 3, max: 5). Wired into prepare_create_report, prepare_create_doc,
+  prepare_update_doc, prepare_run_sql.
+
+Smoke 214 → 217 (+3: T89t/u/v/w/x). Tools 93 unchanged. chat-ui 369
+unchanged (server-side cycle).
+
+Behind cycle9_enabled flag (default false). When off, M3 changes are
+inert: no schema cache reads, no exemplar recall, no persist on commit.
+
 ## Cycle 9 — M2: Iterative test-driven loop + composer-critic dual-LLM (2026-05-09)
 
 Three new server-side modules + augmented prepare_* responses:
