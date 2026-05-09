@@ -685,6 +685,10 @@
 			if (/^https?:\/\//i.test(p)) return p;
 			return window.location.origin + (p.startsWith("/") ? p : "/" + p);
 		};
+		// Cycle 10 — surface user roles + System Manager flag so the chat-ui
+		// can gate its admin panel (Server config sub-popover in CommandPalette).
+		const userRoles = (frappe.boot.user && Array.isArray(frappe.boot.user.roles)) ? frappe.boot.user.roles : [];
+		const isSystemManager = userRoles.indexOf("System Manager") >= 0;
 		const initPayload = {
 			theme: (frappe.boot.user && frappe.boot.user.desk_theme === "Dark") ? "dark" : "light",
 			mode: "edit-auto",
@@ -698,6 +702,9 @@
 			// Server-side LLM proxy for cross-origin custom-model calls (NVIDIA, OpenAI, etc).
 			// chat-ui's resolveFetchTarget routes here instead of the dev-only /llm-proxy.
 			llmProxyUrl: _abs("/api/method/lazychat_mcp_erpnext.desk_assistant.llm_proxy.handle"),
+			// Cycle 10 — role flags for chat-ui admin-panel gating
+			isSystemManager: isSystemManager,
+			userRoles: userRoles,
 		};
 		iframe.addEventListener("load", () => {
 			bridge.send("init", initPayload);
@@ -863,6 +870,27 @@
 				window.open(route, "_blank");
 			} else {
 				window.location.assign(route);
+			}
+		});
+
+		/* Cycle 10 — settingsChanged: chat-ui's admin panel notifies the host after
+		 * successfully PATCHing a Lazychat Settings field. Iframe-URL-affecting
+		 * fields (iframe_base_url, iframe_query_params, legacy_widget_enabled) need
+		 * a Desk reload to take effect; surface that to the user via console + a
+		 * realtime ping the iframe can render as a banner. Other fields (allow_*
+		 * gates, cycle9_enabled, chat_path) take effect on the next request — no
+		 * reload needed because the server reads get_lazychat_settings() per-call.
+		 */
+		bridge.on("settingsChanged", (payload) => {
+			const field = (payload && payload.field) || "";
+			const reloadAffecting = new Set([
+				"iframe_base_url", "iframe_query_params", "legacy_widget_enabled",
+			]);
+			if (field && reloadAffecting.has(field)) {
+				console.info("[lazychat] settings change requires Desk reload:", field);
+				bridge.send("reloadRequired", { field: field, reason: "iframe-affecting setting changed" });
+			} else {
+				console.debug("[lazychat] settings updated:", field);
 			}
 		});
 

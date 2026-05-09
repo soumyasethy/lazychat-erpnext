@@ -574,3 +574,273 @@ def reveal_llm_provider_api_key(provider_name=None):
 
 	key = safe_provider_api_key(doc)
 	return {"api_key": key or ""}
+
+
+# ============================================================================
+# Cycle 10 — chat-ui admin panel endpoints
+# ============================================================================
+# Lets a System Manager manage Lazychat Settings + LLM Providers + LLM Models
+# from inside the chat-ui (CommandPalette → Server config), removing the need
+# to open the Frappe Desk doctype forms. All writes re-check System Manager
+# server-side; reads are wider but mask api_key values.
+
+_ALLOWED_SETTINGS_FIELDS = {
+	"enabled", "iframe_base_url", "iframe_query_params", "chat_path",
+	"llm_proxy_allowed_hosts", "legacy_widget_enabled",
+	"allow_email", "allow_dangerous_tools", "allow_email_setup", "cycle9_enabled",
+}
+
+_ALLOWED_PROVIDER_FIELDS = {
+	"provider_name", "provider_type", "base_url", "api_key", "enabled",
+}
+
+_ALLOWED_MODEL_FIELDS = {
+	"model_label", "provider", "model_id", "supports_tools",
+	"max_output_tokens", "context_window",
+	"input_price_per_mtok", "output_price_per_mtok",
+	"is_default", "enabled",
+}
+
+_SITE_CONFIG_SHADOW_MAP = {
+	"enabled": "lazychat_panel_enabled",
+	"legacy_widget_enabled": "lazychat_legacy_widget_enabled",
+	"allow_email": "lazychat_allow_email",
+	"allow_dangerous_tools": "lazychat_allow_dangerous_tools",
+	"allow_email_setup": "lazychat_allow_email_setup",
+	"cycle9_enabled": "lazychat_cycle9_enabled",
+}
+
+
+def _require_system_manager():
+	if "System Manager" not in frappe.get_roles(frappe.session.user):
+		frappe.throw(_("Lazychat admin actions require System Manager role"),
+		             frappe.PermissionError)
+
+
+def _is_system_manager() -> bool:
+	return "System Manager" in frappe.get_roles(frappe.session.user)
+
+
+def _coerce_check(value):
+	"""Frappe Check fields store as 0/1 ints. Accept many truthy inputs."""
+	return 1 if value in (True, 1, "1", "true", "True", "on", "yes") else 0
+
+
+@frappe.whitelist()
+def get_lazychat_admin_snapshot():
+	"""Single round-trip read of all admin-editable lazychat config.
+
+	Returns settings dict (with site_config-shadow flags), the LLM Providers
+	list (api_key MASKED to '****' — caller uses reveal_llm_provider_api_key
+	to fetch the real value), the LLM Models list, and is_system_manager.
+	Non-admin users still get the snapshot but with is_system_manager=false
+	so the chat-ui renders read-only.
+	"""
+	from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+
+	settings = get_lazychat_settings()
+	conf = {}
+	try:
+		conf = frappe.get_site_config() or {}
+	except Exception:
+		pass
+	shadowed = {
+		field: True
+		for field, site_key in _SITE_CONFIG_SHADOW_MAP.items()
+		if site_key in conf
+	}
+
+	providers = []
+	for p in frappe.get_all(
+		"LLM Provider",
+		fields=["name", "provider_name", "provider_type", "base_url", "enabled"],
+		order_by="provider_name asc",
+	):
+		try:
+			doc = frappe.get_doc("LLM Provider", p.name)
+			has_key = bool(doc.get_password("api_key", raise_exception=False))
+		except Exception:
+			has_key = False
+		providers.append({
+			**p,
+			"has_api_key": has_key,
+			"api_key_masked": "****" if has_key else "",
+		})
+
+	models = frappe.get_all(
+		"LLM Model",
+		fields=[
+			"name", "model_label", "provider", "model_id", "supports_tools",
+			"max_output_tokens", "context_window",
+			"input_price_per_mtok", "output_price_per_mtok",
+			"is_default", "enabled",
+		],
+		order_by="is_default desc, model_label asc",
+	)
+
+	return {
+		"ok": True,
+		"settings": settings,
+		"settings_shadowed": shadowed,
+		"llm_providers": providers,
+		"llm_models": models,
+		"is_system_manager": _is_system_manager(),
+	}
+
+
+@frappe.whitelist(methods=["POST"])
+def update_lazychat_settings(field=None, value=None):
+	"""Patch a single Lazychat Settings field. System Manager only.
+
+	Returns {ok, field, value, shadowed_by_site_config?}. When the same key
+	is also set in site_config.json, the doctype value is still saved but
+	the chat-ui surfaces a "(shadowed by site_config)" badge.
+	"""
+	_require_system_manager()
+	f = str(field or "").strip()
+	if f not in _ALLOWED_SETTINGS_FIELDS:
+		return {"ok": False, "error": f"Field '{f}' is not editable from the chat-ui admin panel"}
+
+	doc = frappe.get_single("Lazychat Settings")
+
+	bool_fields = {"enabled", "legacy_widget_enabled", "allow_email",
+	               "allow_dangerous_tools", "allow_email_setup", "cycle9_enabled"}
+	if f in bool_fields:
+		value = _coerce_check(value)
+	elif f == "chat_path":
+		if value not in ("auto", "browser", "backend"):
+			return {"ok": False, "error": "chat_path must be one of: auto, browser, backend"}
+	elif f == "llm_proxy_allowed_hosts":
+		try:
+			parsed = json.loads(value) if isinstance(value, str) else value
+			if not isinstance(parsed, list) or not all(isinstance(x, str) for x in parsed):
+				raise ValueError("must be a JSON array of strings")
+			value = json.dumps(parsed)
+		except Exception as e:
+			return {"ok": False, "error": f"llm_proxy_allowed_hosts: {e}"}
+
+	doc.set(f, value)
+	doc.save(ignore_permissions=False)
+	frappe.db.commit()
+
+	conf = {}
+	try:
+		conf = frappe.get_site_config() or {}
+	except Exception:
+		pass
+	shadow_key = _SITE_CONFIG_SHADOW_MAP.get(f)
+	return {
+		"ok": True,
+		"field": f,
+		"value": value,
+		"shadowed_by_site_config": bool(shadow_key and shadow_key in conf),
+	}
+
+
+@frappe.whitelist(methods=["POST"])
+def upsert_llm_provider(name=None, fields=None):
+	"""Create or update an LLM Provider. System Manager only.
+
+	`name` is the existing provider's docname (None to create). `fields` is
+	a JSON object (or dict) with whitelisted keys. Blank or '****' api_key
+	is treated as "don't change" (lets the editor save other fields without
+	re-entering the key every time).
+	"""
+	_require_system_manager()
+	payload = json.loads(fields) if isinstance(fields, str) else (fields or {})
+	if not isinstance(payload, dict):
+		return {"ok": False, "error": "fields must be an object"}
+
+	safe = {k: v for k, v in payload.items() if k in _ALLOWED_PROVIDER_FIELDS}
+
+	# Treat blank/masked api_key as "don't change"
+	if "api_key" in safe and (not safe["api_key"] or safe["api_key"] == "****"):
+		safe.pop("api_key")
+
+	if name and frappe.db.exists("LLM Provider", name):
+		doc = frappe.get_doc("LLM Provider", name)
+	else:
+		if "provider_name" not in safe or not safe["provider_name"]:
+			return {"ok": False, "error": "provider_name is required to create a new provider"}
+		doc = frappe.new_doc("LLM Provider")
+
+	for k, v in safe.items():
+		doc.set(k, v)
+
+	if doc.is_new():
+		doc.insert(ignore_permissions=False)
+	else:
+		doc.save(ignore_permissions=False)
+	frappe.db.commit()
+	return {"ok": True, "name": doc.name}
+
+
+@frappe.whitelist(methods=["POST"])
+def delete_llm_provider(name=None):
+	"""Delete an LLM Provider. System Manager only. Refuses if any LLM Model
+	still references it; returns blocking_models list when blocked."""
+	_require_system_manager()
+	if not name or not frappe.db.exists("LLM Provider", name):
+		return {"ok": False, "error": "Provider not found"}
+
+	refs = frappe.get_all("LLM Model", filters={"provider": name}, fields=["name"])
+	if refs:
+		return {
+			"ok": False,
+			"error": f"Cannot delete — {len(refs)} LLM Model(s) still reference this provider",
+			"blocking_models": [r.name for r in refs],
+		}
+	frappe.delete_doc("LLM Provider", name, ignore_permissions=False)
+	frappe.db.commit()
+	return {"ok": True, "name": name}
+
+
+@frappe.whitelist(methods=["POST"])
+def upsert_llm_model(name=None, fields=None):
+	"""Create or update an LLM Model. System Manager only.
+
+	Setting is_default=1 clears the flag on all OTHER LLM Models so only one
+	model is the default at a time (matches the existing doctype script's
+	behavior).
+	"""
+	_require_system_manager()
+	payload = json.loads(fields) if isinstance(fields, str) else (fields or {})
+	if not isinstance(payload, dict):
+		return {"ok": False, "error": "fields must be an object"}
+
+	safe = {k: v for k, v in payload.items() if k in _ALLOWED_MODEL_FIELDS}
+
+	if name and frappe.db.exists("LLM Model", name):
+		doc = frappe.get_doc("LLM Model", name)
+	else:
+		if "model_label" not in safe or not safe["model_label"]:
+			return {"ok": False, "error": "model_label is required to create a new model"}
+		doc = frappe.new_doc("LLM Model")
+
+	for k, v in safe.items():
+		doc.set(k, v)
+
+	if doc.is_new():
+		doc.insert(ignore_permissions=False)
+	else:
+		doc.save(ignore_permissions=False)
+
+	# Enforce single-default invariant
+	if _coerce_check(safe.get("is_default")) == 1:
+		frappe.db.sql(
+			"UPDATE `tabLLM Model` SET is_default = 0 WHERE name != %s",
+			(doc.name,),
+		)
+	frappe.db.commit()
+	return {"ok": True, "name": doc.name}
+
+
+@frappe.whitelist(methods=["POST"])
+def delete_llm_model(name=None):
+	"""Delete an LLM Model. System Manager only."""
+	_require_system_manager()
+	if not name or not frappe.db.exists("LLM Model", name):
+		return {"ok": False, "error": "Model not found"}
+	frappe.delete_doc("LLM Model", name, ignore_permissions=False)
+	frappe.db.commit()
+	return {"ok": True, "name": name}

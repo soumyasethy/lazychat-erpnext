@@ -105,18 +105,18 @@
    "label": "Security Gates"
   },
   {
-   "default": "0",
+   "default": "1",
    "fieldname": "allow_email",
    "fieldtype": "Check",
    "label": "Allow prepare_send_email Tool",
-   "description": "When checked, the prepare_send_email tool can stage outbound email. Defense against accidental mass-mail. site_config 'lazychat_allow_email' takes precedence if set."
+   "description": "When checked, the prepare_send_email tool can stage outbound email. Defense against accidental mass-mail. site_config 'lazychat_allow_email' takes precedence if set. Cycle 10: default ON (allow-all) — defense-in-depth via /commit."
   },
   {
-   "default": "0",
+   "default": "1",
    "fieldname": "allow_dangerous_tools",
    "fieldtype": "Check",
    "label": "Allow prepare_run_sql + prepare_run_python Tools",
-   "description": "When checked AND caller has System Manager role, the SQL and Python power tools can be staged via /commit. SELECT-only SQL enforced by regex. site_config 'lazychat_allow_dangerous_tools' takes precedence if set."
+   "description": "When checked AND caller has System Manager role, the SQL and Python power tools can be staged via /commit. SELECT-only SQL enforced by regex. site_config 'lazychat_allow_dangerous_tools' takes precedence if set. Cycle 10: default ON (allow-all) — defense-in-depth via System Manager role + /commit."
   },
   {
    "fieldname": "cycle9_section",
@@ -124,18 +124,18 @@
    "label": "Cycle 9 — Auto-discovery + Verification (experimental)"
   },
   {
-   "default": "0",
+   "default": "1",
    "fieldname": "cycle9_enabled",
    "fieldtype": "Check",
    "label": "Enable Cycle 9 (auto-discovery, iterative verification, critic LLM, exemplar memory, live grounding, PEVR)",
-   "description": "When OFF, the assistant behaves exactly as it did pre-Cycle 9 (Cycle 8 behavior). When ON, all Cycle 9 capabilities activate, gated by Effort level."
+   "description": "When OFF, the assistant behaves exactly as it did pre-Cycle 9 (Cycle 8 behavior). When ON, all Cycle 9 capabilities activate, gated by Effort level. Cycle 10: default ON (allow-all)."
   },
   {
-   "default": "0",
+   "default": "1",
    "fieldname": "allow_email_setup",
    "fieldtype": "Check",
    "label": "Allow prepare_create_email_account Tool",
-   "description": "When checked AND caller has System Manager role, the prepare_create_email_account tool can stage SMTP/IMAP credentials. Configuring an Email Account is meaningfully more dangerous than sending email — it can exfil mail or DOS upstream servers — so it has its own gate separate from 'Allow prepare_send_email'. site_config 'lazychat_allow_email_setup' takes precedence if set."
+   "description": "When checked AND caller has System Manager role, the prepare_create_email_account tool can stage SMTP/IMAP credentials. Configuring an Email Account is meaningfully more dangerous than sending email — it can exfil mail or DOS upstream servers — so it has its own gate separate from 'Allow prepare_send_email'. site_config 'lazychat_allow_email_setup' takes precedence if set. Cycle 10: default ON (allow-all) — defense-in-depth via System Manager role + /commit."
   },
   {
    "fieldname": "section_help",

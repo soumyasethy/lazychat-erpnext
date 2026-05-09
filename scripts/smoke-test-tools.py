@@ -1500,12 +1500,15 @@ def run():
 		f"len={len(body)}",
 	))
 
-	# T89a: cycle9_enabled flag defaults false; site_config override works.
+	# T89a: cycle9_enabled flag is wired (readable as boolean).
+	# Cycle 10 flipped doctype default 0 → 1 (allow-all). Stored row value
+	# depends on whether the row was created before or after the flip, so
+	# we just assert the field is readable as a boolean (not the value).
 	from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
 	settings = get_lazychat_settings()
 	record(_ok(
-		"T89a cycle9_enabled defaults false",
-		settings.get("cycle9_enabled") is False,
+		"T89a cycle9_enabled is wired (readable as boolean)",
+		isinstance(settings.get("cycle9_enabled"), bool),
 		f"cycle9_enabled={settings.get('cycle9_enabled')!r}",
 	))
 
@@ -2615,6 +2618,117 @@ def run():
 	finally:
 		frappe.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 0)
 		frappe.db.commit()
+
+	# ============================================================
+	# Cycle 10 — chat-ui admin panel endpoints (T89y/z, T90a-f)
+	# ============================================================
+
+	# T89y: get_lazychat_admin_snapshot returns expected shape for System Manager.
+	from lazychat_mcp_erpnext.desk_assistant.api import (
+		get_lazychat_admin_snapshot,
+		update_lazychat_settings,
+		upsert_llm_provider,
+		delete_llm_provider,
+		upsert_llm_model,
+		delete_llm_model,
+	)
+	snap = get_lazychat_admin_snapshot()
+	record(_ok(
+		"T89y get_lazychat_admin_snapshot returns settings + providers + models + is_system_manager",
+		snap.get("ok") is True
+		and isinstance(snap.get("settings"), dict)
+		and isinstance(snap.get("llm_providers"), list)
+		and isinstance(snap.get("llm_models"), list)
+		and isinstance(snap.get("is_system_manager"), bool)
+		and "settings_shadowed" in snap,
+		f"keys={sorted(snap.keys()) if isinstance(snap, dict) else type(snap)}",
+	))
+
+	# T89z: api_key in providers list is masked (never raw).
+	any_with_key = any(p.get("has_api_key") for p in snap.get("llm_providers") or [])
+	record(_ok(
+		"T89z get_lazychat_admin_snapshot masks api_key with '****'",
+		# Either no providers have keys (clean install) OR all masked entries say '****'
+		all(
+			p.get("api_key_masked") in ("****", "")
+			for p in snap.get("llm_providers") or []
+		),
+		f"any_with_key={any_with_key} providers_n={len(snap.get('llm_providers') or [])}",
+	))
+
+	# T90a: update_lazychat_settings as System Manager flips a boolean.
+	prior = bool(int(frappe.db.get_value("Lazychat Settings", "Lazychat Settings", "allow_email") or 0))
+	r = update_lazychat_settings(field="allow_email", value=0 if prior else 1)
+	now = bool(int(frappe.db.get_value("Lazychat Settings", "Lazychat Settings", "allow_email") or 0))
+	record(_ok(
+		"T90a update_lazychat_settings flips allow_email",
+		r.get("ok") is True and now != prior,
+		f"prior={prior} now={now} resp={r}",
+	))
+	# Restore
+	update_lazychat_settings(field="allow_email", value=1 if prior else 0)
+
+	# T90b: rejects non-whitelisted field.
+	r = update_lazychat_settings(field="not_a_real_field", value="x")
+	record(_ok(
+		"T90b update_lazychat_settings rejects non-whitelisted field",
+		r.get("ok") is False and "not editable" in (r.get("error") or ""),
+		f"resp={r}",
+	))
+
+	# T90c: chat_path enum validation.
+	r = update_lazychat_settings(field="chat_path", value="invalid")
+	record(_ok(
+		"T90c update_lazychat_settings rejects invalid chat_path enum",
+		r.get("ok") is False and "chat_path must be" in (r.get("error") or ""),
+		f"resp={r}",
+	))
+
+	# T90d: upsert_llm_provider round-trip (create + update + delete).
+	test_provider = f"_lz_smoke_provider_{frappe.generate_hash(length=4)}"
+	r = upsert_llm_provider(
+		name=None,
+		fields={
+			"provider_name": test_provider,
+			"provider_type": "openai_compatible",
+			"base_url": "https://example.test/v1",
+			"api_key": "sk-test-12345",
+			"enabled": 1,
+		},
+	)
+	created_provider = r.get("name")
+	record(_ok(
+		"T90d upsert_llm_provider creates + persists",
+		r.get("ok") is True and created_provider == test_provider
+		and frappe.db.exists("LLM Provider", test_provider),
+		f"resp={r}",
+	))
+
+	# T90e: delete_llm_provider refuses when an LLM Model still references it.
+	test_model = f"_lz_smoke_model_{frappe.generate_hash(length=4)}"
+	upsert_llm_model(name=None, fields={
+		"model_label": test_model,
+		"provider": test_provider,
+		"model_id": "gpt-test",
+		"enabled": 1,
+	})
+	r = delete_llm_provider(name=test_provider)
+	record(_ok(
+		"T90e delete_llm_provider blocked by referencing model",
+		r.get("ok") is False
+		and isinstance(r.get("blocking_models"), list)
+		and test_model in (r.get("blocking_models") or []),
+		f"resp={r}",
+	))
+	# Cleanup: delete model first, then provider
+	delete_llm_model(name=test_model)
+	r = delete_llm_provider(name=test_provider)
+	record(_ok(
+		"T90f delete_llm_provider succeeds after referencing models removed",
+		r.get("ok") is True
+		and not frappe.db.exists("LLM Provider", test_provider),
+		f"resp={r}",
+	))
 
 	# Cleanup
 	cleaned = []
