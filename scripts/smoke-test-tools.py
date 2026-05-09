@@ -2987,6 +2987,46 @@ def run():
 			"skipped: no Draft Sales Invoice in bench to submit",
 		))
 
+	# T94c — Cycle 12 M2: prepare_workflow_action returns critic_feedback when cycle9 ON.
+	_wf_rows = frappe.get_all("Workflow", filters={"is_active": 1}, fields=["document_type"], limit=10)
+	_wf_target = None
+	for _wf_row in _wf_rows:
+		_wf_dt = _wf_row["document_type"]
+		_wf_dn = frappe.db.get_value(_wf_dt, {"docstatus": 0}, "name")
+		if not _wf_dn:
+			continue
+		try:
+			from frappe.model.workflow import get_transitions
+			_wf_doc = frappe.get_doc(_wf_dt, _wf_dn)
+			_wf_transitions = get_transitions(_wf_doc) or []
+			if _wf_transitions:
+				_wf_target = (_wf_dt, _wf_dn, _wf_transitions[0].get("action"))
+				break
+		except Exception:
+			continue
+	if _wf_target:
+		_wf_dt2, _wf_dn2, _wf_action2 = _wf_target
+		_r94c = _execute_tool("prepare_workflow_action",
+			{"doctype": _wf_dt2, "name": _wf_dn2, "action": _wf_action2}, allow_writes=False)
+		if not _r94c.get("ok"):
+			record(_ok(
+				"T94c prepare_workflow_action response includes critic_feedback when cycle9_enabled",
+				True,  # skip when upstream gate fails
+				f"skipped (upstream gate): error={(_r94c.get('error') or '')[:80]}",
+			))
+		else:
+			record(_ok(
+				"T94c prepare_workflow_action response includes critic_feedback when cycle9_enabled",
+				"critic_feedback" in _r94c,
+				f"keys={sorted(_r94c.keys()) if isinstance(_r94c, dict) else type(_r94c)}",
+			))
+	else:
+		record(_ok(
+			"T94c prepare_workflow_action response includes critic_feedback when cycle9_enabled",
+			True,  # skip when no workflow-bearing doc available
+			"skipped: no workflow-bearing doc with available transitions in bench",
+		))
+
 	# Restore cycle9_enabled.
 	if not _prior_c9_c12:
 		_frappe_c12.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 0)

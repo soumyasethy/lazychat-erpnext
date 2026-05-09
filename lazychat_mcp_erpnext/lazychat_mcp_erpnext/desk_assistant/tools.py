@@ -1698,11 +1698,14 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			return {"error": "doctype, name, and action required"}
 		if not frappe.has_permission(dt, "write", doc=dn):
 			return {"error": "no write permission"}
+		_doc = None
+		_transitions: list = []
 		try:
 			from frappe.model.workflow import get_transitions
 
-			doc = frappe.get_doc(dt, dn)
-			allowed = [t.get("action") for t in (get_transitions(doc) or [])]
+			_doc = frappe.get_doc(dt, dn)
+			_transitions = get_transitions(_doc) or []
+			allowed = [t.get("action") for t in _transitions]
 			if action not in allowed:
 				return {
 					"error": f"action '{action}' not allowed from current state",
@@ -1711,13 +1714,37 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		except Exception as e:
 			return {"error": str(e)}
 		token = _stage_action("workflow_action", {"doctype": dt, "name": dn, "action": action})
-		return {
+		response_dict = {
 			"ok": True,
 			"preview_token": token,
 			"summary": f"Will apply workflow action '{action}' on {dt}/{dn}",
 			"expires_in_sec": PREP_TTL_SEC,
 			"confirm_with": "click the inline Apply button to confirm",
 		}
+		# Cycle 12 — M2: critic verdict (cycle9-gated). Reuses the doc + transitions
+		# captured during validation above so the critic can reason about the
+		# transition itself (current state, requested action, resulting state).
+		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		if get_lazychat_settings().get("cycle9_enabled"):
+			_current_state = getattr(_doc, "workflow_state", None) if _doc else None
+			_next_state = next(
+				(t.get("next_state") for t in _transitions if t.get("action") == action),
+				None,
+			)
+			_attach_critic_feedback(
+				response_dict,
+				args=args,
+				action="workflow_action",
+				default_intent=f"workflow {action} on {dt}/{dn}",
+				payload={"doctype": dt, "name": dn, "action": action},
+				evidence={
+					"action": action,
+					"current_state": _current_state,
+					"allowed_actions": [t.get("action") for t in _transitions],
+					"next_state": _next_state,
+				},
+			)
+		return response_dict
 
 	if name == "prepare_add_comment":
 		dt = args.get("doctype")
