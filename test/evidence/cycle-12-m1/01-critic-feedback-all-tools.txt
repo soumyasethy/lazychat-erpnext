@@ -1,0 +1,15 @@
+=== Cycle 12 — M1 ship-gate output ===
+Date: Sat May  9 20:54:30 IST 2026
+
+=== prepare_create_doc ===
+{"ok": true, "preview_token": "pyu5ActksUEDgiXhggnj2Q", "summary": "Will create ToDo with 1 field(s)", "preview": {"doctype": "ToDo", "fields": {"description": "ship-gate evidence"}}, "expires_in_sec": 300, "confirm_with": "click the inline Apply button to confirm", "verification_brief": {"user_intent_summary": "", "what_was_composed": "new ToDo with 1 field(s) set", "sample_evidence": null, "review_checklist": ["All required fields populated?", "Link fields point at existing docs?", "Items child table correct shape?"]}, "examples_from_history": [], "critic_feedback": {"skipped": true, "reason": "no provider configured for claude-haiku-4-5: ValidationError: Unknown or disabled model: claude-haiku-4-5"}}
+
+=== prepare_update_doc ===
+  (using ToDo: 8di8pf6bt6)
+{"ok": true, "preview_token": "bkyAXHYPI6kcxtSN-vw09w", "summary": "Will update ToDo/8di8pf6bt6 \u2014 1 field(s)", "diff": {"description": {"from": "Automatic Assignment", "to": "ship-gate evidence"}}, "expires_in_sec": 300, "confirm_with": "click the inline Apply button to confirm", "verification_brief": {"user_intent_summary": "", "what_was_composed": "patch ToDo/8di8pf6bt6 with fields: ['description']", "sample_evidence": null, "review_checklist": ["Patch keys are the ones user asked to change (no extras)?", "Patch values plausible against current doc state?"]}, "examples_from_history": [], "critic_feedback": {"skipped": true, "reason": "no provider configured for claude-haiku-4-5: ValidationError: Unknown or disabled model: claude-haiku-4-5"}}
+
+=== prepare_run_sql ===
+{"ok": true, "preview_token": "EL6ngENlaDyEkS1YGYoTxw", "summary": "Will execute SELECT query (returns up to 1 rows)", "preview": {"query": "SELECT 1 AS x", "limit": 1, "warning": "Raw SQL bypasses Frappe per-user permissions \u2014 review the query carefully before /commit."}, "expires_in_sec": 300, "confirm_with": "click the inline Apply button to confirm", "verification_brief": {"user_intent_summary": "", "what_was_composed": "SELECT against: SELECT 1 AS x\u2026", "sample_evidence": null, "review_checklist": ["Result row count matches expected scale?", "Columns named meaningfully?", "Filter aligns with user's intent?"]}, "examples_from_history": [], "critic_feedback": {"skipped": true, "reason": "no provider configured for claude-haiku-4-5: ValidationError: Unknown or disabled model: claude-haiku-4-5"}}
+
+=== prepare_run_python ===
+{"ok": true, "preview_token": "wXTKelVfA56l4N0RECz8CA", "summary": "Will execute Python code (timeout 30s) with full Frappe access", "preview": {"code": "x = 1", "timeout": 30, "warning": "This code runs with FULL access to your Frappe data and the server filesystem (as the calling user). Review carefully before /commit."}, "expires_in_sec": 300, "confirm_with": "click the inline Apply button to confirm", "critic_feedback": {"skipped": true, "reason": "no provider configured for claude-haiku-4-5: ValidationError: Unknown or disabled model: claude-haiku-4-5"}}
