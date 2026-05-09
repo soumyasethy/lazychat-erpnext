@@ -2730,6 +2730,66 @@ def run():
 		f"resp={r}",
 	))
 
+	# ============================================================
+	# Cycle 11 — M2: stage-and-redirect form prefill (T91a-c)
+	# ============================================================
+
+	from lazychat_mcp_erpnext.desk_assistant.api import (
+		prepare_form_prefill,
+		fetch_form_prefill,
+	)
+
+	# T91a: prepare_form_prefill -> short URL with _lz_token; fetch returns payload.
+	r = prepare_form_prefill(
+		doctype="ToDo",
+		parent_fields={"description": "lazychat smoke prefill"},
+		items=[],
+	)
+	url = r.get("url") or ""
+	tok = r.get("token") or ""
+	record(_ok(
+		"T91a prepare_form_prefill returns short URL with _lz_token",
+		r.get("ok") is True
+		and len(tok) >= 16  # token_urlsafe(16) -> 22 chars
+		and url.startswith("/app/todo/new?_lz_token=")
+		and len(url) < 100,  # tiny URL, regardless of payload size
+		f"url_len={len(url)} token_len={len(tok)} url={url[:80]}",
+	))
+
+	# T91b: fetch_form_prefill returns the staged payload, single-use semantics
+	# (second fetch with same token returns ok=False).
+	f1 = fetch_form_prefill(token=tok)
+	f2 = fetch_form_prefill(token=tok)  # token consumed by f1
+	record(_ok(
+		"T91b fetch_form_prefill returns payload + is single-use",
+		f1.get("ok") is True
+		and f1.get("doctype") == "ToDo"
+		and f1.get("parent_fields", {}).get("description") == "lazychat smoke prefill"
+		and f2.get("ok") is False,
+		f"f1.ok={f1.get('ok')} f2.ok={f2.get('ok')} f2.error={f2.get('error')}",
+	))
+
+	# T91c: cross-user denial. Stage as the current user (Administrator),
+	# then attempt fetch as Guest. The denial is on user-binding (token
+	# is bound to the staging session user), not on permission.
+	r3 = prepare_form_prefill(doctype="ToDo", parent_fields={"description": "x-user test"}, items=[])
+	tok3 = r3.get("token") or ""
+	original_user = frappe.session.user
+	other_user = "Guest"  # always exists in fresh installs
+	try:
+		frappe.set_user(other_user)
+		f_other = fetch_form_prefill(token=tok3)
+	finally:
+		frappe.set_user(original_user)
+	record(_ok(
+		"T91c fetch_form_prefill refuses cross-user reads",
+		f_other.get("ok") is False and "not owned" in (f_other.get("error") or "").lower(),
+		f"as_user={other_user} resp={f_other}",
+	))
+	# Cleanup: token still in cache (we didn't consume it as Administrator).
+	# Fetch+discard now to leave the cache clean.
+	fetch_form_prefill(token=tok3)
+
 	# Cleanup
 	cleaned = []
 	if created_note:
