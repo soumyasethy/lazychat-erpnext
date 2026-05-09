@@ -26,10 +26,12 @@ _SETTINGS_DEFAULTS = {
 	"chat_path": "auto",
 	"mcp_endpoint": "/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle",
 	"legacy_widget_enabled": False,
-	"allow_email": False,
-	"allow_dangerous_tools": False,
-	"allow_email_setup": False,
-	"cycle9_enabled": False,
+	# Cycle 10: allow-all defaults. Defense-in-depth via System Manager
+	# role checks at tool-dispatch time + /commit confirmation per call.
+	"allow_email": True,
+	"allow_dangerous_tools": True,
+	"allow_email_setup": True,
+	"cycle9_enabled": True,
 	"llm_proxy_allowed_hosts": list(_DEFAULT_LLM_PROXY_HOSTS),
 }
 
