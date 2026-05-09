@@ -143,14 +143,28 @@ def critique_composition(intent, action, payload, evidence, *, effort="medium"):
 			return {"skipped": True, "reason": f"no provider configured for {model_label}: {type(e).__name__}: {str(e)[:80]}"}
 
 		messages = [{"role": "user", "content": prompt}]
-		resp = adapter.chat(
-			provider=provider_doc,
-			model=model_doc,
-			messages=messages,
-			system="You are a strict verification critic. Return only the JSON verdict object with no extra prose.",
-			tools=None,
-			max_tokens=1024,
-		)
+		# Cycle 11 — M4: wrap the critic LLM call in a deterministic 30s
+		# timeout so a hung adapter (network stall, slow upstream) doesn't
+		# block the parent prepare_* response. ThreadPoolExecutor's
+		# Future.result(timeout=) is stdlib-only and matches Frappe's
+		# threading model (each whitelisted method runs in its own request
+		# thread already).
+		import concurrent.futures
+		def _critic_call():
+			return adapter.chat(
+				provider=provider_doc,
+				model=model_doc,
+				messages=messages,
+				system="You are a strict verification critic. Return only the JSON verdict object with no extra prose.",
+				tools=None,
+				max_tokens=1024,
+			)
+		with concurrent.futures.ThreadPoolExecutor(max_workers=1) as _critic_pool:
+			_critic_future = _critic_pool.submit(_critic_call)
+			try:
+				resp = _critic_future.result(timeout=30)
+			except concurrent.futures.TimeoutError:
+				return {"skipped": True, "reason": "critic LLM call timed out after 30s"}
 
 		# Extract text from AdapterResponse.content (list of blocks)
 		text_blocks = [b.get("text", "") for b in resp.content if b.get("type") == "text"]
