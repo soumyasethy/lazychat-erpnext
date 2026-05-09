@@ -1086,6 +1086,76 @@ def _validate_query_report_html_cells(sample_rows, *, parent_whitelist, item_whi
 	return None
 
 
+# ---------------------------------------------------------------------------
+# M2.6 — verification_brief helpers
+# ---------------------------------------------------------------------------
+
+def _summarize_payload(action, payload):
+	"""One-sentence description of what's being staged. Used in
+	verification_brief.what_was_composed."""
+	if action == "create_report":
+		return (
+			f"{payload.get('report_type', 'Report')} '{payload.get('report_name')}' "
+			f"on {payload.get('ref_doctype')} "
+			f"({len(payload.get('columns') or []) or 'auto'}-col)"
+		)
+	if action == "create_doc":
+		return (
+			f"new {payload.get('doctype')} with "
+			f"{len(payload.get('values') or {})} field(s) set"
+		)
+	if action == "update_doc":
+		patch = payload.get('patch') or {}
+		return (
+			f"patch {payload.get('doctype')}/{payload.get('name')} with "
+			f"fields: {sorted(patch.keys())}"
+		)
+	if action == "run_sql":
+		q = (payload.get('query') or '')[:80]
+		return f"SELECT against: {q}…"
+	return f"{action} (payload {len(json.dumps(payload, default=str))} chars)"
+
+
+_CHECKLIST_BY_ACTION = {
+	"create_report": [
+		"Does the column set match what the user asked for?",
+		"For Query Report: are HTML buttons properly URL-encoded with _lz_items?",
+		"WHERE clause filters to user's intent (no extraneous rows)?",
+		"Sample rows look plausible (no NULL columns where there shouldn't be)?",
+	],
+	"create_doc": [
+		"All required fields populated?",
+		"Link fields point at existing docs?",
+		"Items child table correct shape?",
+	],
+	"update_doc": [
+		"Patch keys are the ones user asked to change (no extras)?",
+		"Patch values plausible against current doc state?",
+	],
+	"run_sql": [
+		"Result row count matches expected scale?",
+		"Columns named meaningfully?",
+		"Filter aligns with user's intent?",
+	],
+}
+
+
+def _review_checklist(action):
+	return _CHECKLIST_BY_ACTION.get(action, [
+		"Action matches what the user asked for?",
+		"No surprise fields/values in the payload?",
+	])
+
+
+def _build_verification_brief(action, payload, intent_summary, sample_evidence=None):
+	return {
+		"user_intent_summary": (intent_summary or "")[:800],
+		"what_was_composed": _summarize_payload(action, payload),
+		"sample_evidence": sample_evidence,
+		"review_checklist": _review_checklist(action),
+	}
+
+
 def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 	# Defensive: many models stringify their tool args. Normalize before
 	# dispatch so each tool's impl can rely on native types.
@@ -1220,7 +1290,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			if _v is not None:
 				return _v
 		token = _stage_action("create", {"doctype": dt, "values": values})
-		return {
+		response_dict = {
 			"ok": True,
 			"preview_token": token,
 			"summary": f"Will create {dt} with {len(values)} field(s)",
@@ -1228,6 +1298,15 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"expires_in_sec": PREP_TTL_SEC,
 			"confirm_with": "click the inline Apply button to confirm",
 		}
+		# M2.6 — augment response with verification_brief when cycle9_enabled.
+		if _settings.get("cycle9_enabled"):
+			_intent = args.get("_intent_summary") or ""
+			response_dict["verification_brief"] = _build_verification_brief(
+				"create_doc",
+				{"doctype": dt, "values": values},
+				_intent,
+			)
+		return response_dict
 
 	if name == "prepare_update_doc":
 		dt = args.get("doctype")
@@ -1273,7 +1352,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			if _v_upd is not None:
 				return _v_upd
 		token = _stage_action("update", {"doctype": dt, "name": dn, "patch": patch})
-		return {
+		response_dict = {
 			"ok": True,
 			"preview_token": token,
 			"summary": f"Will update {dt}/{dn} — {len(patch)} field(s)",
@@ -1281,6 +1360,15 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"expires_in_sec": PREP_TTL_SEC,
 			"confirm_with": "click the inline Apply button to confirm",
 		}
+		# M2.6 — augment response with verification_brief when cycle9_enabled.
+		if _settings_upd.get("cycle9_enabled"):
+			_intent = args.get("_intent_summary") or ""
+			response_dict["verification_brief"] = _build_verification_brief(
+				"update_doc",
+				{"doctype": dt, "name": dn, "patch": patch},
+				_intent,
+			)
+		return response_dict
 
 	if name == "prepare_submit_doc":
 		dt = args.get("doctype")
@@ -2211,7 +2299,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			return {"error": validation_error}
 		limit = min(int(args.get("limit") or 200), 1000)
 		token = _stage_action("run_sql", {"query": query, "limit": limit})
-		return {
+		response_dict = {
 			"ok": True,
 			"preview_token": token,
 			"summary": f"Will execute SELECT query (returns up to {limit} rows)",
@@ -2219,6 +2307,16 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"expires_in_sec": PREP_TTL_SEC,
 			"confirm_with": "click the inline Apply button to confirm",
 		}
+		# M2.6 — augment response with verification_brief when cycle9_enabled.
+		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings as _gls_sql
+		if _gls_sql().get("cycle9_enabled"):
+			_intent = args.get("_intent_summary") or ""
+			response_dict["verification_brief"] = _build_verification_brief(
+				"run_sql",
+				{"query": query},
+				_intent,
+			)
+		return response_dict
 
 	if name == "prepare_run_python":
 		ok, err = _dangerous_tools_enabled()
@@ -3243,7 +3341,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				"filters": filters,
 			},
 		)
-		return {
+		response_dict = {
 			"ok": True,
 			"preview_token": token,
 			"summary": f"Will create {report_type} '{report_name}' on {ref_dt}",
@@ -3272,6 +3370,26 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"expires_in_sec": PREP_TTL_SEC,
 			"confirm_with": "click the inline Apply button to confirm",
 		}
+		# M2.6 — augment response with verification_brief when cycle9_enabled.
+		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings as _gls_cr
+		if _gls_cr().get("cycle9_enabled"):
+			_intent_vb = args.get("_intent_summary") or ""
+			_evidence_vb = (
+				{"sample_rows": sample_rows[:3], "sample_columns": sample_columns}
+				if sample_rows else None
+			)
+			response_dict["verification_brief"] = _build_verification_brief(
+				"create_report",
+				{
+					"report_type": report_type,
+					"report_name": report_name,
+					"ref_doctype": ref_dt,
+					"columns": columns,
+				},
+				_intent_vb,
+				sample_evidence=_evidence_vb,
+			)
+		return response_dict
 
 	if name == "prepare_create_scheduled_job":
 		method = args.get("method")

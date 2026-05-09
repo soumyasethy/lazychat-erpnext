@@ -2510,6 +2510,29 @@ def run():
 		f"r2={r2}",
 	))
 
+	# T89s: prepare_create_report Query Report response includes
+	# verification_brief block when cycle9_enabled.
+	frappe.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 1)
+	try:
+		r = execute_tool("prepare_create_report", {
+			"report_name": f"_lz_smoke_vb_{frappe.generate_hash(length=4)}",
+			"ref_doctype": "Customer",
+			"report_type": "Query Report",
+			"query": "SELECT name FROM `tabCustomer` LIMIT 1",
+		})
+		vb = r.get("verification_brief")
+		record(_ok(
+			"T89s prepare_create_report response includes verification_brief",
+			isinstance(vb, dict)
+			and "user_intent_summary" in vb
+			and "what_was_composed" in vb
+			and "review_checklist" in vb,
+			f"vb_keys={list(vb.keys()) if isinstance(vb, dict) else None}",
+		))
+	finally:
+		frappe.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 0)
+		frappe.db.commit()
+
 	# Cleanup
 	cleaned = []
 	if created_note:
