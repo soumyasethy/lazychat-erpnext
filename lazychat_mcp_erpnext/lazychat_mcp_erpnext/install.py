@@ -264,13 +264,69 @@ _LAZYCHAT_FORM_HELPER_SCRIPT = r"""
   function lazychatPrefill(frm) {
     if (!frm || !frm.is_new || !frm.is_new()) return;
     var p = _params();
-    var rawItems = p.get('_lz_items');
 
     // Always re-set parent fields on every refresh — set_value is a noop
     // if value already matches. Cheap idempotent.
     setParentFromUrl(frm, p);
 
+    // Cycle 11 — M2: prefer `_lz_token` (server-staged payload) over the
+    // legacy `_lz_items` URL convention. Token-based path is single-use
+    // (server consumes on first read), so we cache the fetched payload
+    // on the form to allow signature-reapply on subsequent refresh events.
+    var token = p.get('_lz_token');
+    if (token) {
+      if (frm.__lz_token_payload) {
+        // Already fetched — reapply via signature check (same as _lz_items path).
+        var rowsT = frm.__lz_token_payload.items || [];
+        if (Array.isArray(rowsT) && rowsT.length > 0) {
+          var ourSigT = _sig(rowsT);
+          var nowSigT = _frmSig(frm.doc.items);
+          if (ourSigT !== nowSigT) applyItems(frm, rowsT);
+        }
+        // Apply parent_fields from the cached payload too (in case Make
+        // Return / similar clobbered them).
+        var pfT = frm.__lz_token_payload.parent_fields || {};
+        Object.keys(pfT).forEach(function (k) {
+          if (frm.doc[k] !== pfT[k]) {
+            try { frm.set_value(k, pfT[k]); } catch (e) {}
+          }
+        });
+        return;
+      }
+      // First fetch — single-use, server consumes on read.
+      frappe.call({
+        method: "lazychat_mcp_erpnext.lazychat_mcp_erpnext.desk_assistant.api.fetch_form_prefill",
+        args: { token: token },
+        callback: function (r) {
+          if (!r || !r.message || !r.message.ok) {
+            console.warn("[lazychat] fetch_form_prefill failed:", r && r.message && r.message.error);
+            return;
+          }
+          var payload = r.message;
+          frm.__lz_token_payload = payload;
+          // Apply parent_fields (server-validated, doctype-bound).
+          var pf = payload.parent_fields || {};
+          Object.keys(pf).forEach(function (k) {
+            try { frm.set_value(k, pf[k]); } catch (e) {}
+          });
+          // Apply items via the same applyItems path used by _lz_items.
+          var rows = payload.items || [];
+          if (Array.isArray(rows) && rows.length > 0) {
+            applyItems(frm, rows);
+          }
+        },
+      });
+      return;
+    }
+
+    // Legacy `_lz_items` URL convention — kept for one cycle, prefer
+    // `_lz_token` (Cycle 11 M2) for new reports to avoid HTTP 414.
+    var rawItems = p.get('_lz_items');
     if (!rawItems) return;
+    if (!frm.__lz_items_warned) {
+      console.warn("[lazychat] _lz_items URL convention is deprecated. Use prepare_form_prefill (Cycle 11 M2) for new reports — generates a tiny _lz_token URL that doesn't hit HTTP 414 on large payloads.");
+      frm.__lz_items_warned = true;
+    }
     var rows = _decode(rawItems);
     if (!Array.isArray(rows) || rows.length === 0) return;
 
