@@ -486,6 +486,75 @@ When debugging *"my report URL gave 404 even though the chat said it was
 created"*: confirm the chat-ui bundle was rebuilt after this fix landed
 (`?v=` query in iframe URL should be > `1778066844`).
 
+## Cycle 11 — M3: SQL pre-flight hard gate + critic visibility (2026-05-09)
+
+Two independent fixes shipped together. Both gated on `cycle9_enabled` (no
+behavior change when off). Companion chat-ui work in
+[../lazychat.ai/CLAUDE.md](../lazychat.ai/CLAUDE.md) "Cycle 11 — M3".
+
+### A. Structured SQL gate error response
+
+`prepare_create_report` (Query Report path) ALREADY ran `_validate_select_sql`
++ `_probe_select_sql_explain` + `_probe_select_sql_execute` as gates (lines
+3458-3470). M3 tightens the FAILURE shape from a flat `{"error": "<msg>"}`
+to:
+
+```python
+{
+  "ok": False,
+  "error": "<formatted message>",
+  "sql_error": "<raw db error>",
+  "sql_phase": "validate" | "explain" | "execute",
+  "suggestion": "<actionable hint>",
+}
+```
+
+So the LLM can route on `sql_phase` and apply targeted fixes — call
+`describe_doctype` if `sql_phase === "explain"` (table/column doesn't exist),
+fix DML keywords if `sql_phase === "validate"`, etc. Documented in
+`tool_schemas.py:prepare_create_report.description` so the LLM sees this
+contract via `tools/list`.
+
+### B. Critic verdict surfaced via `critic_feedback`
+
+`critique_composition` already existed in `desk_assistant/critic.py` from
+Cycle 9 M2 but was NEVER CALLED. M3 wires it into `prepare_create_report`'s
+response when `cycle9_enabled` is true:
+
+```python
+# Inside cycle9_enabled guard, after exemplars block, before return:
+try:
+  from lazychat_mcp_erpnext.desk_assistant.critic import critique_composition
+  response_dict["critic_feedback"] = critique_composition(
+    intent_summary, "create_report",
+    {report_name, ref_doctype, report_type, query},
+    {sample_columns, sample_rows[:3]},
+    effort=args.get("_effort") or "medium",
+  )
+except Exception as e:
+  response_dict["critic_feedback"] = {"skipped": True, "reason": ...}
+```
+
+Returns `{verdict: 'ok'|'mismatch', severity, mismatches[], suggested_revisions[], model}`
+on success or `{skipped: True, reason}` when the Effort tier skips critic
+(low/medium) or the critic LLM fails. Defense-in-depth try/except so a
+critic crash NEVER breaks `prepare_create_report`.
+
+The chat-ui's `MCPPreviewActionCard` renders an amber strip listing
+mismatches when `verdict === 'mismatch'` (defense-in-depth: user CAN still
+click Apply, but they see the risk first). When `skipped: true`, a small
+grey tag surfaces "verifier skipped" so the user knows the critic didn't run.
+
+**Smoke**: 228 → **231** (+3: T92a sql_phase=explain, T92b sql_phase=validate,
+T92c critic_feedback presence). HTTP-wire 94/94 unchanged (no new tools).
+
+**Effort gating** (mirrors `critic_model_for_effort` in critic.py):
+- `low` / `medium` → critic skipped (returns `{skipped: True, reason: "effort=X skips critic"}`).
+- `high` → claude-haiku-4-5 (cheap, fast).
+- `max` → claude-sonnet-4-6 (higher quality).
+
+**Visual evidence**: [test/evidence/cycle-11-m3/01-amber-critic-strip-rendered.png](test/evidence/cycle-11-m3/01-amber-critic-strip-rendered.png) — Apply card with amber "Verifier flagged (medium)" strip listing 2 mismatches, Apply/Cancel buttons below.
+
 ## Cycle 11 — M2: Stage-and-redirect form prefill (kills HTTP 414) (2026-05-09)
 
 Replaces inline `_lz_items=<base64-json>` URL convention with a server-staged
