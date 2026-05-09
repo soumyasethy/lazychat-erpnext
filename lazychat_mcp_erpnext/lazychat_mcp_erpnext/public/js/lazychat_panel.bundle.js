@@ -10,6 +10,24 @@
 (function () {
 	"use strict";
 
+	// Cycle 11 — M2.1: capture the original URL search at HTML-parse time.
+	// Frappe v15 redirects `/app/<dt>/new?<params>` to `/app/<dt>/new-<dt>-<id>`
+	// and STRIPS the query string before form `onload` fires. The lazychat
+	// persistent helper Client Script (install.py:_LAZYCHAT_FORM_HELPER_SCRIPT)
+	// loads via Frappe boot AFTER this redirect, so by the time it runs,
+	// `window.location.search` is empty. By capturing it here — at panel-shim
+	// IIFE-eval time, which fires via `app_include_js` BEFORE Frappe's router
+	// — the Client Script can fall back to `window.__lazychat_initial_search`
+	// to read `_lz_token` / `_lz_items` / parent params that would otherwise
+	// be lost.
+	try {
+		if (typeof window !== "undefined" && window.__lazychat_initial_search === undefined) {
+			window.__lazychat_initial_search = window.location.search || "";
+		}
+	} catch (_lz_capture_err) {
+		// Best-effort; never break the panel-shim load on a capture failure.
+	}
+
 	const STORAGE_OPEN = "lazychat_panel_open";
 	const STORAGE_WIDTH = "lazychat_panel_width";
 	const STORAGE_SID_MAP = "lazychat_sid_to_convo";
