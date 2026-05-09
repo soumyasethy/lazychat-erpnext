@@ -874,6 +874,70 @@ _RELATIONSHIP_HINTS = {
 }
 
 
+def describe_doctype(doctype, *, conversation_id=None):
+	"""Standalone describe_doctype implementation.
+
+	M3.1 — when conversation_id is provided, consults the per-conversation
+	Redis schema cache first (schema_graph.py). Cache hit returns the
+	cached dict with an added `_from_cache: True` flag for telemetry.
+	On miss, runs the full meta lookup and persists the result.
+	Without conversation_id the cache is bypassed (used by
+	_doctype_relationships and other internal callers).
+	"""
+	# M3.1 — schema graph cache lookup.
+	if conversation_id:
+		from lazychat_mcp_erpnext.desk_assistant.schema_graph import schema_get, schema_put
+		cached = schema_get(conversation_id, doctype)
+		if cached is not None:
+			return {**cached, "_from_cache": True}
+
+	if not doctype or not frappe.db.exists("DocType", doctype):
+		# Common business-term aliases that aren't doctypes in ERPNext.
+		# Each entry: (target_doctype, hint). Returned with error so the
+		# LLM sees both that the lookup failed AND what to do instead.
+		alias = _DOCTYPE_ALIASES.get((doctype or "").strip().title())
+		if alias:
+			return {
+				"error": "invalid doctype",
+				"redirect": alias[0],
+				"hint": alias[1],
+			}
+		return {"error": "invalid doctype"}
+	if not frappe.has_permission(doctype, "read"):
+		return {"error": "no read permission"}
+	try:
+		meta = frappe.get_meta(doctype)
+		fields = []
+		for df in meta.fields:
+			fields.append(
+				{
+					"fieldname": df.fieldname,
+					"label": df.label,
+					"fieldtype": df.fieldtype,
+					"options": df.options,
+					"reqd": bool(df.reqd),
+					"read_only": bool(df.read_only),
+					"hidden": bool(df.hidden),
+				}
+			)
+		result = {
+			"ok": True,
+			"doctype": doctype,
+			"is_submittable": bool(meta.is_submittable),
+			"is_table": bool(meta.istable),
+			"fields": fields,
+		}
+	except Exception as e:
+		return {"error": str(e)}
+
+	# M3.1 — persist to schema graph on miss (only clean results, no errors).
+	if conversation_id and isinstance(result, dict) and not result.get("error"):
+		from lazychat_mcp_erpnext.desk_assistant.schema_graph import schema_put
+		schema_put(conversation_id, doctype, result)
+
+	return result
+
+
 def _doctype_relationships(doctype):
 	"""Return canonical row-level joins + parent-level back-links for a
 	doctype. Built from the LLM-callable `describe_doctype` PLUS a small
@@ -882,7 +946,8 @@ def _doctype_relationships(doctype):
 	receipt columns)."""
 	if not doctype:
 		return {"error": "doctype required"}
-	base = execute_tool("describe_doctype", {"doctype": doctype})
+	# Call standalone function directly (no conversation_id — internal call).
+	base = describe_doctype(doctype)
 	if isinstance(base, dict) and base.get("error"):
 		return base
 	if not isinstance(base, dict):
@@ -1209,45 +1274,12 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		return {"ok": True, "context": desk_context or {}}
 
 	if name == "describe_doctype":
-		dt = args.get("doctype")
-		if not dt or not frappe.db.exists("DocType", dt):
-			# Common business-term aliases that aren't doctypes in ERPNext.
-			# Each entry: (target_doctype, hint). Returned with error so the
-			# LLM sees both that the lookup failed AND what to do instead.
-			alias = _DOCTYPE_ALIASES.get((dt or "").strip().title())
-			if alias:
-				return {
-					"error": "invalid doctype",
-					"redirect": alias[0],
-					"hint": alias[1],
-				}
-			return {"error": "invalid doctype"}
-		if not frappe.has_permission(dt, "read"):
-			return {"error": "no read permission"}
-		try:
-			meta = frappe.get_meta(dt)
-			fields = []
-			for df in meta.fields:
-				fields.append(
-					{
-						"fieldname": df.fieldname,
-						"label": df.label,
-						"fieldtype": df.fieldtype,
-						"options": df.options,
-						"reqd": bool(df.reqd),
-						"read_only": bool(df.read_only),
-						"hidden": bool(df.hidden),
-					}
-				)
-			return {
-				"ok": True,
-				"doctype": dt,
-				"is_submittable": bool(meta.is_submittable),
-				"is_table": bool(meta.istable),
-				"fields": fields,
-			}
-		except Exception as e:
-			return {"error": str(e)}
+		# M3.1 — thin shim; implementation promoted to standalone function.
+		# Passes _conversation_id from args so the schema graph cache is consulted.
+		return describe_doctype(
+			args.get("doctype"),
+			conversation_id=args.get("_conversation_id"),
+		)
 
 	if name == "get_form_prefill_capabilities":
 		return _form_prefill_capabilities(args.get("doctype"))
