@@ -2219,7 +2219,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				"name": ref_name,
 			},
 		)
-		return {
+		response_dict = {
 			"ok": True,
 			"preview_token": token,
 			"summary": f"Will email {len(recipients)} recipient(s): '{subject}'",
@@ -2232,6 +2232,29 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"expires_in_sec": PREP_TTL_SEC,
 			"confirm_with": "click the inline Apply button to confirm",
 		}
+		# Cycle 12 — M2: critic verdict (cycle9-gated). Evidence is shape +
+		# small samples — no full recipient list / content / subject body in
+		# the payload, so privacy is preserved.
+		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		if get_lazychat_settings().get("cycle9_enabled"):
+			_attach_critic_feedback(
+				response_dict,
+				args=args,
+				action="send_email",
+				default_intent=f"send email '{subject}'",
+				payload={
+					"subject": subject,
+					"recipient_count": len(recipients),
+					"content_len": len(content),
+					"linked": f"{ref_dt}/{ref_name}" if ref_dt and ref_name else None,
+				},
+				evidence={
+					"recipients_sample": recipients[:3],
+					"subject_words": subject.split()[:8],
+					"content_preview": content[:200],
+				},
+			)
+		return response_dict
 
 	if name == "prepare_delete_doc":
 		dt = args.get("doctype")
