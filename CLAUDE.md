@@ -486,6 +486,57 @@ When debugging *"my report URL gave 404 even though the chat said it was
 created"*: confirm the chat-ui bundle was rebuilt after this fix landed
 (`?v=` query in iframe URL should be > `1778066844`).
 
+## Cycle 10 — chat-ui admin panel + allow-all defaults (2026-05-09)
+
+User principle: *"reduce cognitive load on user erp side. we should fully
+control all configuration within the chat ... move all ERPNext-side
+configuration outside of erp into lazychat.ai ui."* Cycle 10 ships:
+
+**Allow-all defaults (Pillar 2)** — `lazychat_settings.json` flips 4
+boolean defaults from `"0"` to `"1"`: `allow_email`, `allow_email_setup`,
+`allow_dangerous_tools`, `cycle9_enabled`. Mirrored in `boot.py:_SETTINGS_DEFAULTS`.
+Defense-in-depth (System Manager role check at tool dispatch + /commit
+confirmation per call) preserved. Frappe applies new defaults to NEW
+rows only — existing installs keep their stored values. site_config
+overrides still win. Smoke T89a updated to assert "is wired (boolean)"
+rather than asserting the specific value.
+
+**6 new whitelisted endpoints (Pillar 1)** in `desk_assistant/api.py` —
+all System Manager only (read snapshot is wider but masks api_key):
+
+- `get_lazychat_admin_snapshot()` — single round-trip read of settings +
+  providers + models + is_system_manager + settings_shadowed (per-field
+  flag indicating site_config is overriding the doctype value).
+- `update_lazychat_settings(field, value)` — patches one whitelisted
+  field. Coerces booleans, validates `chat_path` enum, JSON-parses
+  `llm_proxy_allowed_hosts`. Returns `{ok, field, value, shadowed_by_site_config}`.
+- `upsert_llm_provider(name, fields)` — create or update. Blank/`****`
+  api_key treated as "don't change" (lets editor save other fields
+  without re-entering the key).
+- `delete_llm_provider(name)` — refuses if any LLM Model still
+  references it; returns `blocking_models` list when blocked.
+- `upsert_llm_model(name, fields)` — single-default invariant enforced
+  via raw SQL `UPDATE … SET is_default = 0 WHERE name != %s`.
+- `delete_llm_model(name)` — straightforward delete.
+
+Helper at top of new section: `_require_system_manager()` /
+`_is_system_manager()`. All endpoints reuse `frappe.has_permission` +
+`doc.save(ignore_permissions=False)` so Frappe-level perms re-check too.
+
+**Panel-shim init payload (Pillar 5a)** — `public/js/lazychat_panel.bundle.js`
+adds `isSystemManager` + `userRoles` to the init payload (around line
+688). New `bridge.on("settingsChanged", ...)` handler that posts back a
+`reloadRequired` envelope when an iframe-affecting field changes
+(`iframe_base_url` / `iframe_query_params` / `legacy_widget_enabled`).
+Other fields (allow_* gates, `cycle9_enabled`, `chat_path`) take effect
+on next request — server reads `get_lazychat_settings()` per-call.
+
+**Smoke**: 217 → 225 (+8 cases T89y/z + T90a-f). HTTP-wire 93/93
+(endpoints aren't MCP tools, so curl_smoke unchanged). chat-ui side
+companion (sibling repo): adminConfig store + AdminSettingsPanel +
+3 tabs + CommandPalette gated entry. See lazychat.ai CLAUDE.md
+"Cycle 10 — chat-ui admin panel".
+
 ## Cycle 9 — M4: Live form grounding + PEVR primitives (2026-05-09)
 
 Server side: panel-shim handler that opens a hidden iframe, captures DOM
