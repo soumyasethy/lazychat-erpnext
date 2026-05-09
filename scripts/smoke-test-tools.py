@@ -2850,6 +2850,26 @@ def run():
 		_frappe_m3.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 0)
 		_frappe_m3.db.commit()
 
+	# T92d (Cycle 11 — M4): critique_composition returns {skipped:True, reason}
+	# when no critic LLM provider is configured (typical dev environment).
+	# Verifies the timeout-wrap shape contract: caller can rely on `skipped`
+	# + `reason` keys regardless of whether the critic ran, timed out, or
+	# couldn't be loaded. Actual 30s timeout behavior is not exercised here
+	# (would require mocking the adapter to hang) — manual ship gate covers
+	# the live behavior.
+	from lazychat_mcp_erpnext.desk_assistant.critic import critique_composition
+	r = critique_composition(
+		"test intent", "create_report",
+		{"report_name": "_lz_m4_test", "ref_doctype": "ToDo"},
+		{"sample_columns": ["name"], "sample_rows": []},
+		effort="high",  # high → tries to load claude-haiku-4-5; fails in dev → skipped
+	)
+	record(_ok(
+		"T92d critique_composition returns {skipped:True, reason} when critic LLM unavailable",
+		isinstance(r, dict) and r.get("skipped") is True and isinstance(r.get("reason"), str),
+		f"resp={r}",
+	))
+
 	# Cleanup
 	cleaned = []
 	if created_note:
