@@ -844,3 +844,178 @@ def delete_llm_model(name=None):
 	frappe.delete_doc("LLM Model", name, ignore_permissions=False)
 	frappe.db.commit()
 	return {"ok": True, "name": name}
+
+
+# ============================================================
+# Cycle 11 — M2: stage-and-redirect form prefill (kills HTTP 414)
+# ============================================================
+#
+# Replaces the `_lz_items=<base64-json>` URL convention with a
+# server-staged token. For Query Report HTML buttons that prefill a
+# new-doc form with 50+ items, the base64 payload exceeds 8 KB and the
+# Frappe dev server returns 414 Request-URI Too Long. The new flow:
+#
+#   1. Assistant calls `prepare_form_prefill(doctype, parent_fields,
+#      items)` -> returns `{ok, token, url}` where `url` is a tiny
+#      `/app/<dt>/new?_lz_token=<22-char>` (always under 100 chars).
+#   2. Assistant emits the URL in a Query Report HTML link button.
+#   3. User clicks. Frappe routes to the new-doc form. The persistent
+#      Client Script (install.py) detects `_lz_token` in the URL,
+#      calls `fetch_form_prefill(token)`, applies the payload via
+#      `frappe.route_options` BEFORE form load.
+#
+# Single-use: `fetch_form_prefill` consumes the token on first read so
+# refresh / open-in-new-tab can't replay. User-bound: refuses reads
+# from a different session user.
+#
+# `_lz_items` decoder stays in install.py for one cycle with a
+# deprecation warning so existing reports continue to work.
+
+_LAZYCHAT_PREFILL_KEY = "lazychat:prefill:"
+_LAZYCHAT_PREFILL_TTL_DEFAULT = 300  # 5 minutes
+_LAZYCHAT_PREFILL_TTL_MAX = 3600     # 1 hour ceiling
+_LAZYCHAT_PREFILL_TOKEN_BYTES = 16   # secrets.token_urlsafe(16) -> 22 chars
+
+
+def _stage_prefill(doctype: str, parent_fields: dict, items: list) -> str:
+	"""Cache a form-prefill payload bound to the current user; return a one-time token."""
+	import secrets
+	import json as _json
+	token = secrets.token_urlsafe(_LAZYCHAT_PREFILL_TOKEN_BYTES)
+	user = frappe.session.user
+	payload = {
+		"user": user,
+		"doctype": doctype,
+		"parent_fields": parent_fields or {},
+		"items": items or [],
+	}
+	frappe.cache().set_value(
+		_LAZYCHAT_PREFILL_KEY + token,
+		_json.dumps(payload, default=str),
+		expires_in_sec=_LAZYCHAT_PREFILL_TTL_DEFAULT,
+	)
+	return token
+
+
+def _retrieve_prefill(token: str):
+	"""Single-use fetch of a staged prefill payload. Returns None if missing,
+	expired, or owned by a different user. Deletes the entry on successful read."""
+	import json as _json
+	user = frappe.session.user
+	raw = frappe.cache().get_value(_LAZYCHAT_PREFILL_KEY + token)
+	if not raw:
+		return None
+	try:
+		obj = _json.loads(raw if isinstance(raw, str) else raw.decode("utf-8"))
+	except Exception:
+		return None
+	if obj.get("user") != user:
+		return None
+	# Single-use: consume on first successful read.
+	frappe.cache().delete_value(_LAZYCHAT_PREFILL_KEY + token)
+	return obj
+
+
+@frappe.whitelist(methods=["POST"])
+def prepare_form_prefill(doctype, parent_fields=None, items=None, ttl=None):
+	"""Stage a form-prefill payload for a new-doc URL. Returns a short opaque
+	token and a tiny URL (`/app/<scrub>/new?_lz_token=<22-char>`) that the
+	persistent Client Script will fetch and apply via `frappe.route_options`.
+
+	Replaces the legacy `_lz_items=<base64-json>` URL convention to avoid
+	HTTP 414 on large item payloads.
+
+	Args:
+	  doctype: target DocType (e.g. 'Purchase Invoice').
+	  parent_fields: dict of parent-level field values to apply
+	                 (e.g. {'supplier': 'X', 'is_return': 1, 'return_against': 'Y'}).
+	  items: list of item-row dicts to populate the items child table.
+	  ttl: optional TTL seconds (clamped to [60, 3600]; default 300).
+
+	Returns:
+	  {ok: True, token: str, url: str} on success.
+	  {ok: False, error: str} on validation failure.
+	"""
+	import json as _json
+	dt = (doctype or "").strip()
+	if not dt:
+		return {"ok": False, "error": "doctype is required"}
+	if not frappe.db.exists("DocType", dt):
+		return {"ok": False, "error": f"DocType '{dt}' not found"}
+	# Coerce JSON-stringified args (chat-ui paths sometimes stringify dict/list).
+	if isinstance(parent_fields, str):
+		try:
+			parent_fields = _json.loads(parent_fields)
+		except Exception:
+			return {"ok": False, "error": "parent_fields must be a JSON object or dict"}
+	if isinstance(items, str):
+		try:
+			items = _json.loads(items)
+		except Exception:
+			return {"ok": False, "error": "items must be a JSON array or list"}
+	parent_fields = parent_fields or {}
+	items = items or []
+	if not isinstance(parent_fields, dict):
+		return {"ok": False, "error": "parent_fields must be a dict"}
+	if not isinstance(items, list):
+		return {"ok": False, "error": "items must be a list"}
+	# Permission re-check at staging time (defense-in-depth; client-side fetch
+	# also re-checks at consume time via session user binding).
+	if not frappe.has_permission(dt, ptype="create"):
+		return {"ok": False, "error": f"No create permission on {dt}"}
+	# Clamp TTL.
+	try:
+		ttl_int = int(ttl) if ttl is not None else _LAZYCHAT_PREFILL_TTL_DEFAULT
+	except (TypeError, ValueError):
+		ttl_int = _LAZYCHAT_PREFILL_TTL_DEFAULT
+	ttl_int = max(60, min(ttl_int, _LAZYCHAT_PREFILL_TTL_MAX))
+
+	# Stage with the (possibly-overridden) TTL.
+	import secrets
+	token = secrets.token_urlsafe(_LAZYCHAT_PREFILL_TOKEN_BYTES)
+	payload = {
+		"user": frappe.session.user,
+		"doctype": dt,
+		"parent_fields": parent_fields,
+		"items": items,
+	}
+	frappe.cache().set_value(
+		_LAZYCHAT_PREFILL_KEY + token,
+		_json.dumps(payload, default=str),
+		expires_in_sec=ttl_int,
+	)
+	# Build the redirect URL: scrub('Purchase Invoice') -> 'purchase_invoice'
+	# then replace _ with - to match Frappe Desk's URL convention.
+	scrub = frappe.scrub(dt).replace("_", "-")
+	return {
+		"ok": True,
+		"token": token,
+		"url": f"/app/{scrub}/new?_lz_token={token}",
+	}
+
+
+@frappe.whitelist()
+def fetch_form_prefill(token):
+	"""Single-use fetch of a staged prefill payload. Called by the
+	persistent Client Script when it sees `?_lz_token=...` in the URL.
+
+	Refuses cross-user reads (token is bound to the staging session user).
+	Consumes the token on first successful read so refresh / open-in-new-tab
+	can't replay.
+
+	Returns:
+	  {ok: True, doctype: str, parent_fields: dict, items: list} on success.
+	  {ok: False, error: str} on missing/expired/wrong-user.
+	"""
+	tok = (token or "").strip()
+	if not tok:
+		return {"ok": False, "error": "token is required"}
+	obj = _retrieve_prefill(tok)
+	if not obj:
+		return {"ok": False, "error": "token expired, invalid, or not owned by this session"}
+	return {
+		"ok": True,
+		"doctype": obj.get("doctype"),
+		"parent_fields": obj.get("parent_fields") or {},
+		"items": obj.get("items") or [],
+	}
