@@ -94,6 +94,11 @@ TOOL_ARGS: dict[str, dict[str, Any]] = {
     "get_current_context": {},
     "describe_doctype": {"doctype": "Sales Order"},
     "get_form_prefill_capabilities": {"doctype": "Purchase Invoice"},
+    "prepare_form_prefill": {
+        "doctype": "ToDo",
+        "parent_fields": {"description": "wire-smoke prefill test"},
+        "items": [],
+    },
     "get_doctype_relationships": {"doctype": "Purchase Invoice Item"},
     "get_value": {"doctype": "Customer", "name": CUSTOMER, "fieldname": "customer_name"},
     "count_doc": {"doctype": "Customer"},
@@ -435,6 +440,17 @@ def _v_get_doctype_relationships(b: dict) -> tuple[bool, str]:
     )
 
 
+def _v_prepare_form_prefill(b: dict) -> tuple[bool, str]:
+    return (
+        b.get("ok") is True
+        and isinstance(b.get("token"), str)
+        and b["token"]  # non-empty
+        and isinstance(b.get("url"), str)
+        and b["url"].startswith("/app/todo/new?_lz_token=")
+        and len(b["url"]) < 100  # tiny URL
+    ), f"token_len={len(b.get('token', ''))} url_len={len(b.get('url', ''))}"
+
+
 def _v_aggregate(b: dict) -> tuple[bool, str]:
     rows = b.get("rows") or []
     return (b.get("ok") is True and isinstance(rows, list) and len(rows) > 0,
@@ -667,6 +683,7 @@ VALIDATORS: dict[str, Callable[[dict], tuple[bool, str]]] = {
     "get_current_context": _v_current_context,
     "describe_doctype": _v_describe_doctype,
     "get_form_prefill_capabilities": _v_get_form_prefill_capabilities,
+    "prepare_form_prefill": _v_prepare_form_prefill,
     "get_doctype_relationships": _v_get_doctype_relationships,
     "get_value": _v_get_value,
     "count_doc": _v_count_doc,
