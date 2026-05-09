@@ -1,0 +1,102 @@
+{
+ "actions": [],
+ "autoname": "format:LZE-{intent_signature}-{########}",
+ "creation": "2026-05-09 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "intent_signature",
+  "action",
+  "target_doctype",
+  "payload_template",
+  "success_count",
+  "reject_count",
+  "trust_score",
+  "last_used",
+  "created_by_user"
+ ],
+ "fields": [
+  {
+   "description": "<action>:<target_doctype>:<sha1(intent_keywords)>",
+   "fieldname": "intent_signature",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Intent signature",
+   "reqd": 1
+  },
+  {
+   "fieldname": "action",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Action",
+   "reqd": 1
+  },
+  {
+   "fieldname": "target_doctype",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Target DocType",
+   "options": "DocType"
+  },
+  {
+   "description": "Anonymized JSON — field names kept, values templated <value>.",
+   "fieldname": "payload_template",
+   "fieldtype": "Long Text",
+   "label": "Payload template"
+  },
+  {
+   "default": "0",
+   "fieldname": "success_count",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Success count"
+  },
+  {
+   "default": "0",
+   "fieldname": "reject_count",
+   "fieldtype": "Int",
+   "label": "Reject count"
+  },
+  {
+   "default": "0.0",
+   "description": "success_count / (success_count + reject_count)",
+   "fieldname": "trust_score",
+   "fieldtype": "Float",
+   "label": "Trust score"
+  },
+  {
+   "fieldname": "last_used",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Last used"
+  },
+  {
+   "fieldname": "created_by_user",
+   "fieldtype": "Link",
+   "label": "Created by user",
+   "options": "User"
+  }
+ ],
+ "links": [],
+ "modified": "2026-05-09 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Desk Assistant",
+ "name": "Lazychat Exemplar",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "All"
+  }
+ ],
+ "search_fields": "intent_signature,action,target_doctype",
+ "sort_field": "modified",
+ "sort_order": "DESC"
+}

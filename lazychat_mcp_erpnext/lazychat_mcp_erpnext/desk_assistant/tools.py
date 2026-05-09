@@ -963,6 +963,105 @@ def _doctype_relationships(doctype):
 	}
 
 
+# ---------------------------------------------------------------------------
+# M3.2 — Exemplar memory: persist/recall per-doctype few-shot grounding
+# ---------------------------------------------------------------------------
+
+import hashlib as _hash_exemp
+
+
+def _intent_signature(action, target_doctype, intent_text):
+	"""Compact key: <action>:<target_doctype>:<sha1(intent_keywords)>"""
+	stop = {"a", "an", "the", "for", "of", "in", "on", "to", "by", "with",
+	        "i", "me", "my", "we", "our", "is", "are", "was", "were",
+	        "and", "or", "but", "if", "then", "else", "do", "does", "did"}
+	words = [w.lower() for w in (intent_text or "").split() if w.lower() not in stop]
+	keys = "_".join(sorted(set(words))[:10])
+	digest = _hash_exemp.sha1(keys.encode()).hexdigest()[:12]
+	return f"{action}:{target_doctype or 'any'}:{digest}"
+
+
+def _anonymize_payload(payload):
+	"""Replace value-typed fields with `<value>` markers; keep keys + types."""
+	if isinstance(payload, dict):
+		return {k: _anonymize_payload(v) for k, v in payload.items()}
+	if isinstance(payload, list):
+		return [_anonymize_payload(v) for v in payload]
+	if isinstance(payload, bool):
+		return "<bool>"
+	if isinstance(payload, (int, float)):
+		return "<number>"
+	return "<value>"  # string / None / other
+
+
+def recall_exemplars(action, target_doctype, intent_text, *, limit=3):
+	"""Return up to `limit` matching exemplars ranked by trust_score *
+	recency. Used as few-shot grounding for compose flows."""
+	if not action:
+		return []
+	sig = _intent_signature(action, target_doctype, intent_text)
+	# Exact-signature match first
+	exact = frappe.get_all(
+		"Lazychat Exemplar",
+		filters={"intent_signature": sig},
+		fields=["name", "intent_signature", "action", "target_doctype",
+		        "payload_template", "trust_score", "last_used", "success_count"],
+		order_by="trust_score desc, last_used desc",
+		limit=limit,
+	)
+	if len(exact) >= limit:
+		return exact
+	# Action+doctype match next (broader)
+	broad_filters = {"action": action}
+	if target_doctype:
+		broad_filters["target_doctype"] = target_doctype
+	broad = frappe.get_all(
+		"Lazychat Exemplar",
+		filters=broad_filters,
+		fields=["name", "intent_signature", "action", "target_doctype",
+		        "payload_template", "trust_score", "last_used", "success_count"],
+		order_by="trust_score desc, last_used desc",
+		limit=limit - len(exact),
+	)
+	# De-dupe on name
+	seen = {e["name"] for e in exact}
+	return exact + [e for e in broad if e["name"] not in seen]
+
+
+def persist_exemplar(action, target_doctype, payload, intent_text):
+	"""Persist a successful Apply'd payload as an exemplar template.
+	Anonymizes values; if a matching signature exists, increments
+	success_count instead of duplicating."""
+	if not action:
+		return None
+	sig = _intent_signature(action, target_doctype, intent_text)
+	template_json = json.dumps(_anonymize_payload(payload), indent=2)
+	existing = frappe.db.get_value(
+		"Lazychat Exemplar",
+		{"intent_signature": sig},
+		"name",
+	)
+	now = frappe.utils.now()
+	if existing:
+		doc = frappe.get_doc("Lazychat Exemplar", existing)
+		doc.success_count = (doc.success_count or 0) + 1
+		doc.last_used = now
+		doc.save(ignore_permissions=True)
+		return doc.name
+	doc = frappe.get_doc({
+		"doctype": "Lazychat Exemplar",
+		"intent_signature": sig,
+		"action": action,
+		"target_doctype": target_doctype or "",
+		"payload_template": template_json,
+		"success_count": 1,
+		"reject_count": 0,
+		"last_used": now,
+		"created_by_user": frappe.session.user,
+	}).insert(ignore_permissions=True)
+	return doc.name
+
+
 def _meta_fieldnames(doctype):
 	"""Return the set of valid fieldnames on a doctype (header fields only,
 	NOT child-table fieldnames). Used by _validate_prepare_payload."""

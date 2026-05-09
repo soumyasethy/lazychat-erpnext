@@ -2555,6 +2555,33 @@ def run():
 	))
 	schema_clear(conv_id, "Customer")
 
+	# T89v/w: persist_exemplar + recall_exemplars round-trip.
+	from lazychat_mcp_erpnext.desk_assistant.tools import (
+		persist_exemplar, recall_exemplars,
+	)
+	intent = f"smoke variance test {frappe.generate_hash(length=4)}"
+	name = persist_exemplar(
+		action="create_report",
+		target_doctype="Customer",
+		payload={"query": "SELECT name FROM `tabCustomer`", "report_type": "Query Report"},
+		intent_text=intent,
+	)
+	record(_ok(
+		"T89v persist_exemplar creates Lazychat Exemplar row",
+		name and name.startswith("LZE-"),
+		f"name={name}",
+	))
+	matches = recall_exemplars("create_report", "Customer", intent, limit=3)
+	record(_ok(
+		"T89w recall_exemplars retrieves the persisted row",
+		any(m["name"] == name for m in matches)
+		and "<value>" in (matches[0].get("payload_template") or ""),
+		f"matches_n={len(matches)}",
+	))
+	# Cleanup
+	frappe.db.delete("Lazychat Exemplar", {"name": name})
+	frappe.db.commit()
+
 	# Cleanup
 	cleaned = []
 	if created_note:
