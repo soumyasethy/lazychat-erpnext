@@ -486,6 +486,48 @@ When debugging *"my report URL gave 404 even though the chat said it was
 created"*: confirm the chat-ui bundle was rebuilt after this fix landed
 (`?v=` query in iframe URL should be > `1778066844`).
 
+## Cycle 9 — M2: Iterative test-driven loop + composer-critic dual-LLM (2026-05-09)
+
+Three new server-side modules + augmented prepare_* responses:
+
+- `desk_assistant/composition.py` — Redis-backed composition session.
+  Each session represents one user-intent compose flow; up to 5
+  iterations of (compose → probe → analyze) accumulate against the
+  same intent_hash. 90s TTL; user-scoped key. Public API:
+  `open_or_resume_session`, `append_iteration`, `finalize_session`,
+  `get_session`. T89l/m cover round-trip + cap.
+
+- `desk_assistant/critic.py` — composer-critic dual-LLM. The composer
+  is the chat session's main model; the critic is a separate model
+  (haiku at high Effort, sonnet at max). `build_critic_prompt` builds
+  a structured prompt with USER INTENT + COMPOSED PAYLOAD + EVIDENCE
+  + JSON schema for the verdict. `parse_critic_verdict` tolerates
+  bare JSON, fenced JSON, and prose-embedded JSON. `critique_composition`
+  uses the canonical `resolve_model(...)` + `adapter.chat(...)` pattern
+  from claude_bridge.py; ALL exceptions return `{skipped: True, reason: …}`
+  rather than throwing. T89n-r cover prompt structure, parser, gating.
+
+- `verification_brief` block on every successful `prepare_*` response
+  (when cycle9_enabled): `{user_intent_summary, what_was_composed,
+  sample_evidence, review_checklist}`. The chat-ui's verdict-retry
+  hook reads this block to decide whether the LLM should self-review.
+  Wired into prepare_create_report, prepare_create_doc,
+  prepare_update_doc, prepare_run_sql. T89s covers presence.
+
+- `EFFORT_MAP` extended (claude_bridge.py): every Cycle 9 capability
+  gated by Effort level. low=skip critic / medium=skip / high=haiku /
+  max=sonnet. iter_cap goes 1/2/3/5; reflect_retries 0/1/1/2; apply
+  threshold 0.50/0.65/0.75/0.85. Mirrors apps/chat-ui/src/lib/effortConfig.ts.
+
+Smoke 211 → 212 (+1: T89s). Tools 93 unchanged. chat-ui 364 → 369
+(+5: 4 verdictParser + 3 agentRunner.iterative + 2 effortConfig
+extensions; rebalanced to 369 net).
+
+Behind cycle9_enabled flag (default false). When off, M2 changes
+are inert. When on, every prepare_* gets verification_brief; critic
+runs on Effort ≥ high; iterative-loop retry budget enforced via
+`useStreams.verdictRetries`.
+
 ## Cycle 9 — M1: Discovery primitives + hard validation gates (2026-05-08)
 
 Replaced the 60-line verbatim variance-report SQL template + 30-line
