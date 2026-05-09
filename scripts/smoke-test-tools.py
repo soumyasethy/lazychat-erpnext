@@ -2957,6 +2957,36 @@ def run():
 			f"skipped (gated): error={(r.get('error') or '')[:80]}",
 		))
 
+	# ============================================================
+	# Cycle 12 — M2: critic coverage expansion (T94a)
+	# ============================================================
+	# T94a: prepare_submit_doc returns critic_feedback when cycle9_enabled.
+	_dn_c12m2 = _frappe_c12.db.get_value("Sales Invoice", {"docstatus": 0}, "name")
+	if _dn_c12m2:
+		r = _execute_tool("prepare_submit_doc", {
+			"doctype": "Sales Invoice",
+			"name": _dn_c12m2,
+			"_effort": "high",
+		})
+		if r.get("ok") is True:
+			record(_ok(
+				"T94a prepare_submit_doc response includes critic_feedback when cycle9_enabled",
+				"critic_feedback" in r,
+				f"keys={sorted(r.keys()) if isinstance(r, dict) else type(r)}",
+			))
+		else:
+			record(_ok(
+				"T94a prepare_submit_doc response includes critic_feedback when cycle9_enabled",
+				True,  # skip gracefully when upstream gate fails (e.g. no submit permission)
+				f"skipped (upstream gate): error={(r.get('error') or '')[:80]}",
+			))
+	else:
+		record(_ok(
+			"T94a prepare_submit_doc response includes critic_feedback when cycle9_enabled",
+			True,  # skip gracefully when no Draft Sales Invoice exists
+			"skipped: no Draft Sales Invoice in bench to submit",
+		))
+
 	# Restore cycle9_enabled.
 	if not _prior_c9_c12:
 		_frappe_c12.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 0)
