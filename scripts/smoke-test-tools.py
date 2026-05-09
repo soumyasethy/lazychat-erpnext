@@ -2790,6 +2790,41 @@ def run():
 	# Fetch+discard now to leave the cache clean.
 	fetch_form_prefill(token=tok3)
 
+	# ============================================================
+	# Cycle 11 — M3: structured SQL gate (T92a-b)
+	# ============================================================
+
+	from lazychat_mcp_erpnext.desk_assistant.tools import execute_tool as _execute_tool
+
+	# T92a: prepare_create_report on bad-table SQL returns structured error with sql_phase='explain'.
+	r = _execute_tool("prepare_create_report", {
+		"report_name": "_lz_m3_explain_smoke",
+		"ref_doctype": "ToDo",
+		"report_type": "Query Report",
+		"query": "SELECT * FROM tabDOES_NOT_EXIST_FOR_M3_SMOKE WHERE 1=1",
+	})
+	record(_ok(
+		"T92a prepare_create_report returns structured sql_phase=explain on bad table",
+		r.get("ok") is False
+		and r.get("sql_phase") == "explain"
+		and isinstance(r.get("suggestion"), str)
+		and "describe_doctype" in (r.get("suggestion") or ""),
+		f"resp_keys={sorted(r.keys()) if isinstance(r, dict) else type(r)} sql_phase={r.get('sql_phase')}",
+	))
+
+	# T92b: prepare_create_report on DDL keyword returns structured error with sql_phase='validate'.
+	r = _execute_tool("prepare_create_report", {
+		"report_name": "_lz_m3_validate_smoke",
+		"ref_doctype": "ToDo",
+		"report_type": "Query Report",
+		"query": "DROP TABLE tabToDo",
+	})
+	record(_ok(
+		"T92b prepare_create_report returns structured sql_phase=validate on DDL",
+		r.get("ok") is False and r.get("sql_phase") == "validate",
+		f"sql_phase={r.get('sql_phase')} error={(r.get('error') or '')[:80]}",
+	))
+
 	# Cleanup
 	cleaned = []
 	if created_note:
