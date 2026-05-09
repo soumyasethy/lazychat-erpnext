@@ -2533,6 +2533,28 @@ def run():
 		frappe.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 0)
 		frappe.db.commit()
 
+	# T89t: schema graph caches describe_doctype results per-conversation.
+	from lazychat_mcp_erpnext.desk_assistant.schema_graph import (
+		schema_get, schema_put, schema_clear,
+	)
+	conv_id = f"_lz_smoke_conv_{frappe.generate_hash(length=4)}"
+	schema_put(conv_id, "Customer", {"fields": [{"fieldname": "name"}], "links": []})
+	got = schema_get(conv_id, "Customer")
+	record(_ok(
+		"T89t schema_graph round-trips per-conversation",
+		got is not None
+		and got.get("fields") == [{"fieldname": "name"}],
+		f"got={got}",
+	))
+	# Different conversation should miss
+	miss = schema_get(f"{conv_id}_other", "Customer")
+	record(_ok(
+		"T89u schema_graph isolates by conversation_id",
+		miss is None,
+		f"miss={miss}",
+	))
+	schema_clear(conv_id, "Customer")
+
 	# Cleanup
 	cleaned = []
 	if created_note:
