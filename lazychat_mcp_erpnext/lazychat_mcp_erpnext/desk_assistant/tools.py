@@ -1437,6 +1437,22 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				{"doctype": dt, "values": values},
 				_intent,
 			)
+			# M3.3 — recall matching exemplars as few-shot grounding (gated on cycle9 + Effort).
+			from lazychat_mcp_erpnext.desk_assistant.claude_bridge import EFFORT_MAP
+			_effort = args.get("_effort") or "medium"
+			_top_n = EFFORT_MAP.get(_effort, EFFORT_MAP["medium"]).get("exemplar_top_n", 0)
+			if _top_n > 0:
+				try:
+					response_dict["examples_from_history"] = recall_exemplars(
+						action="create_doc",
+						target_doctype=dt,
+						intent_text=_intent,
+						limit=_top_n,
+					)
+				except Exception:
+					response_dict["examples_from_history"] = []
+			else:
+				response_dict["examples_from_history"] = []
 		return response_dict
 
 	if name == "prepare_update_doc":
@@ -1499,6 +1515,22 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				{"doctype": dt, "name": dn, "patch": patch},
 				_intent,
 			)
+			# M3.3 — recall matching exemplars as few-shot grounding (gated on cycle9 + Effort).
+			from lazychat_mcp_erpnext.desk_assistant.claude_bridge import EFFORT_MAP
+			_effort = args.get("_effort") or "medium"
+			_top_n = EFFORT_MAP.get(_effort, EFFORT_MAP["medium"]).get("exemplar_top_n", 0)
+			if _top_n > 0:
+				try:
+					response_dict["examples_from_history"] = recall_exemplars(
+						action="update_doc",
+						target_doctype=dt,
+						intent_text=_intent,
+						limit=_top_n,
+					)
+				except Exception:
+					response_dict["examples_from_history"] = []
+			else:
+				response_dict["examples_from_history"] = []
 		return response_dict
 
 	if name == "prepare_submit_doc":
@@ -2447,6 +2479,22 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				{"query": query},
 				_intent,
 			)
+			# M3.3 — recall matching exemplars as few-shot grounding (gated on cycle9 + Effort).
+			from lazychat_mcp_erpnext.desk_assistant.claude_bridge import EFFORT_MAP
+			_effort = args.get("_effort") or "medium"
+			_top_n = EFFORT_MAP.get(_effort, EFFORT_MAP["medium"]).get("exemplar_top_n", 0)
+			if _top_n > 0:
+				try:
+					response_dict["examples_from_history"] = recall_exemplars(
+						action="run_sql",
+						target_doctype=None,
+						intent_text=_intent,
+						limit=_top_n,
+					)
+				except Exception:
+					response_dict["examples_from_history"] = []
+			else:
+				response_dict["examples_from_history"] = []
 		return response_dict
 
 	if name == "prepare_run_python":
@@ -3520,6 +3568,22 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				_intent_vb,
 				sample_evidence=_evidence_vb,
 			)
+			# M3.3 — recall matching exemplars as few-shot grounding (gated on cycle9 + Effort).
+			from lazychat_mcp_erpnext.desk_assistant.claude_bridge import EFFORT_MAP
+			_effort = args.get("_effort") or "medium"
+			_top_n = EFFORT_MAP.get(_effort, EFFORT_MAP["medium"]).get("exemplar_top_n", 0)
+			if _top_n > 0:
+				try:
+					response_dict["examples_from_history"] = recall_exemplars(
+						action="create_report",
+						target_doctype=ref_dt,
+						intent_text=_intent_vb,
+						limit=_top_n,
+					)
+				except Exception:
+					response_dict["examples_from_history"] = []
+			else:
+				response_dict["examples_from_history"] = []
 		return response_dict
 
 	if name == "prepare_create_scheduled_job":
@@ -5802,6 +5866,26 @@ def commit_prepared(token, **extras):
 			return {"ok": False, "error": f"Unknown action: {action}"}
 		frappe.db.commit()
 		_consume_action(token)
+		# M3.3 — persist successful Apply as an exemplar for future recall.
+		try:
+			from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+			if get_lazychat_settings().get("cycle9_enabled"):
+				_action_persist = action  # e.g. "create_report", "create_doc"
+				_target_persist = (
+					payload.get("ref_doctype")
+					or payload.get("doctype")
+					or None
+				)
+				_intent_persist = payload.get("_intent_summary") or ""
+				persist_exemplar(
+					action=_action_persist,
+					target_doctype=_target_persist,
+					payload=payload,
+					intent_text=_intent_persist,
+				)
+		except Exception:
+			# Persist failure must NEVER break a commit. Log + continue.
+			frappe.log_error(frappe.get_traceback(), "lazychat_mcp_erpnext.persist_exemplar")
 		# URL routing exception: Report doctype with report_type in
 		# {Query Report, Script Report} opens at /app/query-report/<name>,
 		# NOT /app/report/<name> (which is Report-Builder-only). The generic

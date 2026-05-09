@@ -2582,6 +2582,40 @@ def run():
 	frappe.db.delete("Lazychat Exemplar", {"name": name})
 	frappe.db.commit()
 
+	# T89x: prepare_create_report response includes examples_from_history
+	# field when cycle9_enabled (may be empty if no exemplars exist yet).
+	frappe.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 1)
+	try:
+		# Seed an exemplar first so recall has something to find
+		from lazychat_mcp_erpnext.desk_assistant.tools import persist_exemplar
+		intent = "smoke test variance report"
+		seeded = persist_exemplar(
+			action="create_report",
+			target_doctype="Customer",
+			payload={"query": "SELECT name FROM `tabCustomer`", "report_type": "Query Report"},
+			intent_text=intent,
+		)
+		# Now stage with matching intent
+		r = execute_tool("prepare_create_report", {
+			"report_name": f"_lz_smoke_ex_{frappe.generate_hash(length=4)}",
+			"ref_doctype": "Customer",
+			"report_type": "Query Report",
+			"query": "SELECT name FROM `tabCustomer` LIMIT 1",
+			"_intent_summary": intent,
+		})
+		examples = r.get("examples_from_history")
+		record(_ok(
+			"T89x prepare_create_report response includes examples_from_history",
+			isinstance(examples, list),
+			f"examples_n={len(examples) if isinstance(examples, list) else None}",
+		))
+		# Cleanup
+		frappe.db.delete("Lazychat Exemplar", {"name": seeded})
+		frappe.db.commit()
+	finally:
+		frappe.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 0)
+		frappe.db.commit()
+
 	# Cleanup
 	cleaned = []
 	if created_note:
