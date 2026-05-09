@@ -15,10 +15,26 @@ MAX_TURNS = 8
 # Effort tiers control turn budget and (for Anthropic) extended-thinking
 # budget. Mirrors apps/chat-ui/src/lib/effortConfig.ts EFFORT_CONFIG.
 EFFORT_MAP = {
-	"low":    {"max_turns": 8,  "thinking_budget": 0},
-	"medium": {"max_turns": 16, "thinking_budget": 0},
-	"high":   {"max_turns": 32, "thinking_budget": 4000},
-	"max":    {"max_turns": 64, "thinking_budget": 16000},
+	"low":    {"max_turns": 8,  "thinking_budget": 0,
+	           "iter_cap": 1, "critic": "skip",
+	           "schema_prefetch": "jit", "exemplar_top_n": 0,
+	           "live_ground": False, "reflect_retries": 0,
+	           "apply_threshold": 0.50, "chip_threshold": 0.30},
+	"medium": {"max_turns": 16, "thinking_budget": 0,
+	           "iter_cap": 2, "critic": "skip",
+	           "schema_prefetch": "lazy", "exemplar_top_n": 1,
+	           "live_ground": False, "reflect_retries": 1,
+	           "apply_threshold": 0.65, "chip_threshold": 0.50},
+	"high":   {"max_turns": 32, "thinking_budget": 4000,
+	           "iter_cap": 3, "critic": "haiku",
+	           "schema_prefetch": "related", "exemplar_top_n": 3,
+	           "live_ground": True, "reflect_retries": 1,
+	           "apply_threshold": 0.75, "chip_threshold": 0.60},
+	"max":    {"max_turns": 64, "thinking_budget": 16000,
+	           "iter_cap": 5, "critic": "sonnet",
+	           "schema_prefetch": "full", "exemplar_top_n": 5,
+	           "live_ground": "with_screenshot", "reflect_retries": 2,
+	           "apply_threshold": 0.85, "chip_threshold": 0.70},
 }
 
 # Mode-specific prompt blocks. Plan turn 1 forbids tool calls until user
