@@ -2944,7 +2944,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			{"field": ch[0], "current": ch[2], "will_revert_to": ch[1]}
 			for ch in valid_changes
 		]
-		return {
+		response_dict = {
 			"ok": True,
 			"preview_token": token,
 			"summary": f"Will revert {dt}/{dn} via Version {version_id}: {len(valid_changes)} scalar field change(s)",
@@ -2952,6 +2952,27 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"expires_in_sec": PREP_TTL_SEC,
 			"confirm_with": "click the inline Apply button to confirm",
 		}
+		# Cycle 12 — M2: critic verdict (cycle9-gated). fields_being_reverted
+		# helps critic flag a revert that touches surprising/sensitive fields.
+		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		if get_lazychat_settings().get("cycle9_enabled"):
+			_attach_critic_feedback(
+				response_dict,
+				args=args,
+				action="revert_doc",
+				default_intent=f"revert {dt}/{dn} via {version_id}",
+				payload={
+					"doctype": dt,
+					"name": dn,
+					"version_id": version_id,
+					"change_count": len(valid_changes),
+				},
+				evidence={
+					"fields_being_reverted": [ch[0] for ch in valid_changes][:20],
+					"change_count": len(valid_changes),
+				},
+			)
+		return response_dict
 
 	# Tier B-upload — chat-side file picker. prepare_upload_file stages an
 	# attach action; the chat-ui panel shim's /upload TOKEN slash command opens
