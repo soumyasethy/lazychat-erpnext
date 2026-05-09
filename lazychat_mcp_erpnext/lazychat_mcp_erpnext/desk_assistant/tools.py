@@ -41,6 +41,36 @@ def _dangerous_tools_enabled():
 	return True, None
 
 
+def _attach_critic_feedback(
+	response_dict: dict,
+	*,
+	args: dict,
+	action: str,
+	default_intent: str,
+	payload: dict,
+	evidence: dict,
+) -> None:
+	"""Append `critic_feedback` to response_dict in-place.
+
+	On critic-LLM failure or any other exception, writes the canonical
+	{skipped: True, reason: "..."} shape so the chat-ui's amber strip
+	logic always has a well-formed value to read. Caller MUST gate on
+	cycle9_enabled before invoking — this function does not check.
+	"""
+	try:
+		from lazychat_mcp_erpnext.desk_assistant.critic import critique_composition
+		intent = args.get("_intent_summary") or default_intent
+		response_dict["critic_feedback"] = critique_composition(
+			intent, action, payload, evidence,
+			effort=args.get("_effort") or "medium",
+		)
+	except Exception as e:
+		response_dict["critic_feedback"] = {
+			"skipped": True,
+			"reason": f"critic call raised: {type(e).__name__}: {str(e)[:80]}",
+		}
+
+
 def _strip_leading_sql_comments(sql):
 	"""Strip leading -- line comments and /* */ block comments so an LLM can
 	prefix a query with descriptive comments without tripping the
@@ -1472,25 +1502,18 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			else:
 				response_dict["examples_from_history"] = []
 
-			# Cycle 12 — M1: critic verdict. Mirrors prepare_create_report (M3).
-			# Evidence is shape-only (field names + count) so the critic
-			# grades whether the right fields are populated for the intent
-			# without leaking raw user values.
-			try:
-				from lazychat_mcp_erpnext.desk_assistant.critic import critique_composition
-				_critic_intent = args.get("_intent_summary") or f"create {dt}"
-				response_dict["critic_feedback"] = critique_composition(
-					_critic_intent,
-					"create_doc",
-					{"doctype": dt, "values_keys": list(values.keys()), "values_count": len(values)},
-					{"doctype": dt, "fields_set": list(values.keys())},
-					effort=args.get("_effort") or "medium",
-				)
-			except Exception as _critic_err:
-				response_dict["critic_feedback"] = {
-					"skipped": True,
-					"reason": f"critic call raised: {type(_critic_err).__name__}: {str(_critic_err)[:80]}",
-				}
+			# Cycle 12 — M2: critic verdict via shared helper. Evidence is
+			# shape-only (field names + count) so the critic grades whether
+			# the right fields are populated for the intent without leaking
+			# raw user values.
+			_attach_critic_feedback(
+				response_dict,
+				args=args,
+				action="create_doc",
+				default_intent=f"create {dt}",
+				payload={"doctype": dt, "values_keys": list(values.keys()), "values_count": len(values)},
+				evidence={"doctype": dt, "fields_set": list(values.keys())},
+			)
 		return response_dict
 
 	if name == "prepare_update_doc":
@@ -1570,33 +1593,26 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			else:
 				response_dict["examples_from_history"] = []
 
-			# Cycle 12 — M1: critic verdict. Evidence includes BEFORE state
-			# (current field values being patched) so the critic can flag
+			# Cycle 12 — M2: critic verdict via shared helper. Captures the
+			# BEFORE state of the patched fields so the critic can flag
 			# dangerous patches — wiping required fields, clearing workflow
 			# status, downgrading numeric values without explicit intent.
-			try:
-				from lazychat_mcp_erpnext.desk_assistant.critic import critique_composition
-				_critic_intent = args.get("_intent_summary") or f"update {dt}/{dn}"
-				_patch_fields = list(patch.keys()) if isinstance(patch, dict) else []
-				_before_values = {}
-				if _patch_fields:
-					try:
-						_row = frappe.db.get_value(dt, dn, _patch_fields, as_dict=True) or {}
-						_before_values = {k: _row.get(k) for k in _patch_fields if k in _row}
-					except Exception:
-						_before_values = {}
-				response_dict["critic_feedback"] = critique_composition(
-					_critic_intent,
-					"update_doc",
-					{"doctype": dt, "name": dn, "patch": patch},
-					{"before_values": _before_values, "patch_fields": _patch_fields},
-					effort=args.get("_effort") or "medium",
-				)
-			except Exception as _critic_err:
-				response_dict["critic_feedback"] = {
-					"skipped": True,
-					"reason": f"critic call raised: {type(_critic_err).__name__}: {str(_critic_err)[:80]}",
-				}
+			_patch_fields = list(patch.keys()) if isinstance(patch, dict) else []
+			_before_values: dict = {}
+			if _patch_fields:
+				try:
+					_row = frappe.db.get_value(dt, dn, _patch_fields, as_dict=True) or {}
+					_before_values = {k: _row.get(k) for k in _patch_fields if k in _row}
+				except Exception:
+					_before_values = {}
+			_attach_critic_feedback(
+				response_dict,
+				args=args,
+				action="update_doc",
+				default_intent=f"update {dt}/{dn}",
+				payload={"doctype": dt, "name": dn, "patch": patch},
+				evidence={"before_values": _before_values, "patch_fields": _patch_fields},
+			)
 		return response_dict
 
 	if name == "prepare_submit_doc":
@@ -2567,21 +2583,17 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			# raw-SQL gate doesn't run one — the critic grades the query
 			# shape against the user intent (e.g. wrong table, missing
 			# WHERE clause, JOIN that won't return what was asked).
-			try:
-				from lazychat_mcp_erpnext.desk_assistant.critic import critique_composition
-				_critic_intent = args.get("_intent_summary") or "run SQL"
-				response_dict["critic_feedback"] = critique_composition(
-					_critic_intent,
-					"run_sql",
-					{"query": query[:2000]},
-					{"query": query[:2000], "limit": limit},
-					effort=args.get("_effort") or "medium",
-				)
-			except Exception as _critic_err:
-				response_dict["critic_feedback"] = {
-					"skipped": True,
-					"reason": f"critic call raised: {type(_critic_err).__name__}: {str(_critic_err)[:80]}",
-				}
+			# Cycle 12 — M2: critic verdict via shared helper. Critic grades
+			# the SQL shape against the user intent (e.g. wrong table, missing
+			# WHERE clause, JOIN that won't return what was asked).
+			_attach_critic_feedback(
+				response_dict,
+				args=args,
+				action="run_sql",
+				default_intent="run SQL",
+				payload={"query": query[:2000]},
+				evidence={"query": query[:2000], "limit": limit},
+			)
 		return response_dict
 
 	if name == "prepare_run_python":
@@ -2611,8 +2623,6 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		if _gls_py().get("cycle9_enabled"):
 			try:
 				import ast as _ast
-				from lazychat_mcp_erpnext.desk_assistant.critic import critique_composition
-				_critic_intent = args.get("_intent_summary") or "run Python"
 				_imports: list[str] = []
 				_calls: list[str] = []
 				try:
@@ -2646,17 +2656,19 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 					"imports": sorted(set(_imports))[:20],
 					"calls": sorted(set(_calls))[:30],
 				}
-				response_dict["critic_feedback"] = critique_composition(
-					_critic_intent,
-					"run_python",
-					{"code": code[:1500], "timeout": timeout},
-					{"code": code[:1500], "ast_summary": _ast_summary},
-					effort=args.get("_effort") or "medium",
+				_attach_critic_feedback(
+					response_dict,
+					args=args,
+					action="run_python",
+					default_intent="run Python",
+					payload={"code": code[:1500], "timeout": timeout},
+					evidence={"code": code[:1500], "ast_summary": _ast_summary},
 				)
-			except Exception as _critic_err:
+			except Exception as _ast_err:
+				# AST walk failed (syntax error pre-validated above, but defensive)
 				response_dict["critic_feedback"] = {
 					"skipped": True,
-					"reason": f"critic call raised: {type(_critic_err).__name__}: {str(_critic_err)[:80]}",
+					"reason": f"AST walk failed: {type(_ast_err).__name__}: {str(_ast_err)[:80]}",
 				}
 		return response_dict
 
@@ -3764,34 +3776,25 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			# tiny grey tag. ALWAYS includes the critic_feedback key
 			# (even when skipped) so the chat-ui can render the right
 			# UI state without ambiguity.
-			try:
-				from lazychat_mcp_erpnext.desk_assistant.critic import critique_composition
-				_critic_intent = args.get("_intent_summary") or report_name
-				_critic_payload = {
+			# Cycle 12 — M2: critic verdict via shared helper. Defense-in-
+			# depth: critic failure must NEVER break the prepare_create_report
+			# response — the helper enforces this with its own try/except.
+			_attach_critic_feedback(
+				response_dict,
+				args=args,
+				action="create_report",
+				default_intent=report_name,
+				payload={
 					"report_name": report_name,
 					"ref_doctype": ref_dt,
 					"report_type": report_type,
 					"query": query if report_type == "Query Report" else None,
-				}
-				_critic_evidence = {
+				},
+				evidence={
 					"sample_columns": sample_columns,
 					"sample_rows": (sample_rows or [])[:3],
-				}
-				response_dict["critic_feedback"] = critique_composition(
-					_critic_intent,
-					"create_report",
-					_critic_payload,
-					_critic_evidence,
-					effort=args.get("_effort") or "medium",
-				)
-			except Exception as _critic_err:
-				# Defense-in-depth: critic failure must NEVER break the
-				# prepare_create_report response. Worst case: chat-ui
-				# sees no critic strip + no skipped tag (graceful blank).
-				response_dict["critic_feedback"] = {
-					"skipped": True,
-					"reason": f"critic call raised: {type(_critic_err).__name__}: {str(_critic_err)[:80]}",
-				}
+				},
+			)
 		return response_dict
 
 	if name == "prepare_create_scheduled_job":
