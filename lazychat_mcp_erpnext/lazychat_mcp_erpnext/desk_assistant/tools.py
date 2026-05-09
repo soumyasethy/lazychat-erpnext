@@ -2838,13 +2838,35 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"rename_doc",
 			{"doctype": dt, "old_name": old_name, "new_name": new_name, "merge": merge},
 		)
-		return {
+		response_dict = {
 			"ok": True,
 			"preview_token": token,
 			"summary": f"Will rename {dt}/{old_name} -> {new_name}" + (" (merge)" if merge else ""),
 			"expires_in_sec": PREP_TTL_SEC,
 			"confirm_with": "click the inline Apply button to confirm",
 		}
+		# Cycle 12 — M2: critic verdict (cycle9-gated). link_refs_count gives
+		# critic visibility into how many references will need to update.
+		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		if get_lazychat_settings().get("cycle9_enabled"):
+			try:
+				_link_refs = frappe.db.count("DocField", {"options": dt, "fieldtype": "Link"})
+			except Exception:
+				_link_refs = -1
+			_attach_critic_feedback(
+				response_dict,
+				args=args,
+				action="rename_doc",
+				default_intent=f"rename {dt}/{old_name} to {new_name}",
+				payload={"doctype": dt, "old_name": old_name, "new_name": new_name, "merge": merge},
+				evidence={
+					"old_name": old_name,
+					"new_name": new_name,
+					"merge": merge,
+					"link_refs_count": _link_refs,
+				},
+			)
+		return response_dict
 
 	if name == "list_doc_versions":
 		dt = args.get("doctype")

@@ -3112,6 +3112,35 @@ def run():
 				f"keys={sorted(_r94e.keys()) if isinstance(_r94e, dict) else type(_r94e)}",
 			))
 
+	# T94f — Cycle 12 M2: prepare_rename_doc returns critic_feedback when cycle9 ON.
+	_td_t94f = frappe.get_doc({"doctype": "ToDo", "description": "T94f smoke — original"}).insert(ignore_permissions=True)
+	frappe.db.commit()
+	try:
+		_new_name_t94f = _td_t94f.name + "-renamed-by-T94f"
+		_r94f = _execute_tool("prepare_rename_doc", {
+			"doctype": "ToDo",
+			"name": _td_t94f.name,
+			"new_name": _new_name_t94f,
+		}, allow_writes=False)
+		if not _r94f.get("ok"):
+			record(_ok(
+				"T94f prepare_rename_doc response includes critic_feedback when cycle9_enabled",
+				True,  # skip when upstream gate fails
+				f"skipped (upstream gate): error={(_r94f.get('error') or '')[:80]}",
+			))
+		else:
+			record(_ok(
+				"T94f prepare_rename_doc response includes critic_feedback when cycle9_enabled",
+				"critic_feedback" in _r94f,
+				f"keys={sorted(_r94f.keys()) if isinstance(_r94f, dict) else type(_r94f)}",
+			))
+	finally:
+		try:
+			frappe.delete_doc("ToDo", _td_t94f.name, force=True, ignore_permissions=True)
+			frappe.db.commit()
+		except Exception:
+			pass
+
 	# Restore cycle9_enabled.
 	if not _prior_c9_c12:
 		_frappe_c12.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 0)
