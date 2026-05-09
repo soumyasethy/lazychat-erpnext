@@ -486,6 +486,32 @@ When debugging *"my report URL gave 404 even though the chat said it was
 created"*: confirm the chat-ui bundle was rebuilt after this fix landed
 (`?v=` query in iframe URL should be > `1778066844`).
 
+## Cycle 9 — M4: Live form grounding + PEVR primitives (2026-05-09)
+
+Server side: panel-shim handler that opens a hidden iframe, captures DOM
+state per a captureSpec, returns the result via existing bridge.send.
+
+`public/js/lazychat_panel.bundle.js` — three new functions registered
+via the existing `bridge.on("inspectRoute", ...)` pattern (NOT the
+spec's hypothetical addEventListener switch — the bundle uses
+`makeBridge` with `bridge.on/send` already):
+
+- `handleInspectRoute(payload)` — creates `<iframe display:none>` at
+  the requested route, polls every 200ms for `cur_frm.is_new()` to
+  return truthy, captures whitelisted state per spec, posts
+  `inspectRouteResponse` via `bridge.send(...)`. Default 5s timeout
+  (`spec.timeout_ms` overrides). Cleans up iframe on success + timeout.
+  Try/catch around cross-origin / not-yet-ready cur_frm access.
+- `capturePerSpec(cf, spec, url)` — whitelisted DOM read: form_fields
+  from cf.doc, child_table rows (with optional count + child_row_fields),
+  inner-toolbar buttons. NO arbitrary access — spec keys only.
+
+Iframe is same-origin (Frappe Desk), so cur_frm is readable. Whitelist-
+only capture means LLM can't request arbitrary DOM through the spec.
+
+Smoke 217/0/2 unchanged (pure JS shim addition, no Python tests). Tools
+93/93 unchanged.
+
 ## Cycle 9 — M3: Schema knowledge graph + cross-session exemplar memory (2026-05-09)
 
 Two new server-side modules + new doctype + commit-side learning hook:
