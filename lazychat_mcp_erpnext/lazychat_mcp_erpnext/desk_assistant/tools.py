@@ -3626,6 +3626,45 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 					response_dict["examples_from_history"] = []
 			else:
 				response_dict["examples_from_history"] = []
+
+			# Cycle 11 — M3: critic verdict. Runs the cheap critic LLM
+			# (haiku at Effort=high, sonnet at max; skipped at low/medium
+			# per critic_model_for_effort) against the composed payload
+			# and a sample of the SQL execution probe rows. Returns
+			# {verdict, severity, mismatches, suggested_revisions} for
+			# the chat-ui to render as an amber strip in the Apply card;
+			# or {skipped: True, reason} which the UI surfaces as a
+			# tiny grey tag. ALWAYS includes the critic_feedback key
+			# (even when skipped) so the chat-ui can render the right
+			# UI state without ambiguity.
+			try:
+				from lazychat_mcp_erpnext.desk_assistant.critic import critique_composition
+				_critic_intent = args.get("_intent_summary") or report_name
+				_critic_payload = {
+					"report_name": report_name,
+					"ref_doctype": ref_dt,
+					"report_type": report_type,
+					"query": query if report_type == "Query Report" else None,
+				}
+				_critic_evidence = {
+					"sample_columns": sample_columns,
+					"sample_rows": (sample_rows or [])[:3],
+				}
+				response_dict["critic_feedback"] = critique_composition(
+					_critic_intent,
+					"create_report",
+					_critic_payload,
+					_critic_evidence,
+					effort=args.get("_effort") or "medium",
+				)
+			except Exception as _critic_err:
+				# Defense-in-depth: critic failure must NEVER break the
+				# prepare_create_report response. Worst case: chat-ui
+				# sees no critic strip + no skipped tag (graceful blank).
+				response_dict["critic_feedback"] = {
+					"skipped": True,
+					"reason": f"critic call raised: {type(_critic_err).__name__}: {str(_critic_err)[:80]}",
+				}
 		return response_dict
 
 	if name == "prepare_create_scheduled_job":
