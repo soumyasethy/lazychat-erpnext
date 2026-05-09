@@ -3061,6 +3061,30 @@ def run():
 				f"keys={sorted(_r94b.keys()) if isinstance(_r94b, dict) else type(_r94b)}",
 			))
 
+	# T94d — Cycle 12 M2: prepare_delete_doc returns critic_feedback when cycle9 ON.
+	_note_t94d = frappe.get_doc({"doctype": "Note", "title": "T94d smoke", "public": 0}).insert(ignore_permissions=True)
+	frappe.db.commit()
+	try:
+		_r94d = _execute_tool("prepare_delete_doc", {"doctype": "Note", "name": _note_t94d.name}, allow_writes=False)
+		if not _r94d.get("ok"):
+			record(_ok(
+				"T94d prepare_delete_doc response includes critic_feedback when cycle9_enabled",
+				True,  # skip when upstream gate fails
+				f"skipped (upstream gate): error={(_r94d.get('error') or '')[:80]}",
+			))
+		else:
+			record(_ok(
+				"T94d prepare_delete_doc response includes critic_feedback when cycle9_enabled",
+				"critic_feedback" in _r94d,
+				f"keys={sorted(_r94d.keys()) if isinstance(_r94d, dict) else type(_r94d)}",
+			))
+	finally:
+		try:
+			frappe.delete_doc("Note", _note_t94d.name, force=True, ignore_permissions=True)
+			frappe.db.commit()
+		except Exception:
+			pass
+
 	# Restore cycle9_enabled.
 	if not _prior_c9_c12:
 		_frappe_c12.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 0)

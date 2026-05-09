@@ -2266,13 +2266,31 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		if not frappe.db.exists(dt, dn):
 			return {"error": f"{dt}/{dn} does not exist"}
 		token = _stage_action("delete", {"doctype": dt, "name": dn})
-		return {
+		response_dict = {
 			"ok": True,
 			"preview_token": token,
 			"summary": f"Will delete {dt}/{dn} (irreversible)",
 			"expires_in_sec": PREP_TTL_SEC,
 			"confirm_with": "click the inline Apply button to confirm",
 		}
+		# Cycle 12 — M2: critic verdict (cycle9-gated). Cheap fixed-cost
+		# count of incoming Link references gives critic real "blast radius"
+		# signal without scanning rows.
+		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		if get_lazychat_settings().get("cycle9_enabled"):
+			try:
+				_incoming = frappe.db.count("DocField", {"options": dt, "fieldtype": "Link"})
+			except Exception:
+				_incoming = -1
+			_attach_critic_feedback(
+				response_dict,
+				args=args,
+				action="delete",
+				default_intent=f"delete {dt}/{dn}",
+				payload={"doctype": dt, "name": dn},
+				evidence={"doctype": dt, "incoming_link_count": _incoming},
+			)
+		return response_dict
 
 	if name == "search_doctype":
 		query = (args.get("query") or "").strip()
