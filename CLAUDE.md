@@ -486,6 +486,49 @@ When debugging *"my report URL gave 404 even though the chat said it was
 created"*: confirm the chat-ui bundle was rebuilt after this fix landed
 (`?v=` query in iframe URL should be > `1778066844`).
 
+## Cycle 12 — M1: Critic coverage expansion (4 prepare_* tools) (2026-05-09)
+
+Extends M3's `critique_composition` wiring (in `prepare_create_report` only)
+to four more prepare_* tools so the chat-ui's amber critic strip can warn
+the user about misalignment in CRUD/SQL/Python flows. Server-only cycle.
+No chat-ui changes — the existing `criticFeedback` field in
+`mcpPreviewAction` (M3) renders all four tools' verdicts identically.
+
+Each tool gets a tool-specific evidence shape (smallest meaningful blob the
+critic can grade):
+
+| Tool | Evidence shape |
+|---|---|
+| `prepare_create_doc` | `{doctype, fields_set: list(values.keys())}` — shape only, no raw values (privacy) |
+| `prepare_update_doc` | `{before_values: get_value(dt, dn, patch_fields), patch_fields}` — BEFORE state lets critic flag dangerous patches |
+| `prepare_run_sql` | `{query: query[:2000], limit}` — no execute-probe sample (raw-SQL gate doesn't run one) |
+| `prepare_run_python` | `{code: code[:1500], ast_summary: {imports[:20], calls[:30]}}` — stdlib AST scan; no dry-run |
+
+All four follow the M3 pattern: try/except critique_composition, append
+`critic_feedback` to response_dict, gracefully degrade to
+`{skipped: True, reason}` on critic LLM failure or Effort tier skip. All
+four are gated on `cycle9_enabled` (verified: with flag OFF,
+`critic_feedback` is absent from response).
+
+`prepare_run_python` was the only one without a `cycle9_enabled` wrapper
+before this cycle — added a minimal one with JUST the critic call (no
+verification_brief, no exemplars; those can come later if needed).
+
+**Smoke**: 232 → **236** (+4: T93a/b/c/d, all asserting `critic_feedback`
+field presence in each tool's response). HTTP-wire 94/94 unchanged.
+
+**Effort gating**: same as M3 — `low`/`medium` skip critic;
+`high`/`max` invoke it (haiku/sonnet).
+
+**Evidence**: [test/evidence/cycle-12-m1/01-critic-feedback-all-tools.txt](test/evidence/cycle-12-m1/01-critic-feedback-all-tools.txt) — bench-execute output for all 4 tools showing `critic_feedback` present.
+
+**Out of scope (deferred):**
+- Other prepare_* tools (`prepare_send_email`, `prepare_delete_doc`,
+  `prepare_workflow_action`, etc.) — defense-in-depth via the existing
+  gates; critic adds noise without much value here.
+- `prepare_run_python` dry-run sandbox (would let critic see actual
+  output, not just AST) — separate cycle.
+
 ## Cycle 11 — M4: Live tool progress + visible inactivity (2026-05-09)
 
 Eliminates the "response gets stuck and slow" UX dead-zone reported by the
