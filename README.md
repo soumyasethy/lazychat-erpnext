@@ -30,13 +30,18 @@
 -->
 
 <div align="center">
-  <video src=".github/assets/demo.mp4" controls autoplay loop muted playsinline width="100%">
-    Your browser does not render this video inline — <a href=".github/assets/demo.mp4">click to play demo.mp4</a>, or see the screenshot below.
-  </video>
-  <br/>
-  <img src=".github/assets/hero-panel-open.png" alt="Lazychat panel docked on a Sales Invoice list, conversation showing tool dispatch + a 324-row paid-invoices result table for December 2025" width="100%"/>
-  <br/>
-  <sub>↑ <strong>78s flagship walkthrough</strong> — stakeholder ask → tool dispatch → report URL → BYO LLM in one shot. Still hero below for browsers that block autoplay.</sub>
+
+<!--
+  Hero banner — autoplay loop muted, renders inline on github.com.
+  GitHub's HTML sanitizer keeps autoplay/loop/muted/playsinline on <video>.
+  Browsers that block autoplay see the poster (hero-panel-open.png).
+-->
+<video autoplay loop muted playsinline preload="auto" poster=".github/assets/hero-panel-open.png" width="100%">
+  <source src=".github/assets/demo.mp4" type="video/mp4"/>
+  <a href=".github/assets/demo.mp4">▶ Click to play the 78-second walkthrough</a>
+</video>
+
+<sub>↑ <strong>78-second flagship walkthrough</strong> — stakeholder ask → tool dispatch → report URL → BYO LLM in one shot. Auto-plays muted on loop.</sub>
 </div>
 
 ## From stakeholder request to delivered report — in minutes
@@ -80,26 +85,131 @@ That ask used to mean opening 3 Frappe doctypes, writing a custom Query Report, 
 
 ## Bring your own LLM in 30 seconds
 
-Self-hosted LM Studio? Anthropic? NVIDIA NIM? OpenRouter? Together? Groq? Pasting a `curl` snippet from any provider's docs auto-fills every form field — endpoint, model, headers, format, streaming. **The API key stays in the browser** (browser-LLM path); no server-side credential storage.
+Self-hosted LM Studio? Anthropic? NVIDIA NIM? OpenRouter? Together? Groq? You don't fill out a form. You **paste a `curl` snippet from the provider's own docs** — and lazychat parses it into endpoint, model, auth, headers, streaming flag, even provider-specific payload extras. **The API key stays in the browser** (browser-LLM path); no server-side credential storage, no shared org-key risk.
+
+### The 4-step flow
 
 <table>
   <tr>
-    <td width="33%" valign="top" align="center">
+    <td width="50%" valign="top" align="center">
       <img src=".github/assets/byok-01-picker.png" alt="Model picker with built-in models and Add custom model button"/>
-      <br/><sub><strong>1. Open the model picker</strong><br/>Click "+ Add custom model"</sub>
+      <br/><sub><strong>1. Open the model picker</strong><br/>From the chat composer, click the model chip (bottom-left) → <em>+ Add custom model</em>.</sub>
     </td>
-    <td width="33%" valign="top" align="center">
-      <img src=".github/assets/byok-02-import.png" alt="Add custom model dialog with a curl snippet pasted and form fields auto-populating"/>
-      <br/><sub><strong>2. Paste a curl snippet</strong><br/>Endpoint, model, auth, format, streaming all auto-fill</sub>
+    <td width="50%" valign="top" align="center">
+      <img src=".github/assets/byok-02-import.png" alt="Add custom model dialog with a NVIDIA NIM curl snippet pasted; the form on the left has populated endpoint, model, format, streaming, and bearer token fields"/>
+      <br/><sub><strong>2. Paste any provider's curl into the right-hand panel</strong><br/>Endpoint, model, auth, format, streaming, max_tokens, temperature, top_p, extra headers, extra payload — all auto-fill on the left.</sub>
     </td>
-    <td width="33%" valign="top" align="center">
-      <img src=".github/assets/byok-03-test.png" alt="Form ready with all fields populated and Test connection / Add model buttons"/>
-      <br/><sub><strong>3. Test connection → Add model</strong><br/>Switch models per session. Free / paid / local — your call.</sub>
+  </tr>
+  <tr>
+    <td width="50%" valign="top" align="center">
+      <img src=".github/assets/byok-03-test.png" alt="Add custom model form fully populated, ready to Test connection or Add model"/>
+      <br/><sub><strong>3. Click Test connection → green ✓ → Add model</strong><br/>Test connection makes a 1-token probe request, shows the HTTP status + first 800 chars of the response. Green check = ready to ship.</sub>
+    </td>
+    <td width="50%" valign="top" align="center">
+      <img src=".github/assets/byok-04-switched.png" alt="Model picker now showing three custom models in a CUSTOM section: Kimi K2 (NVIDIA) selected as active, Claude Haiku 4.5 (direct API), and LM Studio (localhost). The composer chip at the bottom shows kimi-k2.6 as the active model."/>
+      <br/><sub><strong>4. Switch instantly, per session</strong><br/>Custom models appear under a <em>CUSTOM</em> section in the picker. Click to switch — the chat composer's model chip updates immediately. Mix free / paid / local on different chats.</sub>
     </td>
   </tr>
 </table>
 
-> The paste-curl parser handles `Authorization: Bearer ...`, `x-api-key`, `Accept: text/event-stream`, payload `model`/`max_tokens`/`temperature`/`top_p`/`stream`, and provider-specific extras like `chat_template_kwargs`. Format detected from URL path (`/messages` → Anthropic, `/chat/completions` → OpenAI).
+### Tested provider snippets (paste these verbatim)
+
+<details>
+<summary><strong>NVIDIA NIM</strong> — auto-detects OpenAI format, picks up <code>chat_template_kwargs</code> for thinking-mode</summary>
+
+```bash
+curl -X POST "https://integrate.api.nvidia.com/v1/chat/completions" \
+  -H "Authorization: Bearer nvapi-..." \
+  -H "Accept: text/event-stream" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "moonshotai/kimi-k2.6",
+    "messages": [{"role":"user","content":""}],
+    "max_tokens": 16384,
+    "temperature": 1.0,
+    "stream": true,
+    "chat_template_kwargs": {"thinking": true}
+  }'
+```
+
+Auto-fills label `Kimi K2 (NVIDIA)`, endpoint, format=`openai`, streaming=✓, bearer token, max_tokens, temperature, plus `chat_template_kwargs` lands in the **Extra payload** field verbatim.
+</details>
+
+<details>
+<summary><strong>Anthropic (direct, no Frappe LLM Provider needed)</strong> — auto-detects messages format + <code>x-api-key</code> auth</summary>
+
+```bash
+curl https://api.anthropic.com/v1/messages \
+  -H "x-api-key: sk-ant-..." \
+  -H "anthropic-version: 2023-06-01" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-haiku-4-5",
+    "max_tokens": 4096,
+    "stream": true,
+    "messages": [{"role":"user","content":""}]
+  }'
+```
+
+Auth type → `API Key`, header name → `x-api-key`, format → `anthropic`, response parser → `anthropic-sse`. The custom `anthropic-version` header lands in **Extra headers**.
+</details>
+
+<details>
+<summary><strong>OpenAI</strong></summary>
+
+```bash
+curl https://api.openai.com/v1/chat/completions \
+  -H "Authorization: Bearer sk-..." \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gpt-5","messages":[{"role":"user","content":""}],"stream":true}'
+```
+</details>
+
+<details>
+<summary><strong>OpenRouter</strong> — gateway to 200+ models</summary>
+
+```bash
+curl https://openrouter.ai/api/v1/chat/completions \
+  -H "Authorization: Bearer sk-or-..." \
+  -H "HTTP-Referer: https://your-site.example.com" \
+  -H "X-Title: Lazychat" \
+  -d '{"model":"meta-llama/llama-3.3-70b-instruct","stream":true}'
+```
+
+The `HTTP-Referer` and `X-Title` extras are required by OpenRouter and land in **Extra headers**.
+</details>
+
+<details>
+<summary><strong>LM Studio (localhost)</strong> — fully local, no API key</summary>
+
+```bash
+curl http://localhost:1234/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"meta-llama-3-8b-instruct","stream":true}'
+```
+
+Auth type → `none`, format → `openai`, streaming → ✓. Browser-LLM path makes localhost work because requests originate from the user's browser, not the Frappe server.
+</details>
+
+### What the parser auto-fills from the curl
+
+| Curl part | Form field |
+|---|---|
+| `https://api.anthropic.com/v1/messages` | URL ends `/messages` → **Format** = `anthropic` |
+| `https://*/v1/chat/completions` | URL ends `/chat/completions` → **Format** = `openai` |
+| `-H "Authorization: Bearer XYZ"` | **Auth type** = Bearer; **Token** = `XYZ` |
+| `-H "x-api-key: XYZ"` | **Auth type** = API Key; **Header name** = `x-api-key`; **Token** = `XYZ` |
+| `-H "Accept: text/event-stream"` | **Streaming** = ✓ |
+| Any other `-H "X: Y"` (e.g. `anthropic-version`, `HTTP-Referer`) | **Extra headers** (kv list) |
+| Payload `"model":"X"` | **Model** = `X` |
+| Payload `"max_tokens":N` / `"temperature":N` / `"top_p":N` | **Defaults** block |
+| Payload `"stream":true` | **Streaming** = ✓ |
+| Any payload key not in the above | **Extra payload** (preserved as JSON, merged into request body verbatim) |
+| Hostname (`api.anthropic.com`) | **Label** auto-generated as `Anthropic Direct`-style title |
+
+> **Test connection** sends one `messages: [{"role":"user","content":""}]` request to the configured endpoint with the parsed auth + extras. Returns the HTTP status + first 800 chars of the response body in a green/red panel — instant proof the credential and endpoint work before you start using the model in real chats.
+
+> Same auto-fill works for `requests.post(...)` snippets too — paste a Python snippet from a provider's quickstart and it parses identically.
 
 ---
 
