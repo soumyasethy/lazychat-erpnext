@@ -22,10 +22,11 @@
 </p>
 
 <!--
-  HERO VIDEO — currently a 14-second slideshow placeholder built from the four
-  hero screenshots (panel-open · composer · admin-panel · light-theme). Swap
-  for the real 75-second recording per docs/demo-script.md when ready.
+  HERO VIDEO — 35-second Playwright-driven recording: open panel → type a real
+  ecommerce question → switch to send-email prompt → open Command Palette →
+  Server Config dialog → switch to light theme → final Plan-mode prompt.
   GitHub renders <video> tags with relative src, so no upload-URL juggling.
+  Re-record with the full scripted flow per docs/demo-script.md when ready.
 -->
 
 <p align="center">
@@ -34,7 +35,7 @@
   </video>
 </p>
 
-> 14-second slideshow above is a placeholder until the real 75-second screen recording lands ([script](docs/demo-script.md)). The screenshots below walk through the canonical flows.
+> 35-second Playwright-driven walkthrough above. For the full scripted 75-second tour with real LLM dispatch, see [`docs/demo-script.md`](docs/demo-script.md).
 
 ---
 
