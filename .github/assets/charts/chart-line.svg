@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 338" width="720" height="338" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" role="img" aria-label="AR outstanding · 12-month trend">
+  <title>AR outstanding · 12-month trend</title>
+  <rect x="0" y="0" width="720" height="338" rx="10" fill="#1c1c24" stroke="#2e2e3a" stroke-width="1"/>
+  <!-- tool dispatch header -->
+  <circle cx="22" cy="28" r="6" fill="#22c55e"/>
+  <text x="40" y="32" font-size="15" fill="#f5f5f5" font-weight="700" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace">dashboard_chart_data</text>
+  <text x="40" y="54" font-size="12" fill="#cbd5e1" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace">{ chart_name: &quot;AR Outstanding Trend&quot;, time_interval: &quot;Monthly&quot; }</text>
+  <text x="40" y="72" font-size="11" fill="#9ca3af">Rendered inline · Vega-spec via chat-ui ChartBlock</text>
+  <!-- divider -->
+  <line x1="40" y1="82" x2="680" y2="82" stroke="#2e2e3a" stroke-width="1"/>
+  <!-- chart title -->
+  <text x="40" y="106" font-size="14" fill="#f5f5f5" font-weight="600">AR outstanding · 12-month trend</text>
+  <!-- chart body translated below header+title -->
+  <g transform="translate(0, 118)">
+    
+    <g transform="translate(40, 0)">
+      
+      <line x1="60" y1="172" x2="620" y2="172" stroke="#2e2e3a" stroke-width="0.5" stroke-dasharray="3 3"/>
+      <text x="52" y="176" font-size="10" fill="#6b7280" text-anchor="end">₹0L</text>
+    
+      <line x1="60" y1="94" x2="620" y2="94" stroke="#2e2e3a" stroke-width="0.5" stroke-dasharray="3 3"/>
+      <text x="52" y="98" font-size="10" fill="#6b7280" text-anchor="end">₹22L</text>
+    
+      <line x1="60" y1="16" x2="620" y2="16" stroke="#2e2e3a" stroke-width="0.5" stroke-dasharray="3 3"/>
+      <text x="52" y="20" font-size="10" fill="#6b7280" text-anchor="end">₹44L</text>
+    
+      <path d="M 60 107.70652173913044 L 110.9090909090909 92.8695652173913 L 161.8181818181818 102.05434782608695 L 212.72727272727272 86.8641304347826 L 263.6363636363636 79.09239130434783 L 314.5454545454545 88.27717391304347 L 365.45454545454544 72.73369565217389 L 416.3636363636364 61.076086956521735 L 467.2727272727273 54.717391304347814 L 518.1818181818182 42 L 569.090909090909 36.3478260869565 L 620 45.17934782608694 L 620 172 L 60 172 Z" fill="#d97757" opacity="0.12"/>
+      <path d="M 60 107.70652173913044 L 110.9090909090909 92.8695652173913 L 161.8181818181818 102.05434782608695 L 212.72727272727272 86.8641304347826 L 263.6363636363636 79.09239130434783 L 314.5454545454545 88.27717391304347 L 365.45454545454544 72.73369565217389 L 416.3636363636364 61.076086956521735 L 467.2727272727273 54.717391304347814 L 518.1818181818182 42 L 569.090909090909 36.3478260869565 L 620 45.17934782608694" stroke="#d97757" stroke-width="2" fill="none"/>
+      <circle cx="60" cy="107.70652173913044" r="3" fill="#d97757"/><circle cx="110.9090909090909" cy="92.8695652173913" r="3" fill="#d97757"/><circle cx="161.8181818181818" cy="102.05434782608695" r="3" fill="#d97757"/><circle cx="212.72727272727272" cy="86.8641304347826" r="3" fill="#d97757"/><circle cx="263.6363636363636" cy="79.09239130434783" r="3" fill="#d97757"/><circle cx="314.5454545454545" cy="88.27717391304347" r="3" fill="#d97757"/><circle cx="365.45454545454544" cy="72.73369565217389" r="3" fill="#d97757"/><circle cx="416.3636363636364" cy="61.076086956521735" r="3" fill="#d97757"/><circle cx="467.2727272727273" cy="54.717391304347814" r="3" fill="#d97757"/><circle cx="518.1818181818182" cy="42" r="3" fill="#d97757"/><circle cx="569.090909090909" cy="36.3478260869565" r="3" fill="#d97757"/><circle cx="620" cy="45.17934782608694" r="3" fill="#d97757"/>
+      <text x="60" y="188" font-size="10" fill="#9ca3af" text-anchor="middle">Mar</text><text x="161.8181818181818" y="188" font-size="10" fill="#9ca3af" text-anchor="middle">May</text><text x="263.6363636363636" y="188" font-size="10" fill="#9ca3af" text-anchor="middle">Jul</text><text x="365.45454545454544" y="188" font-size="10" fill="#9ca3af" text-anchor="middle">Sep</text><text x="467.2727272727273" y="188" font-size="10" fill="#9ca3af" text-anchor="middle">Nov</text><text x="569.090909090909" y="188" font-size="10" fill="#9ca3af" text-anchor="middle">Jan</text>
+    </g>
+  
+  </g>
+</svg>
