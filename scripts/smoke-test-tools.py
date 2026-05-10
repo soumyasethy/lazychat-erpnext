@@ -3182,6 +3182,57 @@ def run():
 		except Exception:
 			pass
 
+	# T94h — Cycle 12 M2: drift detector. Source-grep asserts every prepare_*
+	# tool we expect to emit critic_feedback actually has an
+	# _attach_critic_feedback(...) call inside its dispatcher branch. Catches
+	# accidental drops in future refactors.
+	import re as _re_t94h
+	_expected_t94h = {
+		"prepare_create_doc",
+		"prepare_update_doc",
+		"prepare_run_sql",
+		"prepare_run_python",
+		"prepare_create_report",
+		"prepare_submit_doc",
+		"prepare_send_email",
+		"prepare_workflow_action",
+		"prepare_delete_doc",
+		"prepare_bulk_update",
+		"prepare_rename_doc",
+		"prepare_revert_doc",
+	}
+	_tools_path_t94h = _frappe_c12.get_app_path(
+		"lazychat_mcp_erpnext", "desk_assistant", "tools.py"
+	)
+	_src_t94h = open(_tools_path_t94h).read()
+	_missing_t94h = []
+	for _tool_t94h in sorted(_expected_t94h):
+		_m_t94h = _re_t94h.search(
+			rf'\bif\s+name\s*==\s*"{_re_t94h.escape(_tool_t94h)}"\s*:', _src_t94h
+		)
+		if not _m_t94h:
+			_missing_t94h.append(f"{_tool_t94h} (dispatcher branch not found)")
+			continue
+		_after_t94h = _src_t94h[_m_t94h.end():]
+		_next_t94h = _re_t94h.search(r'\bif\s+name\s*==\s*"prepare_', _after_t94h)
+		_body_t94h = _after_t94h[: _next_t94h.start()] if _next_t94h else _after_t94h
+		if "_attach_critic_feedback(" not in _body_t94h:
+			_missing_t94h.append(
+				f"{_tool_t94h} (no _attach_critic_feedback call in branch body)"
+			)
+	if _missing_t94h:
+		record(_ok(
+			"T94h critic-emitter roll-call asserts all 12 prepare_* tools wire critic",
+			False,
+			"missing in: " + "; ".join(_missing_t94h),
+		))
+	else:
+		record(_ok(
+			"T94h critic-emitter roll-call asserts all 12 prepare_* tools wire critic",
+			True,
+			f"all {len(_expected_t94h)} prepare_* tools emit critic_feedback",
+		))
+
 	# Restore cycle9_enabled.
 	if not _prior_c9_c12:
 		_frappe_c12.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 0)
