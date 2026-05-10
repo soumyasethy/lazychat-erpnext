@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 144" width="720" height="144" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" role="img" aria-label="cancel_job success card">
+  <title>cancel_job — success</title>
+  <rect x="0" y="0" width="720" height="144" rx="10" fill="#1c1c24" stroke="#2e2e3a" stroke-width="1"/>
+  <!-- status dot -->
+  <circle cx="22" cy="28" r="6" fill="#22c55e"/>
+  <!-- tool name -->
+  <text x="40" y="32" font-size="15" fill="#f5f5f5" font-weight="700" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace">cancel_job</text>
+  <!-- args on second line (never clips) -->
+  <text x="40" y="54" font-size="12" fill="#cbd5e1" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace">{ job_id: &quot;job_42&quot; }</text>
+  <!-- status line -->
+  <text x="40" y="78" font-size="11" fill="#9ca3af">Returned in 95ms · 24 B</text>
+  <!-- result preview header -->
+  <text x="40" y="104" font-size="11" fill="#d97757" font-weight="600">▾ Result preview</text>
+  <!-- result snippet panel -->
+  <rect x="40" y="112" width="660" height="22" rx="4" fill="#0f0f15" stroke="#26262e" stroke-width="0.5"/>
+  <text x="48" y="127" font-size="11" fill="#cbd5e1" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace">{ &quot;ok&quot;: true, &quot;job_id&quot;:&quot;job_42&quot; }</text>
+</svg>
