@@ -32,16 +32,21 @@
 <div align="center">
 
 <!--
-  Hero banner — autoplay loop muted, renders inline on github.com.
-  GitHub's HTML sanitizer keeps autoplay/loop/muted/playsinline on <video>.
-  Browsers that block autoplay see the poster (hero-panel-open.png).
+  Hero banner — autoplay loop muted.
+  IMPORTANT: GitHub's <video> tag only renders when src is an ABSOLUTE URL.
+  Relative paths (".github/assets/demo.mp4") silently fail to render.
+  Use the github.com raw URL so the file streams from GitHub's CDN with the
+  correct video/mp4 Content-Type. Once the user-attachments approach is set
+  up (drag/drop in the GitHub web editor), that URL is even better.
 -->
 <video autoplay loop muted playsinline preload="auto" poster=".github/assets/hero-panel-open.png" width="100%">
-  <source src=".github/assets/demo.mp4" type="video/mp4"/>
-  <a href=".github/assets/demo.mp4">▶ Click to play the 78-second walkthrough</a>
+  <source src="https://github.com/soumyasethy/lazychat-mcp-erpnext/raw/main/.github/assets/demo.mp4" type="video/mp4"/>
+  Your browser does not render this video inline — <a href="https://github.com/soumyasethy/lazychat-mcp-erpnext/raw/main/.github/assets/demo.mp4">click to play demo.mp4</a>, or see the screenshot below.
 </video>
-
-<sub>↑ <strong>78-second flagship walkthrough</strong> — stakeholder ask → tool dispatch → report URL → BYO LLM in one shot. Auto-plays muted on loop.</sub>
+<br/>
+<img src=".github/assets/hero-panel-open.png" alt="Lazychat panel docked on a Sales Invoice list, conversation showing tool dispatch + a 324-row paid-invoices result table for December 2025" width="100%"/>
+<br/>
+<sub>↑ <strong>78-second flagship walkthrough</strong> — stakeholder ask → tool dispatch → report URL → BYO LLM in one shot. Auto-plays muted on loop above; still hero below for browsers that block autoplay.</sub>
 </div>
 
 ## From stakeholder request to delivered report — in minutes
