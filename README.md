@@ -130,6 +130,45 @@ Tools like `make_chart`, `dashboard_chart_data`, and `number_card_value` don't r
 
 ---
 
+## How tool results render in the chat
+
+Tool calls don't return raw JSON dumps to the user. Lazychat's response renderer formats the LLM's reply using the full markdown stack — GitHub-flavored tables, syntax-highlighted code with [shiki](https://shiki.style/), [mermaid](https://mermaid.js.org/) diagrams, KaTeX math, blockquote callouts, structured headings — so a "tool result" reads like an answer, not a debug log.
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <strong>Markdown tables — currency-aligned columns + status badges</strong><br/>
+      <sub>The LLM emits a plain markdown table; the renderer auto-aligns numerics, bolds important columns, and inlines emoji status pills (🟢 OK / 🟠 Watch / 🔴 Overdue).</sub>
+      <br/><br/>
+      <img src=".github/assets/format-table.png" alt="Top-5 customers table with currency-aligned columns and status badges, rendered in the chat panel"/>
+    </td>
+    <td width="50%" valign="top">
+      <strong>Code blocks — full shiki highlighting + Copy button</strong><br/>
+      <sub>SQL / Python / TypeScript / JSON all light up with the same theme tokens as the surrounding panel. Language tag in the corner, Copy button inset, inline code spans (<code>`like this`</code>) keep the same palette.</sub>
+      <br/><br/>
+      <img src=".github/assets/format-code.png" alt="SQL code block with full shiki syntax highlighting, language tag, and copy button, rendered in the chat panel"/>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <strong>Mermaid diagrams — relationships + flows in-chat</strong><br/>
+      <sub>The LLM ships a <code>```mermaid</code> fence; the renderer lazy-loads mermaid, applies the panel's brand-orange theme, and you get a real ER diagram or flowchart inline. Better than 200 words of "see, the join is..."</sub>
+      <br/><br/>
+      <img src=".github/assets/format-mermaid.png" alt="Mermaid flowchart showing Purchase Invoice → Payment Entry Reference → Payment Entry relationship, rendered inline"/>
+    </td>
+    <td width="50%" valign="top">
+      <strong>Structured prose — headings, lists, blockquote callouts</strong><br/>
+      <sub>For analytical answers the LLM uses real document structure: H3 sub-headings, ordered lists with bold labels, italic emphasis, blockquote callouts for the recommended next action. The renderer applies the typographic hierarchy.</sub>
+      <br/><br/>
+      <img src=".github/assets/format-callout.png" alt="Structured analytical answer with H3 heading, ordered list, and a blockquote callout for the recommended action"/>
+    </td>
+  </tr>
+</table>
+
+> Plus: KaTeX math (for reconciliation formulas), JSON tree expanders for raw tool outputs, automatic link-card previews for any URL the LLM cites, attachment renders for `extract_file_content` PDF/DOCX/CSV outputs, and a streaming markdown parser that keeps tables and code blocks structurally valid mid-token. The tool gives the data; the renderer makes it readable.
+
+---
+
 ## Quick install
 
 ```bash
