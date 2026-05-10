@@ -103,6 +103,33 @@ Self-hosted LM Studio? Anthropic? NVIDIA NIM? OpenRouter? Together? Groq? Pastin
 
 ---
 
+## Charts and dashboards rendered in-chat
+
+Tools like `make_chart`, `dashboard_chart_data`, and `number_card_value` don't return raw JSON to the user — the chat-ui's `ChartBlock` renders them inline as proper Vega charts and KPI cards, in the panel, alongside the conversation. The consultant asks *"chart of paid PIs by month"* and the chart appears as the answer. No tab-switching, no exporting to a BI tool, no Frappe Dashboard form-filling.
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src=".github/assets/charts/chart-bar.svg" alt="Bar chart of paid Purchase Invoices over the last 5 months, rendered inline in the chat panel"/>
+    </td>
+    <td width="50%" valign="top">
+      <img src=".github/assets/charts/chart-line.svg" alt="Line chart with 12-month AR outstanding trend, rendered inline in the chat panel"/>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src=".github/assets/charts/chart-donut.svg" alt="Donut chart of top suppliers by spend share, rendered inline in the chat panel"/>
+    </td>
+    <td width="50%" valign="top">
+      <img src=".github/assets/charts/chart-kpi.svg" alt="Three KPI number cards (Revenue MTD, Paid Invoices, AR Outstanding) with month-over-month deltas"/>
+    </td>
+  </tr>
+</table>
+
+> Bar / line / area / donut / scatter all map to Frappe Charts via the `make_chart` tool. Multi-chart dashboards (with cards + charts grouped) ship via `prepare_create_dashboard` — you ask, lazychat stages, you click Apply, the dashboard appears at `/app/dashboard-view/<name>` ready to bookmark.
+
+---
+
 ## Quick install
 
 ```bash
