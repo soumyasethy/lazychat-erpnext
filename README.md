@@ -21,10 +21,12 @@
 <br/>
 
 <!--
-  HERO VIDEO — 28-second Playwright-driven recording at 1440×900 with the
-  panel widened to 760×860 for readability. Replaces the smaller default
-  dock so panel content reads at GitHub's ~880px content width.
-  Re-record with the full scripted 75s flow per docs/demo-script.md when ready.
+  HERO VIDEO — 78s Playwright-driven flagship recording at 1440×900.
+  Story arc: Hook (4s) → Agitate (6s) → Open + type Q1 (8s) → Tool dispatch
+  + 324-row result table (14s) → Q2 plan + Apply + report URL (23s) →
+  BYO LLM curl-paste (15s) → CTA (10s). All chat content via synthetic
+  postMessage injection — DemoCo Industries data only, zero brand leak.
+  Spec: docs/superpowers/specs/2026-05-10-flagship-marketing-video.md
 -->
 
 <div align="center">
@@ -32,9 +34,9 @@
     Your browser does not render this video inline — <a href=".github/assets/demo.mp4">click to play demo.mp4</a>, or see the screenshot below.
   </video>
   <br/>
-  <img src=".github/assets/hero-panel-open.png" alt="Lazychat panel — chat composer with a real ecommerce question, ERPNext Sales Invoice list visible behind it" width="100%"/>
+  <img src=".github/assets/hero-panel-open.png" alt="Lazychat panel docked on a Sales Invoice list, conversation showing tool dispatch + a 324-row paid-invoices result table for December 2025" width="100%"/>
   <br/>
-  <sub>↑ 28s walkthrough video and a still hero shot. Full scripted 75s tour: <a href="docs/demo-script.md"><code>docs/demo-script.md</code></a>.</sub>
+  <sub>↑ <strong>78s flagship walkthrough</strong> — stakeholder ask → tool dispatch → report URL → BYO LLM in one shot. Still hero below for browsers that block autoplay.</sub>
 </div>
 
 ## From stakeholder request to delivered report — in minutes
