@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120" role="img" aria-label="lazychat-mcp-erpnext">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#d97757"/>
+      <stop offset="100%" stop-color="#b85a3d"/>
+    </linearGradient>
+  </defs>
+  <!-- Chat bubble -->
+  <path d="M22 22h64a14 14 0 0 1 14 14v40a14 14 0 0 1-14 14H50l-18 14v-14h-10a14 14 0 0 1-14-14V36a14 14 0 0 1 14-14z"
+        fill="url(#g)"/>
+  <!-- Tool dots — three circles representing the agentic tool dispatch -->
+  <circle cx="40" cy="56" r="6" fill="#ffffff" opacity="0.95"/>
+  <circle cx="60" cy="56" r="6" fill="#ffffff" opacity="0.95"/>
+  <circle cx="80" cy="56" r="6" fill="#ffffff" opacity="0.95"/>
+</svg>
