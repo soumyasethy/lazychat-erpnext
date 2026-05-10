@@ -486,6 +486,38 @@ When debugging *"my report URL gave 404 even though the chat said it was
 created"*: confirm the chat-ui bundle was rebuilt after this fix landed
 (`?v=` query in iframe URL should be > `1778066844`).
 
+## Cycle 12 — M2: Critic helper refactor + 7-tool expansion (2026-05-10)
+
+Two-pillar cycle:
+
+**Pillar 1 — Helper extraction.** New `_attach_critic_feedback(response_dict, *, args, action, default_intent, payload, evidence)` helper in [`tools.py`](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py) near `_dangerous_tools_enabled`. Mutates `response_dict["critic_feedback"]` in place — either with the verdict or with the canonical `{skipped: True, reason}` shape on failure. The 5 existing call sites from M1 (`prepare_create_doc`, `prepare_update_doc`, `prepare_run_sql`, `prepare_run_python`, `prepare_create_report`) refactored to use it; behavior byte-identical (T93a-d still pass).
+
+**Pillar 2 — Expansion to 7 more high-value mutations.** Critic now grades:
+
+| Tool | Evidence shape |
+|---|---|
+| `prepare_submit_doc` | `{is_submittable, current_state, has_workflow}` (workflow_state read defensively, falls back to None) |
+| `prepare_send_email` | `{recipients_sample[:3], subject_words[:8], content_preview[:200]}` (privacy-capped) |
+| `prepare_workflow_action` | `{action, current_state, allowed_actions, next_state}` (reuses doc + transitions captured during validation) |
+| `prepare_delete_doc` | `{doctype, incoming_link_count}` (cheap fixed-cost blast-radius signal) |
+| `prepare_bulk_update` | `{affected_count, patch_fields, filter_keys}` (no raw filter/patch values) |
+| `prepare_rename_doc` | `{old_name, new_name, merge, link_refs_count}` |
+| `prepare_revert_doc` | `{fields_being_reverted[:20], change_count}` |
+
+Each new site is gated on `cycle9_enabled` (mirrors M1's `prepare_run_python` — minimal opt-in wrapper, no verification_brief / exemplars / payload validators; just the critic). Critic only runs at Effort=high (haiku) or max (sonnet); low/medium skip per `EFFORT_MAP`.
+
+**Smoke**: 236 → **244** (+8: T94a/b/c/d/e/f/g per-tool + T94h roll-call drift detector that source-greps `_attach_critic_feedback` calls in all 12 expected dispatcher branches). HTTP-wire 94/94 unchanged (no new tools, no schema changes).
+
+**Side fix**: T89m (`composition.append_iteration`) wrapped in try/except so a Redis-session-expiry race during `bench execute` no longer aborts the smoke runner before reaching T94 cases.
+
+**Evidence**: [test/evidence/cycle-12-m2/01-critic-feedback-7-new-tools.txt](test/evidence/cycle-12-m2/01-critic-feedback-7-new-tools.txt) — bench-execute output for all 8 T94 cases passing.
+
+**Out of scope (deferred):**
+- Verification briefs / exemplars on the 7 new tools.
+- Critic on remaining ~28 prepare_* tools (kb / dashboard / number_card / scheduled_job / etc.) — mostly low-risk creators where critic adds little value.
+- Refactor into a Python decorator (helper-call form is simpler).
+- chat-ui rendering changes — existing Cycle 11 M3 amber strip already handles all 12 tools' `critic_feedback` identically.
+
 ## Cycle 12 — M1: Critic coverage expansion (4 prepare_* tools) (2026-05-09)
 
 Extends M3's `critique_composition` wiring (in `prepare_create_report` only)

@@ -1,0 +1,9 @@
+[PASS] T94a prepare_submit_doc response includes critic_feedback when cycle9_enabled keys=['confirm_with', 'critic_feedback', 'expires_in_sec', 'ok', 'preview_token', 'summary']
+[PASS] T94c prepare_workflow_action response includes critic_feedback when cycle9_enabled keys=['confirm_with', 'critic_feedback', 'expires_in_sec', 'ok', 'preview_token', 'summary']
+[PASS] T94b prepare_send_email response includes critic_feedback when cycle9_enabled keys=['confirm_with', 'critic_feedback', 'expires_in_sec', 'ok', 'preview', 'preview_token', 'summary']
+[PASS] T94d prepare_delete_doc response includes critic_feedback when cycle9_enabled keys=['confirm_with', 'critic_feedback', 'expires_in_sec', 'ok', 'preview_token', 'summary']
+[PASS] T94e prepare_bulk_update response includes critic_feedback when cycle9_enabled keys=['confirm_with', 'critic_feedback', 'expires_in_sec', 'ok', 'preview', 'preview_token', 'summary']
+[PASS] T94f prepare_rename_doc response includes critic_feedback when cycle9_enabled keys=['confirm_with', 'critic_feedback', 'expires_in_sec', 'ok', 'preview_token', 'summary']
+[PASS] T94g prepare_revert_doc response includes critic_feedback when cycle9_enabled keys=['confirm_with', 'critic_feedback', 'diff', 'expires_in_sec', 'ok', 'preview_token', 'summary']
+[PASS] T94h critic-emitter roll-call asserts all 12 prepare_* tools wire critic all 12 prepare_* tools emit critic_feedback
+=== 244 pass, 0 fail, 2 skip ===
