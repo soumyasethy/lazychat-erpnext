@@ -1,43 +1,41 @@
-<p align="center">
-  <img src=".github/assets/logo.svg" width="120" alt="lazychat-mcp-erpnext"/>
-</p>
+<div align="center">
 
-<h1 align="center">lazychat-mcp-erpnext</h1>
+<img src=".github/assets/logo.svg" width="96" alt="lazychat-mcp-erpnext"/>
 
-<p align="center">
-  <strong>Talk to ERPNext like a senior consultant.</strong><br/>
-  <sub>94 permission-scoped tools · two-phase mutations · composer-critic verification · BYO LLM</sub>
-</p>
+# lazychat-mcp-erpnext
 
-<p align="center">
-  <a href="https://frappecloud.com/marketplace/apps/erpnext"><img src="https://img.shields.io/badge/erpnext-15-success" alt="ERPNext 15"/></a>
-  <a href="#"><img src="https://img.shields.io/badge/python-3.11+-blue" alt="Python 3.11+"/></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"/></a>
-  <a href="https://github.com/soumyasethy/lazychat-mcp-erpnext/tags"><img src="https://img.shields.io/github/v/tag/soumyasethy/lazychat-mcp-erpnext?label=release" alt="latest tag"/></a>
-  <a href="https://github.com/soumyasethy/lazychat-mcp-erpnext/stargazers"><img src="https://img.shields.io/github/stars/soumyasethy/lazychat-mcp-erpnext?style=social" alt="stars"/></a>
-</p>
+**Talk to ERPNext like a senior consultant.**
 
-<p align="center">
-  <img src=".github/assets/hero-panel-open.png" alt="Lazychat panel docked on the Sales Invoice list view, dark theme, ~91k invoices behind it" width="100%"/>
-</p>
+<sub>94 permission-scoped tools · two-phase mutations · composer-critic verification · BYO LLM</sub>
+
+<br/>
+
+<img src="https://img.shields.io/badge/ERPNext-15-success?style=flat-square" alt="ERPNext 15"/>
+&nbsp;<img src="https://img.shields.io/badge/Python-3.11+-blue?style=flat-square" alt="Python 3.11+"/>
+&nbsp;<img src="https://img.shields.io/badge/Tools-94-d97757?style=flat-square" alt="94 tools"/>
+&nbsp;<img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="MIT"/>
+&nbsp;<img src="https://img.shields.io/badge/release-cycle--12--m2-orange?style=flat-square" alt="release"/>
+
+</div>
+
+<br/>
 
 <!--
-  HERO VIDEO — 35-second Playwright-driven recording: open panel → type a real
-  ecommerce question → switch to send-email prompt → open Command Palette →
-  Server Config dialog → switch to light theme → final Plan-mode prompt.
-  GitHub renders <video> tags with relative src, so no upload-URL juggling.
-  Re-record with the full scripted flow per docs/demo-script.md when ready.
+  HERO VIDEO — 28-second Playwright-driven recording at 1440×900 with the
+  panel widened to 760×860 for readability. Replaces the smaller default
+  dock so panel content reads at GitHub's ~880px content width.
+  Re-record with the full scripted 75s flow per docs/demo-script.md when ready.
 -->
 
-<p align="center">
-  <video src=".github/assets/demo.mp4" controls loop muted playsinline width="900">
-    Your browser does not render this video — see <a href=".github/assets/demo.mp4">demo.mp4</a>.
+<div align="center">
+  <video src=".github/assets/demo.mp4" controls autoplay loop muted playsinline width="100%">
+    Your browser does not render this video inline — <a href=".github/assets/demo.mp4">click to play demo.mp4</a>, or see the screenshot below.
   </video>
-</p>
-
-> 35-second Playwright-driven walkthrough above. For the full scripted 75-second tour with real LLM dispatch, see [`docs/demo-script.md`](docs/demo-script.md).
-
----
+  <br/>
+  <img src=".github/assets/hero-panel-open.png" alt="Lazychat panel — chat composer with a real ecommerce question, ERPNext Sales Invoice list visible behind it" width="100%"/>
+  <br/>
+  <sub>↑ 28s walkthrough video and a still hero shot. Full scripted 75s tour: <a href="docs/demo-script.md"><code>docs/demo-script.md</code></a>.</sub>
+</div>
 
 ## Quick install
 
@@ -156,11 +154,21 @@ sh dev.sh
 
 ## Configuration
 
-<p align="center">
-  <img src=".github/assets/admin-panel.png" alt="Server config dialog inside the chat panel — all settings live in-app since Cycle 10" width="100%"/>
-</p>
+<div align="center">
+  <img src=".github/assets/admin-panel.png" alt="Server Config dialog open inside the chat panel — General / Providers / Models tabs, all settings live in-app since Cycle 10" width="100%"/>
+  <br/>
+  <sub>Server Config dialog inside the chat panel. Open via Command Palette → Server config. System Manager only.</sub>
+</div>
 
-**Primary admin surface (chat-ui in-app):** open the Command Palette → **Server config** → 3 tabs (General settings · LLM Providers · LLM Models). System Manager only; non-admins don't see the entry. **Or** edit the [`Lazychat Settings`](http://localhost:8000/app/lazychat-settings) doctype directly. All defaults are **allow-on** for self-hosted single-org installs; defense-in-depth is preserved (System Manager role check at tool dispatch + `/commit` confirmation per call).
+<br/>
+
+**Primary admin surface (in-app):** Command Palette → **Server config** → 3 tabs:
+
+- **General** — gates (`allow_email`, `allow_dangerous_tools`, `cycle9_enabled` …), `chat_path` radio, `iframe_base_url`, `llm_proxy_allowed_hosts` chip list.
+- **LLM Providers** — Anthropic / OpenAI-compatible CRUD with Test Connection + Reveal API Key.
+- **LLM Models** — model picker contents; `is_default` toggle (single-default invariant enforced).
+
+**Or** edit the [`Lazychat Settings`](http://localhost:8000/app/lazychat-settings) doctype directly. All defaults are **allow-on** for self-hosted single-org installs; defense-in-depth is preserved (System Manager role check at tool dispatch + `/commit` confirmation per call).
 
 | Field | Default | What it does |
 |---|---|---|
