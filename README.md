@@ -37,6 +37,70 @@
   <sub>↑ 28s walkthrough video and a still hero shot. Full scripted 75s tour: <a href="docs/demo-script.md"><code>docs/demo-script.md</code></a>.</sub>
 </div>
 
+## From stakeholder request to delivered report — in minutes
+
+> *"Hey, I need to verify which December purchase invoices have payment entries against them. Can we get a report by EOD?"*
+
+That ask used to mean opening 3 Frappe doctypes, writing a custom Query Report, debugging joins, fixing field names, and probably a meeting. With lazychat, the consultant types the stakeholder's words verbatim into the chat panel.
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <strong>Step 1 — Type the stakeholder's request</strong><br/>
+      <sub>The consultant pastes the verbatim ask into the chat composer.</sub>
+      <br/><br/>
+      <img src=".github/assets/story-01-typed.png" alt="Composer with the stakeholder's verbatim question typed in"/>
+    </td>
+    <td width="50%" valign="top">
+      <strong>Step 2 — Lazychat dispatches tools, returns data</strong><br/>
+      <sub><code>describe_doctype</code> → <code>run_sql_select</code> → inline result table. Real data. No copy-pasting from <code>/api/method</code>.</sub>
+      <br/><br/>
+      <img src=".github/assets/story-02-dispatch.png" alt="Tool dispatch cards with byte counts and a result table of 324 paid invoices"/>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <strong>Step 3 — Stage the report, click Apply</strong><br/>
+      <sub><code>prepare_create_report</code> validates the SQL via execute-probe, shows sample rows, the critic LLM grades it. One click commits.</sub>
+      <br/><br/>
+      <img src=".github/assets/story-03-applied.png" alt="Apply card with sample rows + Open Report button after a successful prepare_create_report commit"/>
+    </td>
+    <td width="50%" valign="top">
+      <strong>Step 4 — Share the URL with the stakeholder</strong><br/>
+      <sub>Copy the report URL. Done. <strong>Time elapsed: ~2 minutes.</strong></sub>
+      <br/><br/>
+      The same flow works for cross-doctype reconciliations, variance reports, ad-hoc audits, and bulk operations. <strong>94 permission-scoped tools</strong> back the chat — see the catalog below for what each can do.
+    </td>
+  </tr>
+</table>
+
+---
+
+## Bring your own LLM in 30 seconds
+
+Self-hosted LM Studio? Anthropic? NVIDIA NIM? OpenRouter? Together? Groq? Pasting a `curl` snippet from any provider's docs auto-fills every form field — endpoint, model, headers, format, streaming. **The API key stays in the browser** (browser-LLM path); no server-side credential storage.
+
+<table>
+  <tr>
+    <td width="33%" valign="top" align="center">
+      <img src=".github/assets/byok-01-picker.png" alt="Model picker with built-in models and Add custom model button"/>
+      <br/><sub><strong>1. Open the model picker</strong><br/>Click "+ Add custom model"</sub>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <img src=".github/assets/byok-02-import.png" alt="Add custom model dialog with a curl snippet pasted and form fields auto-populating"/>
+      <br/><sub><strong>2. Paste a curl snippet</strong><br/>Endpoint, model, auth, format, streaming all auto-fill</sub>
+    </td>
+    <td width="33%" valign="top" align="center">
+      <img src=".github/assets/byok-03-test.png" alt="Form ready with all fields populated and Test connection / Add model buttons"/>
+      <br/><sub><strong>3. Test connection → Add model</strong><br/>Switch models per session. Free / paid / local — your call.</sub>
+    </td>
+  </tr>
+</table>
+
+> The paste-curl parser handles `Authorization: Bearer ...`, `x-api-key`, `Accept: text/event-stream`, payload `model`/`max_tokens`/`temperature`/`top_p`/`stream`, and provider-specific extras like `chat_template_kwargs`. Format detected from URL path (`/messages` → Anthropic, `/chat/completions` → OpenAI).
+
+---
+
 ## Quick install
 
 ```bash
@@ -54,7 +118,7 @@ That's it. After-install seeds disabled-by-default LLM Provider rows (OpenAI, An
 
 - **Built for ERPNext, not bolted on.** Every tool runs as `frappe.session.user` — Frappe permissions, role checks, workflow guards, and the audit trail apply automatically. No god-mode bypass; no separate auth surface.
 - **Mutations require explicit Apply.** The LLM stages every write to a Redis token; you click Apply (or the 3-second auto-Apply countdown for low-risk actions) to commit inside `frappe.db.savepoint`. A 30-second composer-critic LLM second-opinion shows up as an amber strip when it disagrees with the staged action.
-- **Bring any model.** Anthropic Claude, OpenAI, NVIDIA NIM, OpenRouter, Vercel AI Gateway, Together, Groq, LM Studio. Same tool registry; the API key never has to leave the browser if you don't want it to.
+- **Bring any model.** Anthropic Claude, OpenAI, NVIDIA NIM, OpenRouter, Vercel AI Gateway, Together, Groq, LM Studio. Same 94-tool registry; the API key never has to leave the browser if you don't want it to.
 
 ---
 
@@ -62,21 +126,23 @@ That's it. After-install seeds disabled-by-default LLM Provider rows (OpenAI, An
 
 <table>
   <tr>
-    <td width="25%" align="center">
-      <img src="test/evidence/2026-05-08-tour/02-mixed-tools-apply-buttons.jpeg" alt="Live tool dispatch with Apply cards"/>
-      <sub><strong>Live tool dispatch</strong><br/>Stream tool calls into the chat with elapsed timers and inline result tables.</sub>
+    <td width="50%" valign="top" align="center">
+      <img src=".github/assets/tile-tool-dispatch.png" alt="Live tool dispatch — aggregate query returning a customer/outstanding table"/>
+      <br/><sub><strong>Live tool dispatch</strong><br/>Watch the agent fetch real data with elapsed timers and inline result tables. No copy-pasting from <code>/api/method</code>.</sub>
     </td>
-    <td width="25%" align="center">
-      <img src="test/evidence/cycle-11-m3/01-amber-critic-strip-rendered.png" alt="Apply card with critic strip"/>
-      <sub><strong>Critic verdict</strong><br/>Composer-critic dual-LLM grades every staged mutation; mismatches surface as an amber strip.</sub>
+    <td width="50%" valign="top" align="center">
+      <img src=".github/assets/tile-apply-card.png" alt="Apply card with sample rows preview and Apply / Cancel buttons"/>
+      <br/><sub><strong>Mutations always Apply-gated</strong><br/>The LLM stages writes to a Redis token; you click Apply. Audit-safe by default.</sub>
     </td>
-    <td width="25%" align="center">
-      <img src="test/evidence/cycle-11-m4/01-livestatus-baseline.png" alt="Per-tool elapsed tracker"/>
-      <sub><strong>Per-tool progress</strong><br/>Per-tool elapsed seconds + visible inactivity warnings — no more silent stalls.</sub>
+  </tr>
+  <tr>
+    <td width="50%" valign="top" align="center">
+      <img src=".github/assets/tile-critic-strip.png" alt="Apply card with amber critic strip listing 2 mismatches the verifier flagged"/>
+      <br/><sub><strong>Critic catches misalignment</strong><br/>A second LLM grades every staged action; mismatches show as an amber warning. You still get to decide.</sub>
     </td>
-    <td width="25%" align="center">
-      <img src="test/evidence/modes/02-modes-panel-from-chip.png" alt="Modes panel"/>
-      <sub><strong>Plan mode + Effort scale</strong><br/>Switch between Ask / Edit-auto / Plan / Auto. Effort scales from low (8 turns) to max (64 turns + 16k thinking).</sub>
+    <td width="50%" valign="top" align="center">
+      <img src=".github/assets/tile-plan-mode.png" alt="Plan mode card with a 5-step numbered plan and Approve / Edit / Reject pills"/>
+      <br/><sub><strong>Plan mode</strong><br/>For multi-step tasks: emit a numbered plan first, you Approve, then it executes the steps in order.</sub>
     </td>
   </tr>
 </table>
