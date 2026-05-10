@@ -32,21 +32,19 @@
 <div align="center">
 
 <!--
-  Hero banner — autoplay loop muted.
-  IMPORTANT: GitHub's <video> tag only renders when src is an ABSOLUTE URL.
-  Relative paths (".github/assets/demo.mp4") silently fail to render.
-  Use the github.com raw URL so the file streams from GitHub's CDN with the
-  correct video/mp4 Content-Type. Once the user-attachments approach is set
-  up (drag/drop in the GitHub web editor), that URL is even better.
+  Hero banner — animated GIF of the 78s walkthrough.
+  Why GIF instead of <video>: GitHub's <video> tag is unreliable on private
+  repos (raw URLs need auth, browsers block cross-origin autoplay). GIFs
+  use <img> which renders + loops + autoplays unconditionally everywhere.
+  5.6 MB at 880px / 12fps; the full HD MP4 is still committed for download.
 -->
-<video autoplay loop muted playsinline preload="auto" poster=".github/assets/hero-panel-open.png" width="100%">
-  <source src="https://github.com/soumyasethy/lazychat-mcp-erpnext/raw/main/.github/assets/demo.mp4" type="video/mp4"/>
-  Your browser does not render this video inline — <a href="https://github.com/soumyasethy/lazychat-mcp-erpnext/raw/main/.github/assets/demo.mp4">click to play demo.mp4</a>, or see the screenshot below.
-</video>
+<img src=".github/assets/demo.gif" alt="78-second flagship walkthrough — stakeholder ask → tool dispatch → report URL → BYO LLM in one shot. Plays muted on loop." width="100%"/>
 <br/>
-<img src=".github/assets/hero-panel-open.png" alt="Lazychat panel docked on a Sales Invoice list, conversation showing tool dispatch + a 324-row paid-invoices result table for December 2025" width="100%"/>
+<sub>↑ <strong>78-second flagship walkthrough</strong> — stakeholder ask → tool dispatch → report URL → BYO LLM in one shot. (Want HD? <a href=".github/assets/demo.mp4">▶ download the MP4</a>.)</sub>
+<br/><br/>
+<img src=".github/assets/hero-panel-open.png" alt="Still hero — chat panel docked on Sales Invoice list with the conversation showing tool dispatch + a 324-row paid-invoices result table for December 2025" width="100%"/>
 <br/>
-<sub>↑ <strong>78-second flagship walkthrough</strong> — stakeholder ask → tool dispatch → report URL → BYO LLM in one shot. Auto-plays muted on loop above; still hero below for browsers that block autoplay.</sub>
+<sub>↑ Still hero — the post-dispatch state of the panel, mid-conversation.</sub>
 </div>
 
 ## From stakeholder request to delivered report — in minutes
