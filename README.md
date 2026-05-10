@@ -17,11 +17,24 @@
   <a href="https://github.com/soumyasethy/lazychat-mcp-erpnext/stargazers"><img src="https://img.shields.io/github/stars/soumyasethy/lazychat-mcp-erpnext?style=social" alt="stars"/></a>
 </p>
 
-<!-- DEMO VIDEO PLACEHOLDER — drag-drop .github/assets/demo.mp4 into a GitHub
-     comment, copy the user-attachment URL it generates, and paste it here on
-     its own line. GitHub auto-renders bare .mp4 URLs as inline <video>. -->
+<p align="center">
+  <img src=".github/assets/hero-panel-open.png" alt="Lazychat panel docked on the Sales Invoice list view, dark theme, ~91k invoices behind it" width="100%"/>
+</p>
 
-> **The 75-second demo will live here.** See [`docs/demo-script.md`](docs/demo-script.md) for the recording plan; once captured the asset will replace this block. Until then, the screenshots below show the same flow as stills.
+<!--
+  HERO VIDEO — currently a 14-second slideshow placeholder built from the four
+  hero screenshots (panel-open · composer · admin-panel · light-theme). Swap
+  for the real 75-second recording per docs/demo-script.md when ready.
+  GitHub renders <video> tags with relative src, so no upload-URL juggling.
+-->
+
+<p align="center">
+  <video src=".github/assets/demo.mp4" controls loop muted playsinline width="900">
+    Your browser does not render this video — see <a href=".github/assets/demo.mp4">demo.mp4</a>.
+  </video>
+</p>
+
+> 14-second slideshow above is a placeholder until the real 75-second screen recording lands ([script](docs/demo-script.md)). The screenshots below walk through the canonical flows.
 
 ---
 
@@ -142,7 +155,11 @@ sh dev.sh
 
 ## Configuration
 
-**Primary admin surface:** [`/app/lazychat-settings`](http://localhost:8000/app/lazychat-settings) (System Manager edit). All defaults are **allow-on** for self-hosted single-org installs; defense-in-depth is preserved (System Manager role check at tool dispatch + `/commit` confirmation per call).
+<p align="center">
+  <img src=".github/assets/admin-panel.png" alt="Server config dialog inside the chat panel — all settings live in-app since Cycle 10" width="100%"/>
+</p>
+
+**Primary admin surface (chat-ui in-app):** open the Command Palette → **Server config** → 3 tabs (General settings · LLM Providers · LLM Models). System Manager only; non-admins don't see the entry. **Or** edit the [`Lazychat Settings`](http://localhost:8000/app/lazychat-settings) doctype directly. All defaults are **allow-on** for self-hosted single-org installs; defense-in-depth is preserved (System Manager role check at tool dispatch + `/commit` confirmation per call).
 
 | Field | Default | What it does |
 |---|---|---|
