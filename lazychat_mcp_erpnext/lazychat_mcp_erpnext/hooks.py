@@ -39,7 +39,36 @@ extend_bootinfo = "lazychat_mcp_erpnext.desk_assistant.boot.boot_session"
 # Diagnostic: log when the browser hits /llm-proxy (the dev-only fallback path).
 # If this fires in production, chat-ui is on a stale bundle OR didn't get llmProxyUrl
 # from the init postMessage. The Error Log entry tells us which.
-before_request = ["lazychat_mcp_erpnext.desk_assistant.llm_proxy.trace_legacy_proxy_hit"]
+before_request = [
+	"lazychat_mcp_erpnext.desk_assistant.llm_proxy.trace_legacy_proxy_hit",
+	# Strips invalid Bearer headers for handle_bearer so Frappe's validate_auth
+	# doesn't reject them with an HTML/traceback 401. Pairs with bearer_auth_hook below.
+	"lazychat_mcp_erpnext.desk_assistant.mcp.bearer_pre_strip",
+	# Diagnostic only: log claude.ai's exact OAuth authorize parameters so we can
+	# triage redirect_uri / scope / response_type mismatches. See oauth_meta.py.
+	"lazychat_mcp_erpnext.desk_assistant.oauth_meta.log_oauth_authorize_request",
+]
+
+# Authenticate Bearer tokens for the handle_bearer Streamable-HTTP MCP endpoint
+# (claude.ai web Custom Connector). Scoped to that one path inside the hook;
+# does NOT grant access to other Frappe endpoints. See desk_assistant/mcp.py.
+auth_hooks = ["lazychat_mcp_erpnext.desk_assistant.mcp.bearer_auth_hook"]
+
+# OAuth 2.1 / MCP discovery URLs. The MCP Authorization spec (2025-06) requires
+# clients to discover the authorization server via /.well-known/oauth-protected-resource
+# and the auth server's metadata via /.well-known/oauth-authorization-server. Frappe
+# already serves /.well-known/openid-configuration the same way (line 63 of
+# frappe/hooks.py); we reuse that pattern.
+website_redirects = [
+	{
+		"source": "/.well-known/oauth-authorization-server",
+		"target": "/api/method/lazychat_mcp_erpnext.desk_assistant.oauth_meta.authorization_server_metadata",
+	},
+	{
+		"source": "/.well-known/oauth-protected-resource",
+		"target": "/api/method/lazychat_mcp_erpnext.desk_assistant.oauth_meta.protected_resource_metadata",
+	},
+]
 
 # Bundled brand SVGs (avoid missing File attachments at /files/agilitas*.svg)
 app_logo_url = "/assets/lazychat_mcp_erpnext/images/agilitas-txt-logo.svg"

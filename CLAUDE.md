@@ -173,6 +173,7 @@ T75 + T76 cover the regression.
 **Browser-LLM path:**
 - `lazychat_mcp_erpnext.desk_assistant.api.save_conversation` — push browser-orchestrated turns into Claude Conversation
 - `lazychat_mcp_erpnext.desk_assistant.mcp.handle` — JSONRPC MCP transport (initialize / ping / tools/list / tools/call). Same auth as any whitelisted method (cookie session OR Frappe API key+secret). Used by both chat-ui's browser path AND external MCP clients (Claude Desktop, etc).
+- `lazychat_mcp_erpnext.desk_assistant.mcp.handle_bearer` — same dispatcher, but `Authorization: Bearer <token>` auth (constant-time compare against site_config `lazychat_mcp_bearer_token`) + `Mcp-Session-Id` response header per Streamable HTTP spec (2025-03-26). For claude.ai web Custom Connector and other clients that don't speak Frappe's `token KEY:SECRET` scheme. Run-as user defaults to Administrator; override with site_config `lazychat_mcp_bearer_user`. Existing defense layers (System Manager role, allow_dangerous_tools, /commit) all remain — Bearer auth is just an alternative way to authenticate, not an authorization bypass. Smoke: [test/bearer_smoke.py](test/bearer_smoke.py) (env-var driven, no creds in-file).
 
 ## Doctypes
 
