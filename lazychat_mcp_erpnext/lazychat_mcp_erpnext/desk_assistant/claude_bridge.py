@@ -694,13 +694,35 @@ def run_agentic_turn(
 			)
 		history.append({"role": "user", "content": tool_results})
 
+	cost = _estimate_cost(model, usage_total)
 	if emit:
 		emit(
 			{
 				"type": "usage",
 				"model": model.model_label,
 				**usage_total,
-				"cost_estimate": _estimate_cost(model, usage_total),
+				"cost_estimate": cost,
 			}
 		)
+	# Persist a Lazychat Usage Log row — backend agent path, single row per
+	# turn even if the turn made multiple LLM calls (usage_total is the sum).
+	# Defensive try/except: usage logging must NEVER break a successful turn.
+	try:
+		if usage_total.get("input_tokens", 0) > 0 or usage_total.get("output_tokens", 0) > 0:
+			frappe.get_doc({
+				"doctype": "Lazychat Usage Log",
+				"user": frappe.session.user,
+				"model_label": (model.model_label or "")[:140],
+				"provider": (model.provider_type or model.provider or "")[:140] if hasattr(model, "provider_type") else "",
+				"input_tokens": int(usage_total.get("input_tokens", 0) or 0),
+				"output_tokens": int(usage_total.get("output_tokens", 0) or 0),
+				"cost_estimate": round(float(cost or 0), 6),
+				"currency": "USD",
+				"path": "backend",
+			}).insert(ignore_permissions=True)
+	except Exception:
+		try:
+			frappe.log_error(frappe.get_traceback(), "lazychat usage log persist (backend)")
+		except Exception:
+			pass
 	return history, usage_total
