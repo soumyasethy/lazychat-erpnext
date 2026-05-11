@@ -6,12 +6,12 @@ Read this BEFORE exploring the repo. Saves ~75% tokens.
 
 A **Frappe app** (`lazychat_mcp_erpnext`) that turns ERPNext into an LLM-driven agentic workspace. Two installation surfaces:
 
-1. **Legacy widget** — vanilla-JS right-dock chat panel (in [public/js/lazychat_mcp_erpnext_desk.js](lazychat_mcp_erpnext/lazychat_mcp_erpnext/public/js/lazychat_mcp_erpnext_desk.js)). Disabled by default since the lazychat panel landed.
-2. **Lazychat panel** (current) — embeds the [lazychat-ai](../lazychat.ai/) React UI as a same-origin iframe inside the Desk via a 280-line vanilla-JS shim ([public/js/lazychat_panel.bundle.js](lazychat_mcp_erpnext/lazychat_mcp_erpnext/public/js/lazychat_panel.bundle.js)). The iframe talks to the Frappe backend via `agentRequest` postMessage → `send_message_stream` SSE → `run_agentic_turn`. Same backend, much richer UI.
+1. **Legacy widget** — vanilla-JS right-dock chat panel (in [public/js/lazychat_mcp_erpnext_desk.js](lazychat_mcp_erpnext/public/js/lazychat_mcp_erpnext_desk.js)). Disabled by default since the lazychat panel landed.
+2. **Lazychat panel** (current) — embeds the [lazychat-ai](../lazychat.ai/) React UI as a same-origin iframe inside the Desk via a 280-line vanilla-JS shim ([public/js/lazychat_panel.bundle.js](lazychat_mcp_erpnext/public/js/lazychat_panel.bundle.js)). The iframe talks to the Frappe backend via `agentRequest` postMessage → `send_message_stream` SSE → `run_agentic_turn`. Same backend, much richer UI.
 
 Backend is fully built and battle-tested:
-- **Multi-provider LLM** ([providers/](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/providers/)): two adapters cover Anthropic + everything OpenAI-compatible (OpenAI, OpenRouter, NVIDIA, Vercel AI Gateway, LM Studio, Groq, Together).
-- **Agent loop** ([claude_bridge.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/claude_bridge.py)) with prompt caching, tool-use loop, max 8 turns.
+- **Multi-provider LLM** ([providers/](lazychat_mcp_erpnext/desk_assistant/providers/)): two adapters cover Anthropic + everything OpenAI-compatible (OpenAI, OpenRouter, NVIDIA, Vercel AI Gateway, LM Studio, Groq, Together).
+- **Agent loop** ([claude_bridge.py](lazychat_mcp_erpnext/desk_assistant/claude_bridge.py)) with prompt caching, tool-use loop, max 8 turns.
 - **Tool registry** — 38 tools, all run with `frappe.session.user`'s permissions (no god-mode bypass).
 - **Two-phase mutation pattern**: agent calls `prepare_*` → returns `preview_token` → user types `/commit TOKEN` in chat → shim calls `commit_prepared_action(token)` → executes inside `frappe.db.savepoint`. The LLM is physically incapable of committing on its own (commit method is NOT in the tool registry).
 
@@ -45,7 +45,7 @@ ERPNext Desk @ <site>/app
 ├── lazychat.ai/                                  # chat-ui React source (separate repo)
 │   └── apps/chat-ui/dist/                        (built by `pnpm build`)
 └── lazychat-mcp-erpnext/                                  # THIS repo (Frappe app source)
-    ├── lazychat_mcp_erpnext/lazychat_mcp_erpnext/
+    ├── lazychat_mcp_erpnext/
     │   ├── public/lazychat_dist/                 # bundled chat-ui (gitignored, built locally)
     │   ├── public/js/lazychat_panel.bundle.js
     │   ├── public/css/lazychat_panel.css
@@ -196,8 +196,8 @@ when assembling SQL). `via_kind` is one of `link / parent_to_child /
 child_to_parent / curated`.
 
 Tool registry count: 94 → **95**. Wired in dispatcher
-([tools.py:find_join_path](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py))
-+ schema ([tool_schemas.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tool_schemas.py)).
+([tools.py:find_join_path](lazychat_mcp_erpnext/desk_assistant/tools.py))
++ schema ([tool_schemas.py](lazychat_mcp_erpnext/desk_assistant/tool_schemas.py)).
 Prompts in `claude_bridge.py` + `routerSystemPrompt.ts` (chat-ui mirror)
 both teach `DISCOVERY-FIRST: call find_join_path before writing any
 cross-doctype JOIN`.
@@ -239,7 +239,7 @@ Also extended `_RELATIONSHIP_HINTS`:
 - `LLM Model` — model_label, provider Link, model_id, supports_tools, max_output_tokens, context_window, input_price_per_mtok, output_price_per_mtok, is_default, enabled
 - `Claude Conversation` — user, title, history (JSON), last_model, total_input_tokens, total_output_tokens
 
-Seed fixtures in [seed_data.json](lazychat_mcp_erpnext/lazychat_mcp_erpnext/seed_data.json) auto-load via `after_install` + `after_migrate`. Ships disabled-by-default rows for OpenAI/OpenRouter/NVIDIA/Vercel/LM Studio.
+Seed fixtures in [seed_data.json](lazychat_mcp_erpnext/seed_data.json) auto-load via `after_install` + `after_migrate`. Ships disabled-by-default rows for OpenAI/OpenRouter/NVIDIA/Vercel/LM Studio.
 
 ## Smoke test — two layers (added 2026-05-05)
 
@@ -343,7 +343,7 @@ function path).
 
 Two failure modes the same screenshot pattern (`HTTP 400 from <NVIDIA URL>: <Frappe Server Error HTML>`) can hide. Always start by running both checks below.
 
-**1. Stale-bundle / iframe cache trap.** Frappe serves the bundled chat-ui dist with `Cache-Control: max-age=43200` (12h). The shim cache-busts the iframe URL via `?v=<token>`, but the token MUST be the dist's mtime, not the static app version — otherwise a redeploy never invalidates the browser cache and the user keeps replaying broken bundles. The token comes from `boot.py:_deploy_version()` (= `<__version__>.<index.html mtime>`) → injected onto `boot.lazychat_settings.deploy_version` → read by [`lazychat_panel.bundle.js`](lazychat_mcp_erpnext/lazychat_mcp_erpnext/public/js/lazychat_panel.bundle.js#L154-L158). The shim now prefers `settings.deploy_version` first, falls back to `boot.versions.lazychat_mcp_erpnext`. Earlier code had the order reversed — symptom: the iframe URL `?v=` stayed at the app version (e.g. `0.2.3`) across deploys and the browser never re-fetched.
+**1. Stale-bundle / iframe cache trap.** Frappe serves the bundled chat-ui dist with `Cache-Control: max-age=43200` (12h). The shim cache-busts the iframe URL via `?v=<token>`, but the token MUST be the dist's mtime, not the static app version — otherwise a redeploy never invalidates the browser cache and the user keeps replaying broken bundles. The token comes from `boot.py:_deploy_version()` (= `<__version__>.<index.html mtime>`) → injected onto `boot.lazychat_settings.deploy_version` → read by [`lazychat_panel.bundle.js`](lazychat_mcp_erpnext/public/js/lazychat_panel.bundle.js#L154-L158). The shim now prefers `settings.deploy_version` first, falls back to `boot.versions.lazychat_mcp_erpnext`. Earlier code had the order reversed — symptom: the iframe URL `?v=` stayed at the app version (e.g. `0.2.3`) across deploys and the browser never re-fetched.
 
 **2. CSRF on the same-origin LLM proxy.** The shim's `init` payload carries `mcpAuth: { csrf: frappe.csrf_token }`. chat-ui's `agent.ts:resolveFetchTarget()` and `mcp-client.ts:bP()` both attach it as `X-Frappe-CSRF-Token`. If either path forgets it, Frappe rejects the POST with `CSRFTokenError` (HTTP 400, HTML body — `<meta name="title" content="Server Error">`). The proxy itself strips `x-frappe-csrf-token` from `_DENY_HEADERS` before forwarding, so attaching it is always safe.
 
@@ -417,7 +417,7 @@ queued waiting for a slot, eventually rejected with
 `TypeError: Failed to fetch` ~55s later. The chat-ui surfaces this as
 the AbortSignal.timeout firing at 60s.
 
-**Fix** ([llm_proxy.py:119](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/llm_proxy.py#L119)):
+**Fix** ([llm_proxy.py:119](lazychat_mcp_erpnext/desk_assistant/llm_proxy.py#L119)):
 emit `Connection: close` on every llm_proxy response. Chrome releases
 the socket the instant the upstream completes, freeing a pool slot for
 the immediate tool-dispatch fetch that follows. Keep-alive on a
@@ -455,7 +455,7 @@ in `tool_calls.function.arguments` — `filters: "{}"`, `fields: "['name']"`,
 the string is interpreted as a single weird field name.
 
 **Fix**
-([tools.py:_coerce_args](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py)):
+([tools.py:_coerce_args](lazychat_mcp_erpnext/desk_assistant/tools.py)):
 runs at the top of every `execute_tool` dispatch. JSON-parses well-known
 schema-shaped keys (filters, fields, values, patch, spec, …), int-coerces
 well-known integer keys (limit, max_chunks, …). Idempotent on already-
@@ -481,7 +481,7 @@ User asked "list paid PIs in December 2025" expecting ~774 rows; model
 returned 50 (the silent cap), then 169, then 110 across iterations as it
 hunted for filter shapes. Same issue: ANY hardcoded ceiling becomes a wall
 the model hits and apologizes for. Resolution: removed the cap entirely
-([tools.py:204](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py)).
+([tools.py:204](lazychat_mcp_erpnext/desk_assistant/tools.py)).
 
 - `limit` not provided → 20 (cheap schema probes)
 - explicit `limit` → honored verbatim, no upper bound
@@ -517,7 +517,7 @@ Resolution: 4 new typed wrappers that validate fields BEFORE staging:
 
 Each has a matching commit handler in `commit_prepared`. System prompt
 documents the wrappers as the preferred path for those four doctypes
-([claude_bridge.py § WRITE / WORKFLOW / COMMS](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/claude_bridge.py)).
+([claude_bridge.py § WRITE / WORKFLOW / COMMS](lazychat_mcp_erpnext/desk_assistant/claude_bridge.py)).
 
 ### 3. `/commit TOKEN` silently failed on the browser-LLM path
 
@@ -527,7 +527,7 @@ returned token → user typed `/commit TOKEN` → model narrated *"✅ created!"
 written.
 
 Root cause: the panel-shim's `/commit` regex
-([lazychat_panel.bundle.js:343](lazychat_mcp_erpnext/lazychat_mcp_erpnext/public/js/lazychat_panel.bundle.js))
+([lazychat_panel.bundle.js:343](lazychat_mcp_erpnext/public/js/lazychat_panel.bundle.js))
 only fires on the **backend-LLM `agentRequest` path** (line 660). On the
 **browser-LLM path** (any custom model — seed-oss-36b, claude-haiku via
 API key, NVIDIA), `/commit TOKEN` was a regular user message routed to the
@@ -549,7 +549,7 @@ created"*: confirm the chat-ui bundle was rebuilt after this fix landed
 
 Two-pillar cycle:
 
-**Pillar 1 — Helper extraction.** New `_attach_critic_feedback(response_dict, *, args, action, default_intent, payload, evidence)` helper in [`tools.py`](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py) near `_dangerous_tools_enabled`. Mutates `response_dict["critic_feedback"]` in place — either with the verdict or with the canonical `{skipped: True, reason}` shape on failure. The 5 existing call sites from M1 (`prepare_create_doc`, `prepare_update_doc`, `prepare_run_sql`, `prepare_run_python`, `prepare_create_report`) refactored to use it; behavior byte-identical (T93a-d still pass).
+**Pillar 1 — Helper extraction.** New `_attach_critic_feedback(response_dict, *, args, action, default_intent, payload, evidence)` helper in [`tools.py`](lazychat_mcp_erpnext/desk_assistant/tools.py) near `_dangerous_tools_enabled`. Mutates `response_dict["critic_feedback"]` in place — either with the verdict or with the canonical `{skipped: True, reason}` shape on failure. The 5 existing call sites from M1 (`prepare_create_doc`, `prepare_update_doc`, `prepare_run_sql`, `prepare_run_python`, `prepare_create_report`) refactored to use it; behavior byte-identical (T93a-d still pass).
 
 **Pillar 2 — Expansion to 7 more high-value mutations.** Critic now grades:
 
@@ -766,7 +766,7 @@ form `onload` fires. This broke BOTH the new `_lz_token` AND the pre-existing
 `lazychatPrefill` runs, `window.location.search` is empty.
 
 **Fix (M2.1, shipped same day):** the panel-shim
-[`lazychat_panel.bundle.js`](lazychat_mcp_erpnext/lazychat_mcp_erpnext/public/js/lazychat_panel.bundle.js)
+[`lazychat_panel.bundle.js`](lazychat_mcp_erpnext/public/js/lazychat_panel.bundle.js)
 loads via `app_include_js` at HTML-parse time — BEFORE Frappe's router
 redirects. Added an IIFE-time capture:
 
@@ -1012,13 +1012,13 @@ fences).
 
 ## Cycle 8c — Panel-shim grayscale filter for `pushTheme` (2026-05-08)
 
-Companion to lazychat.ai "Cycle 8c". Frappe's dark theme sets `--primary-color` to gray-900 (`#171717`); pushing this as the chat-ui brand accent rendered everything near-black. The shim's [`pushTheme()`](lazychat_mcp_erpnext/lazychat_mcp_erpnext/public/js/lazychat_panel.bundle.js) now calls a new `isGrayscale(color)` helper (R≈G≈B within 12 units) and skips the `setThemeTokens` push when the resolved primary is grayscale. Logs `[lazychat] skipped pushing grayscale primary: <hex>` for triage. The chat-ui side has matching defense-in-depth in [`extensions.ts`](../lazychat.ai/apps/chat-ui/src/store/extensions.ts) that filters grayscale tokens at `setThemeTokens` and `onRehydrateStorage` time. End result: in dark mode, chat-ui's own warm-orange `--color-primary` default (`#d97757` from theme.css) shows through instead of Frappe's UI-color near-black. Distinct host brand colors (purples, blues, custom hues) pass through unchanged.
+Companion to lazychat.ai "Cycle 8c". Frappe's dark theme sets `--primary-color` to gray-900 (`#171717`); pushing this as the chat-ui brand accent rendered everything near-black. The shim's [`pushTheme()`](lazychat_mcp_erpnext/public/js/lazychat_panel.bundle.js) now calls a new `isGrayscale(color)` helper (R≈G≈B within 12 units) and skips the `setThemeTokens` push when the resolved primary is grayscale. Logs `[lazychat] skipped pushing grayscale primary: <hex>` for triage. The chat-ui side has matching defense-in-depth in [`extensions.ts`](../lazychat.ai/apps/chat-ui/src/store/extensions.ts) that filters grayscale tokens at `setThemeTokens` and `onRehydrateStorage` time. End result: in dark mode, chat-ui's own warm-orange `--color-primary` default (`#d97757` from theme.css) shows through instead of Frappe's UI-color near-black. Distinct host brand colors (purples, blues, custom hues) pass through unchanged.
 
 Manual test: set Frappe theme primary, switch Desk to dark mode, hard-reload Desk → chat-panel accent dots / Apply pills / focus rings should be warm orange (chat-ui default), NOT near-black. DevTools → Application → Local Storage → `lazychat:extensions:v1` → `state.themeTokens` should be `{}` (the grayscale token was correctly filtered out).
 
 ## Cycle 8 — Real Modes + Effort backend (2026-05-08)
 
-The Cycle-1 ModesPanel radios + 4-step Effort dot scale in chat-ui became real working features. See `../lazychat.ai/CLAUDE.md` "Cycle 8" for the chat-ui half. Backend half ships in [`api.py`](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/api.py) + [`claude_bridge.py`](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/claude_bridge.py) — pure additive, zero regression to the 154 in-process / 91 HTTP-wire smoke gates.
+The Cycle-1 ModesPanel radios + 4-step Effort dot scale in chat-ui became real working features. See `../lazychat.ai/CLAUDE.md` "Cycle 8" for the chat-ui half. Backend half ships in [`api.py`](lazychat_mcp_erpnext/desk_assistant/api.py) + [`claude_bridge.py`](lazychat_mcp_erpnext/desk_assistant/claude_bridge.py) — pure additive, zero regression to the 154 in-process / 91 HTTP-wire smoke gates.
 
 ### Passthrough kwargs
 
@@ -1029,7 +1029,7 @@ The Cycle-1 ModesPanel radios + 4-step Effort dot scale in chat-ui became real w
 
 `run_agentic_turn(..., mode, effort, plan_resumed)` reads these and routes them:
 
-### `EFFORT_MAP` ([claude_bridge.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/claude_bridge.py))
+### `EFFORT_MAP` ([claude_bridge.py](lazychat_mcp_erpnext/desk_assistant/claude_bridge.py))
 
 ```python
 EFFORT_MAP = {
@@ -1084,7 +1084,7 @@ The actual data: 18 POs match (top: `PO-I-26-000003` with 789 line items).
 
 ### The new tools — separate read-path from mutation-path
 
-**`run_sql_select`** ([tools.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py))
+**`run_sql_select`** ([tools.py](lazychat_mcp_erpnext/desk_assistant/tools.py))
 - Auto-executes SELECT (or `WITH ... SELECT`) SQL and returns rows in the
   same tool result. No /commit, no Apply card, no preview_token.
 - Same security envelope as `prepare_run_sql`:
@@ -1094,7 +1094,7 @@ The actual data: 18 POs match (top: `PO-I-26-000003` with 789 line items).
 - Same `_wrap_db_error` structured-hint response on failure.
 - Row cap 200 default, 1000 max.
 
-**`run_python_readonly`** ([tools.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py))
+**`run_python_readonly`** ([tools.py](lazychat_mcp_erpnext/desk_assistant/tools.py))
 For analytical Python that goes beyond what SQL alone can express (pandas
 pivots, multi-pass computations, group-then-filter chains). Two layers of
 read-only enforcement:
@@ -1119,7 +1119,7 @@ Both new tools are gated identically to the prepare_* variants
 
 ### Tool-choice routing (the actually-deliver-it part)
 
-System prompt in [claude_bridge.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/claude_bridge.py)
+System prompt in [claude_bridge.py](lazychat_mcp_erpnext/desk_assistant/claude_bridge.py)
 + [routerSystemPrompt.ts](../lazychat.ai/apps/chat-ui/src/lib/routerSystemPrompt.ts)
 direct the LLM:
 
@@ -1209,17 +1209,17 @@ User's repeated complaint: "click button to create new doc — still not able to
 
 ### Fix A — signature-based reapply in form helper
 
-Rewrote [`install.py:_LAZYCHAT_FORM_HELPER_SCRIPT`](lazychat_mcp_erpnext/lazychat_mcp_erpnext/install.py). Removed the `_alreadyApplied` flag. New `_sig(rows)` and `_frmSig(items)` compute a stable item-signature (`item_code|qty|rate|pr_detail`). On every `refresh` event, if the signatures don't match, the helper clears `frm.doc.items` and re-injects from `_lz_items`. Result: even if Frappe's Make Return logic clobbers our items 100ms after we set them, the next `refresh` (which Frappe fires after Make Return settles) re-applies the lazychat payload. Also bound to `return_against` / `supplier` / `customer` change events with a `setTimeout(50)` deferral to win the auto-fetch race.
+Rewrote [`install.py:_LAZYCHAT_FORM_HELPER_SCRIPT`](lazychat_mcp_erpnext/install.py). Removed the `_alreadyApplied` flag. New `_sig(rows)` and `_frmSig(items)` compute a stable item-signature (`item_code|qty|rate|pr_detail`). On every `refresh` event, if the signatures don't match, the helper clears `frm.doc.items` and re-injects from `_lz_items`. Result: even if Frappe's Make Return logic clobbers our items 100ms after we set them, the next `refresh` (which Frappe fires after Make Return settles) re-applies the lazychat payload. Also bound to `return_against` / `supplier` / `customer` change events with a `setTimeout(50)` deferral to win the auto-fetch race.
 
 ### Fix B — explicit supplier + richer item data + per-row Combined button
 
-Updated canonical SQL template in [claude_bridge.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/claude_bridge.py). Each button URL now carries `&supplier=<value>` parent param explicitly. `_lz_items` payload encodes `item_code`, `item_name`, `description`, `qty`, `rate`, `uom`, `pr_detail`, `purchase_receipt`, `purchase_invoice`, `purchase_invoice_item` per row — full traceability back to the original receipt + invoice line. Added a third per-row "Combined DN" button when both qty and rate differ; its `_lz_items` is a 2-element array (qty-variance row + rate-variance row at received qty). Stale single-button-per-row template removed from prompt.
+Updated canonical SQL template in [claude_bridge.py](lazychat_mcp_erpnext/desk_assistant/claude_bridge.py). Each button URL now carries `&supplier=<value>` parent param explicitly. `_lz_items` payload encodes `item_code`, `item_name`, `description`, `qty`, `rate`, `uom`, `pr_detail`, `purchase_receipt`, `purchase_invoice`, `purchase_invoice_item` per row — full traceability back to the original receipt + invoice line. Added a third per-row "Combined DN" button when both qty and rate differ; its `_lz_items` is a 2-element array (qty-variance row + rate-variance row at received qty). Stale single-button-per-row template removed from prompt.
 
 Helper script's `PARENT_WHITELIST` covers `supplier`, `customer`, `is_return`, `return_against`, `posting_date`, `due_date`, `set_warehouse`, `company`, `cost_center`, `project`, `currency`. `ITEM_WHITELIST` extended to: `item_code`, `item_name`, `description`, `qty`, `rate`, `amount`, `uom`, `stock_uom`, `conversion_factor`, `warehouse`, `cost_center`, `expense_account`, `income_account`, `project`, `tax_rate`, plus reference back-links `purchase_receipt`, `pr_detail`, `purchase_invoice`, `purchase_invoice_item`, `sales_order`, `so_detail`, `sales_invoice`, `sales_invoice_item`, `delivery_note`, `dn_detail`.
 
 ### Fix C — top-right report button via `Report.javascript`
 
-`prepare_create_report` ([tools.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py)) now accepts an optional `javascript` arg for `Query Report` / `Script Report`. At commit, it's persisted to the Report doc's `javascript` field. Frappe loads this on report open for non-standard reports (it's how `frappe.query_reports[<name>] = { onload: ... }` gets registered). Schema description in [tool_schemas.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tool_schemas.py) walks the LLM through the canonical pattern (filter `report.data` to rows with both diffs, build `_lz_items` from row fieldnames, base64-encode, `window.open(/app/purchase-invoice/new?...)`). Prompt block in [claude_bridge.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/claude_bridge.py) shows a verbatim button-handler example.
+`prepare_create_report` ([tools.py](lazychat_mcp_erpnext/desk_assistant/tools.py)) now accepts an optional `javascript` arg for `Query Report` / `Script Report`. At commit, it's persisted to the Report doc's `javascript` field. Frappe loads this on report open for non-standard reports (it's how `frappe.query_reports[<name>] = { onload: ... }` gets registered). Schema description in [tool_schemas.py](lazychat_mcp_erpnext/desk_assistant/tool_schemas.py) walks the LLM through the canonical pattern (filter `report.data` to rows with both diffs, build `_lz_items` from row fieldnames, base64-encode, `window.open(/app/purchase-invoice/new?...)`). Prompt block in [claude_bridge.py](lazychat_mcp_erpnext/desk_assistant/claude_bridge.py) shows a verbatim button-handler example.
 
 ### Smoke
 
@@ -1233,7 +1233,7 @@ Two paired fixes for the recurring "click Debit Note button → empty Items tabl
 
 **Bug 1 — `prepare_create_client_script` "Please set the document name"**: Frappe's Client Script doctype uses `autoname: Prompt`, which requires explicit `name` at insert time. The wrapper schema said "auto-names if omitted" (wrong) and the commit handler accepted a name-less payload, producing `frappe.exceptions.MandatoryError: Please set the document name`. Real-user trigger: the LLM tried to install a per-report Client Script for items prefill; both attempts failed.
 
-Fix in [tools.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py): `prepare_create_client_script` now auto-derives `name = "<DocType> <View> (lazychat <6char-hash>)"` when omitted (deterministic on the script body so re-staging the same script collides cleanly), with a `(2)`/`(3)` collision-suffix loop. Schema description in [tool_schemas.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tool_schemas.py) corrected to spell out the autoname=Prompt requirement.
+Fix in [tools.py](lazychat_mcp_erpnext/desk_assistant/tools.py): `prepare_create_client_script` now auto-derives `name = "<DocType> <View> (lazychat <6char-hash>)"` when omitted (deterministic on the script body so re-staging the same script collides cleanly), with a `(2)`/`(3)` collision-suffix loop. Schema description in [tool_schemas.py](lazychat_mcp_erpnext/desk_assistant/tool_schemas.py) corrected to spell out the autoname=Prompt requirement.
 
 **Bug 2 — Items child table can't be set via URL params**: Frappe's new-form route handler reads URL params for parent fields only — `?items[0][item_code]=...` is silently ignored. The variance report's "Debit Note ↗" button was correctly setting `is_return=1`, `return_against`, and `supplier`, but the Items child table stayed empty → user got "GST HSN Code is mandatory for Overseas Purchase Invoice" the moment they tried to save. This is a hard platform limitation; URL-only prefill cannot reach child rows.
 
@@ -1243,7 +1243,7 @@ Fix: ship a persistent helper Client Script via `install.py` `seed_lazychat_form
 - Sets `is_return=1` and `return_against=<value>` from URL params only when not already set.
 - Idempotent flag (`frm.__lz_helper_applied`) prevents double-fill on `refresh` re-fires.
 
-System prompt in [claude_bridge.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/claude_bridge.py) + chat-ui mirror in [routerSystemPrompt.ts](../lazychat.ai/apps/chat-ui/src/lib/routerSystemPrompt.ts) teach the LLM the URL convention and update the canonical variance-report SQL template to embed `&_lz_items=<TO_BASE64(JSON)>` per button. Explicit "DO NOT generate per-report Client Scripts — the persistent helper already handles this" rule prevents the LLM from re-discovering the broken auto-author pattern.
+System prompt in [claude_bridge.py](lazychat_mcp_erpnext/desk_assistant/claude_bridge.py) + chat-ui mirror in [routerSystemPrompt.ts](../lazychat.ai/apps/chat-ui/src/lib/routerSystemPrompt.ts) teach the LLM the URL convention and update the canonical variance-report SQL template to embed `&_lz_items=<TO_BASE64(JSON)>` per button. Explicit "DO NOT generate per-report Client Scripts — the persistent helper already handles this" rule prevents the LLM from re-discovering the broken auto-author pattern.
 
 **Smoke** ([scripts/smoke-test-tools.py](scripts/smoke-test-tools.py)): T88w (auto-derived name pattern), T88x (explicit name passes through), T88y (all 4 helper scripts installed + enabled + dt-correct + script body contains `_lz_items`). 191 in-process / 91 HTTP-wire / 360 chat-ui all green (was 188/91/360 → +3 in-process).
 
@@ -1253,7 +1253,7 @@ End-to-end: variance report renders Debit Note buttons whose URLs encode the lin
 
 User's complaint after multiple report-failure replays: *"can't we have something to check directly DB query so we'll be 100% confident on output?"* — every prior gate (`_validate_select_sql` regex, `_probe_select_sql_explain`) accepted queries that EXPLAIN parses cleanly but execution rejects, OR that produce wrong-shaped data with no error at all.
 
-**New 3rd-layer gate** in [tools.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py): `_probe_select_sql_execute(query, sample_size=5, timeout_sec=8)`. Wraps the LLM-supplied SELECT in `SELECT * FROM (<query>) AS _lz_probe LIMIT N` and runs it under a `SET STATEMENT MAX_STATEMENT_TIME=8 FOR ...` server-side statement timeout. Reuses `_strip_leading_sql_comments` + `_SQL_PLACEHOLDER_RE` + `_wrap_db_error` from the EXPLAIN probe. Returns `{ok: True, rows, columns, row_count_capped}` on success or `{ok: False, error, hint}` with a timeout-specific hint when MariaDB raises codes 1969/3024.
+**New 3rd-layer gate** in [tools.py](lazychat_mcp_erpnext/desk_assistant/tools.py): `_probe_select_sql_execute(query, sample_size=5, timeout_sec=8)`. Wraps the LLM-supplied SELECT in `SELECT * FROM (<query>) AS _lz_probe LIMIT N` and runs it under a `SET STATEMENT MAX_STATEMENT_TIME=8 FOR ...` server-side statement timeout. Reuses `_strip_leading_sql_comments` + `_SQL_PLACEHOLDER_RE` + `_wrap_db_error` from the EXPLAIN probe. Returns `{ok: True, rows, columns, row_count_capped}` on success or `{ok: False, error, hint}` with a timeout-specific hint when MariaDB raises codes 1969/3024.
 
 Wired into both:
 - `prepare_create_report` Query Report branch — runs after the EXPLAIN probe, blocks staging on failure, captures `sample_rows` + `sample_columns` into the preview response.
@@ -1285,7 +1285,7 @@ End-to-end probe (`PR vs PI Variance Probe`): canonical SQL template stages → 
 
 Production bug: clicking the post-Apply "Open Report →" button on a created Query Report (or Script Report) opened `/app/report/<name>`, which Frappe's router treats as Report Builder only — landed the user on **"Sorry! I could not find what you were looking for"** (and triggered a `TypeError: getdoctype() missing 1 required positional argument: 'doctype'` in the backend trace).
 
-**Cause** — two paths in [tools.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py) generated the wrong URL for Query/Script Reports:
+**Cause** — two paths in [tools.py](lazychat_mcp_erpnext/desk_assistant/tools.py) generated the wrong URL for Query/Script Reports:
 1. `prepare_create_report` preview `open_url` (line ~2803): used `/app/query-report/` for Query Reports but `/app/report/` for Script Reports — but Frappe routes Script Reports at `/app/query-report/` too. Only Report Builder reports use `/app/report/<name>`.
 2. `commit_prepared_action` response `link` (line ~4928): used the generic `f"/app/{frappe.scrub(doc.doctype)}/{doc.name}"` pattern, which produces `/app/report/<name>` for any Report doc regardless of `report_type`.
 
@@ -1301,7 +1301,7 @@ Real-user trigger 2026-05-08: replays of "report with debit-note option per line
 
 After the alias-redirect + linkage-knowledge fix landed, the LLM correctly used `pii.pr_detail = pri.name` BUT still produced reports with: (a) loose `WHERE` filter that matched non-variance rows, (b) missing `pi.docstatus = 1`, (c) un-COALESCE'd NULL receipts producing dropouts, (d) overflowing button labels visibly truncated to "Create Debit Note (Q". User shot this in the foot 5+ times running the same prompt.
 
-**Fix** — added a verbatim **canonical Query Report SQL template** to `_system_prompt` in [claude_bridge.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/claude_bridge.py) under CHILD-TABLE LINKS, plus 5 explicit quality rules:
+**Fix** — added a verbatim **canonical Query Report SQL template** to `_system_prompt` in [claude_bridge.py](lazychat_mcp_erpnext/desk_assistant/claude_bridge.py) under CHILD-TABLE LINKS, plus 5 explicit quality rules:
 1. Filter to actual variances: `WHERE (pii.qty <> COALESCE(pri.qty, 0) OR pii.rate <> COALESCE(pri.rate, 0))`.
 2. `pi.docstatus = 1` on the parent invoice — never include drafts.
 3. `COALESCE(pri.X, 0)` on every receipt-side reference — services/direct-invoice items have NULL pri.* and naive arithmetic drops them out.
@@ -1322,7 +1322,7 @@ Two LLM-knowledge gaps, both fixed at the data layer + prompt layer:
 
 ERPNext has no separate `Debit Note` doctype. A debit note is a Purchase Invoice with `is_return=1` and `return_against=<original PI name>` (analogously, Credit Note ≡ Sales Invoice with `is_return=1`). The LLM doesn't know this and bounces off `invalid doctype` repeatedly.
 
-**Fix** — new `_DOCTYPE_ALIASES` constant in [tools.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py) + `describe_doctype` returns a structured redirect when the requested doctype is one of: `Debit Note`, `Credit Note`, `Purchase Return`, `Sales Return`. Response shape: `{"error": "invalid doctype", "redirect": "Purchase Invoice", "hint": "Debit Note is NOT a separate doctype ... use prepare_create_doc({doctype:'Purchase Invoice', values:{is_return:1, return_against:'<PI-name>', ...}}) ..."}`. Lookup is case-insensitive (`.title()` normalization). Unknown doctypes still get the bare `invalid doctype` — no false-positive aliasing.
+**Fix** — new `_DOCTYPE_ALIASES` constant in [tools.py](lazychat_mcp_erpnext/desk_assistant/tools.py) + `describe_doctype` returns a structured redirect when the requested doctype is one of: `Debit Note`, `Credit Note`, `Purchase Return`, `Sales Return`. Response shape: `{"error": "invalid doctype", "redirect": "Purchase Invoice", "hint": "Debit Note is NOT a separate doctype ... use prepare_create_doc({doctype:'Purchase Invoice', values:{is_return:1, return_against:'<PI-name>', ...}}) ..."}`. Lookup is case-insensitive (`.title()` normalization). Unknown doctypes still get the bare `invalid doctype` — no false-positive aliasing.
 
 ### Gap 2 — wrong PR↔PI row linkage produces blank columns
 
@@ -1332,7 +1332,7 @@ The user's deployed report joined on `pri.purchase_invoice = pii.parent AND pri.
 
 **Canonical row-to-row link**: `Purchase Invoice Item.pr_detail` → `Purchase Receipt Item.name` (or equivalently `Purchase Receipt Item.purchase_invoice_item` → `Purchase Invoice Item.name`).
 
-**Fix** — system prompt addition in [claude_bridge.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/claude_bridge.py) and chat-ui mirror in [routerSystemPrompt.ts](../lazychat.ai/apps/chat-ui/src/lib/routerSystemPrompt.ts). Two new blocks under `CHILD-TABLE LINKS`:
+**Fix** — system prompt addition in [claude_bridge.py](lazychat_mcp_erpnext/desk_assistant/claude_bridge.py) and chat-ui mirror in [routerSystemPrompt.ts](../lazychat.ai/apps/chat-ui/src/lib/routerSystemPrompt.ts). Two new blocks under `CHILD-TABLE LINKS`:
 - **ITEM-LEVEL PR↔PI LINKAGE**: explicit table of the four directional links + canonical join pattern + explicit "DO NOT join on item_code alone" / "DO NOT rely on pri.purchase_invoice alone" warnings.
 - **DEBIT NOTE / CREDIT NOTE**: spell out the `is_return=1` flag + URL pattern for HTML link buttons (`/app/purchase-invoice/new?is_return=1&return_against=<PI-name>`) + explicit "NEVER call describe_doctype('Debit Note')" rule (it returns the redirect hint anyway, but better to skip it).
 
@@ -1348,11 +1348,11 @@ Manual replay verification: replay the user's prompt; LLM (a) doesn't bounce off
 
 Real-user replay of "report with debit-note option per line item" prompt: LLM staged a Query Report whose JOIN's `ON` clause used `pri.parent IN (SELECT DISTINCT prci.parent FROM ... WHERE ... LIMIT 1)`. Preview-time gates (`_validate_select_sql` regex + `_probe_select_sql_explain`) accepted it. Opening the report → `pymysql.err.NotSupportedError: (1235, "This version of MariaDB doesn't yet support 'LIMIT & IN/ALL/ANY/SOME subquery'")`.
 
-Two-layer fix in [tools.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py):
+Two-layer fix in [tools.py](lazychat_mcp_erpnext/desk_assistant/tools.py):
 
 **Layer 1 — static regex** in `_validate_select_sql` after the string-literal stripper. Matches `\b(IN|ANY|ALL|SOME)\s*\(\s*SELECT\b[^()]*\bLIMIT\b` against the defanged SQL. Rejects with: *"MariaDB does not support LIMIT inside IN/ANY/ALL/SOME subqueries (NotSupportedError 1235). Rewrite using a JOIN on a derived table: `SELECT a.* FROM tabA a JOIN (SELECT name FROM tabB LIMIT N) b ON a.name = b.name`."*
 
-**Layer 2 — `_wrap_db_error` classifies 1235 as `syntax`**. Direct `mariadb -e EXPLAIN ...` against the offending SQL DOES raise 1235 — but the probe at [_probe_select_sql_explain](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py) only re-raises `error_kind in ("schema", "syntax")`. Without classification, the probe silently swallowed `NotSupportedError(1235)` (`error_kind: "other"` → `return None`). Now `_wrap_db_error` detects `"1235"` in the message OR the textual pattern `"LIMIT" + ("IN/ALL/ANY/SOME" or "subquery")` and returns the same JOIN-rewrite hint with `error_kind: "syntax"`. The probe surfaces it; the LLM sees the actionable message at preview.
+**Layer 2 — `_wrap_db_error` classifies 1235 as `syntax`**. Direct `mariadb -e EXPLAIN ...` against the offending SQL DOES raise 1235 — but the probe at [_probe_select_sql_explain](lazychat_mcp_erpnext/desk_assistant/tools.py) only re-raises `error_kind in ("schema", "syntax")`. Without classification, the probe silently swallowed `NotSupportedError(1235)` (`error_kind: "other"` → `return None`). Now `_wrap_db_error` detects `"1235"` in the message OR the textual pattern `"LIMIT" + ("IN/ALL/ANY/SOME" or "subquery")` and returns the same JOIN-rewrite hint with `error_kind: "syntax"`. The probe surfaces it; the LLM sees the actionable message at preview.
 
 This catches subquery shapes the static regex misses (e.g. nested derived tables) — defense in depth.
 
@@ -1362,7 +1362,7 @@ Smoke ([scripts/smoke-test-tools.py](scripts/smoke-test-tools.py)): T88j (regex 
 
 Companion to the Script-Report safe_exec validation below. The user's "report with debit-note buttons" prompt was hitting a separate validator bug: `_validate_select_sql`'s DML/DDL regex `\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|...)\b` matched `Create` inside `CONCAT('<a class="btn">Create DN</a>')`, rejecting legitimate Query Reports with HTML link columns. The LLM kept falling back to Script Report as a workaround.
 
-Fix ([tools.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py)): new `_strip_sql_string_literals(sql)` helper replaces single-quoted string contents with empty literals (`''`) before applying the DML regex. Handles SQL's single-quote-doubling escape (`'It''s ok'` is one literal). Backtick identifiers are NOT stripped (legitimately can't carry DML keywords as values; LLM uses backticks for table names). The original SQL still flows to EXPLAIN unmodified.
+Fix ([tools.py](lazychat_mcp_erpnext/desk_assistant/tools.py)): new `_strip_sql_string_literals(sql)` helper replaces single-quoted string contents with empty literals (`''`) before applying the DML regex. Handles SQL's single-quote-doubling escape (`'It''s ok'` is one literal). Backtick identifiers are NOT stripped (legitimately can't carry DML keywords as values; LLM uses backticks for table names). The original SQL still flows to EXPLAIN unmodified.
 
 Smoke ([scripts/smoke-test-tools.py](scripts/smoke-test-tools.py)): T88f (`Create` inside `CONCAT(...)` accepted), T88g (`UPDATE/DELETE/DROP` inside string accepted), T88h (real `DROP TABLE` still rejected — caught by SELECT-prefix check), T88i (multi-statement still rejected). 176 in-process / 91 HTTP-wire all green (was 172 → +4).
 
@@ -1374,11 +1374,11 @@ Real-user transcript triage: LLM staged `prepare_create_report({report_type:"Scr
 
 Three-pillar fix:
 
-**Pillar 1 — `_validate_script_report_body` ([tools.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py)):** new AST validator runs at preview time, rejects: top-level `import` / `from ... import` (FORBIDDEN under safe_exec); calls to `__import__`, `compile`, `exec`, `eval`, `open`, `input`, `breakpoint`; write-side `frappe.db.{set_value, set_many, delete, sql_ddl, multisql, commit, rollback, savepoint, release_savepoint}`; side-effect `frappe.{sendmail, publish_realtime, publish_progress, enqueue, enqueue_doc, delete_doc, rename_doc, copy_doc}`. Each rejection returns an actionable hint pointing at the `safe_exec` rule and the canonical alternative (e.g. "Use `frappe.db.get_list` or `frappe.qb` for queries"). After AST passes, defense-in-depth: actually runs `frappe.utils.safe_exec.safe_exec(script, None, {filters: {}, data: None, result: None}, script_filename="lazychat-preview-probe")` to catch runtime errors AST can't see. Wrapped in try/except so safe_exec import failure degrades gracefully. Schema description in [tool_schemas.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tool_schemas.py) rewritten to spell out the rules + canonical pattern verbatim — schema descriptions are visible to the LLM via `tools/list`, the most direct way to teach it. System prompt ([claude_bridge.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/claude_bridge.py)) now explicitly steers the LLM toward Query Report with HTML link columns when buttons are needed; Script Report only when Python is genuinely required.
+**Pillar 1 — `_validate_script_report_body` ([tools.py](lazychat_mcp_erpnext/desk_assistant/tools.py)):** new AST validator runs at preview time, rejects: top-level `import` / `from ... import` (FORBIDDEN under safe_exec); calls to `__import__`, `compile`, `exec`, `eval`, `open`, `input`, `breakpoint`; write-side `frappe.db.{set_value, set_many, delete, sql_ddl, multisql, commit, rollback, savepoint, release_savepoint}`; side-effect `frappe.{sendmail, publish_realtime, publish_progress, enqueue, enqueue_doc, delete_doc, rename_doc, copy_doc}`. Each rejection returns an actionable hint pointing at the `safe_exec` rule and the canonical alternative (e.g. "Use `frappe.db.get_list` or `frappe.qb` for queries"). After AST passes, defense-in-depth: actually runs `frappe.utils.safe_exec.safe_exec(script, None, {filters: {}, data: None, result: None}, script_filename="lazychat-preview-probe")` to catch runtime errors AST can't see. Wrapped in try/except so safe_exec import failure degrades gracefully. Schema description in [tool_schemas.py](lazychat_mcp_erpnext/desk_assistant/tool_schemas.py) rewritten to spell out the rules + canonical pattern verbatim — schema descriptions are visible to the LLM via `tools/list`, the most direct way to teach it. System prompt ([claude_bridge.py](lazychat_mcp_erpnext/desk_assistant/claude_bridge.py)) now explicitly steers the LLM toward Query Report with HTML link columns when buttons are needed; Script Report only when Python is genuinely required.
 
 **Pillar 2 — Post-Apply UX (chat-ui):** [MCPPreviewActionCard.tsx](../lazychat.ai/apps/chat-ui/src/components/messages/MCPPreviewActionCard.tsx) + [commitSlash.ts](../lazychat.ai/apps/chat-ui/src/lib/commitSlash.ts) — new `AUTO_OPEN_AFTER_APPLY` whitelist (create_report, create_dashboard, create_kb, create_calendar_event, create_note, create_print_format) auto-opens the result URL in a new tab on commit success via `postToHost(navigateDesk { openInNewTab: true })` (or `window.open` fallback). The previously-tiny "Open Report/<name>" link replaced with a prominent styled button: bordered, hover-accent, `target="_blank"`, "Open Report →" with `ACTION_TO_LABEL` mapping for human doctype names. Best-effort auto-open + always-available prominent button = both layers user requested.
 
-**Pillar 3 — `/commit` leak scrub (chat-ui):** new `scrubCommitLeak(text)` exported helper in [agent.ts](../lazychat.ai/apps/chat-ui/src/lib/agent.ts) regex-strips lines containing `/commit <8+ chars>` (with or without "Reply with " prefix). Applied at all `cb.onDone` finalization points (`_runCore` non-streaming + streaming + `_streamToolTurn` MCP path). Defense-in-depth against the system-prompt rule: even when a model regresses and emits "Reply with /commit dx4VAVRntky38tCnPXCCqg", the user never sees it. Token may flash during streaming but the final `done`/`narration` message renders scrubbed. System prompt ([claude_bridge.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/claude_bridge.py) + [routerSystemPrompt.ts](../lazychat.ai/apps/chat-ui/src/lib/routerSystemPrompt.ts)) also strengthened with **CRITICAL COMMIT-INSTRUCTION FORBIDDEN** block.
+**Pillar 3 — `/commit` leak scrub (chat-ui):** new `scrubCommitLeak(text)` exported helper in [agent.ts](../lazychat.ai/apps/chat-ui/src/lib/agent.ts) regex-strips lines containing `/commit <8+ chars>` (with or without "Reply with " prefix). Applied at all `cb.onDone` finalization points (`_runCore` non-streaming + streaming + `_streamToolTurn` MCP path). Defense-in-depth against the system-prompt rule: even when a model regresses and emits "Reply with /commit dx4VAVRntky38tCnPXCCqg", the user never sees it. Token may flash during streaming but the final `done`/`narration` message renders scrubbed. System prompt ([claude_bridge.py](lazychat_mcp_erpnext/desk_assistant/claude_bridge.py) + [routerSystemPrompt.ts](../lazychat.ai/apps/chat-ui/src/lib/routerSystemPrompt.ts)) also strengthened with **CRITICAL COMMIT-INSTRUCTION FORBIDDEN** block.
 
 Smoke ([scripts/smoke-test-tools.py](scripts/smoke-test-tools.py)): T88a (rejects `import frappe`), T88b (rejects `from frappe import _`), T88c (rejects `frappe.db.set_value`), T88d (rejects `__import__`), T88e (happy path — clean `def execute(filters=None)` with `frappe.db.get_list`). Updated `prepare_create_doc` fixture to use ToDo (no typed wrapper) instead of Note. **172 in-process / 91 HTTP-wire / 345 chat-ui all green** (was 167/91/336 → +5 + 0 + +9 new tests).
 
@@ -1390,11 +1390,11 @@ Manual verification: replayed user's exact "i need a report with debit note crea
 
 Production triage from real chat transcript: LLM bypassed `prepare_create_report` and called `prepare_create_doc({doctype:"Report", values:{javascript:"..."}})`, got `IntegrityError 1062` (duplicate name), narrated success anyway, sent user to a dead Apply card. Same shape across multiple doctypes.
 
-Fix ([tools.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py)): new `_TYPED_WRAPPER_FOR_DOCTYPE` map covers Report, Custom Field, Client Script, Notification, Print Format, Email Template/Group/Account, Newsletter, Assignment Rule, Auto Email Report, Auto Repeat, Milestone Tracker, Number Card, Dashboard, Knowledge Base, Note, Event, Scheduled Job Type. `prepare_create_doc` now refuses for these and returns `"Use the typed wrapper '<name>' INSTEAD..."`. The LLM gets actionable redirect at preview time and uses the wrapper, which has actionable validation. Server Script deliberately stays on the generic path (no schema-able typed wrapper for arbitrary Python script bodies; gated by allow_dangerous_tools + System Manager).
+Fix ([tools.py](lazychat_mcp_erpnext/desk_assistant/tools.py)): new `_TYPED_WRAPPER_FOR_DOCTYPE` map covers Report, Custom Field, Client Script, Notification, Print Format, Email Template/Group/Account, Newsletter, Assignment Rule, Auto Email Report, Auto Repeat, Milestone Tracker, Number Card, Dashboard, Knowledge Base, Note, Event, Scheduled Job Type. `prepare_create_doc` now refuses for these and returns `"Use the typed wrapper '<name>' INSTEAD..."`. The LLM gets actionable redirect at preview time and uses the wrapper, which has actionable validation. Server Script deliberately stays on the generic path (no schema-able typed wrapper for arbitrary Python script bodies; gated by allow_dangerous_tools + System Manager).
 
 Also added: **pre-flight duplicate detection** in `prepare_create_report`. `frappe.db.exists("Report", report_name)` runs at preview, returns "Report 'X' already exists. Use prepare_update_doc to modify..." instead of letting the LLM ship a duplicate that fails at commit-time IntegrityError 1062. Updated T5 + T85-T89 smoke cases to use typed wrappers (the path that's now enforced).
 
-System prompt updated ([claude_bridge.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/claude_bridge.py) + [routerSystemPrompt.ts](../lazychat.ai/apps/chat-ui/src/lib/routerSystemPrompt.ts)): TOOL-ERROR HONESTY rule explicitly forbids "Perfect! I've staged..." narration after a Failed card; if error says "Use typed wrapper X", retry IMMEDIATELY with that wrapper; if "already exists", switch to prepare_update_doc; ANTI-LOOP rule stops the third re-stage when the same error fires twice. Both the Frappe-LLM and chat-ui-LLM paths get this.
+System prompt updated ([claude_bridge.py](lazychat_mcp_erpnext/desk_assistant/claude_bridge.py) + [routerSystemPrompt.ts](../lazychat.ai/apps/chat-ui/src/lib/routerSystemPrompt.ts)): TOOL-ERROR HONESTY rule explicitly forbids "Perfect! I've staged..." narration after a Failed card; if error says "Use typed wrapper X", retry IMMEDIATELY with that wrapper; if "already exists", switch to prepare_update_doc; ANTI-LOOP rule stops the third re-stage when the same error fires twice. Both the Frappe-LLM and chat-ui-LLM paths get this.
 
 Smoke: T87h (prepare_create_doc rejects doctype=Report → redirect), T87i (×4: Custom Field / Client Script / Notification / Print Format → typed wrappers), T87j (prepare_create_report duplicate-name pre-detection). 167 in-process / 91 HTTP-wire / 336 chat-ui all green.
 
@@ -1404,7 +1404,7 @@ Manual evidence: [test/evidence/2026-05-08-tour/04-script-report-with-real-body-
 
 Production bug observed in real chat transcript: LLM staged `prepare_create_report({report_type:"Script Report"})` with NO `script` arg → wrapper accepted → empty Report row created → user opened it → **blank page**. LLM had no way to know the body was empty so narrated "interactive buttons added" while nothing functional shipped. Same Cycle 6 hallucination shape, just for Script Reports.
 
-Fix ([tools.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py)): wrapper now requires non-empty `script` arg whenever `report_type=="Script Report"`. AST-validated for Python syntax + must contain `def execute` symbol. At commit, payload's script is persisted to the Report's `report_script` field with `script_type="Python"`. Tool schema updated ([tool_schemas.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tool_schemas.py)) so the model sees the requirement and either supplies a body or falls back to Query Report. Defense-in-depth re-check at commit too.
+Fix ([tools.py](lazychat_mcp_erpnext/desk_assistant/tools.py)): wrapper now requires non-empty `script` arg whenever `report_type=="Script Report"`. AST-validated for Python syntax + must contain `def execute` symbol. At commit, payload's script is persisted to the Report's `report_script` field with `script_type="Python"`. Tool schema updated ([tool_schemas.py](lazychat_mcp_erpnext/desk_assistant/tool_schemas.py)) so the model sees the requirement and either supplies a body or falls back to Query Report. Defense-in-depth re-check at commit too.
 
 Smoke ([scripts/smoke-test-tools.py](scripts/smoke-test-tools.py)): T87e (missing body rejected), T87f (valid body stages), T87g (whitespace-only rejected). 161 in-process / 91 HTTP-wire still 100% green.
 
@@ -1412,7 +1412,7 @@ Smoke ([scripts/smoke-test-tools.py](scripts/smoke-test-tools.py)): T87e (missin
 
 Production bug: an LLM-staged Query Report with `FROM tabPurchase_Order` (underscored, fictional) passed the regex-only `_validate_select_sql` and shipped to disk. User clicked Apply → row stored → opened the report → 1146 "Table doesn't exist" with no recovery path. Same gap for unknown columns (1054).
 
-Fix ([tools.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py)): new `_probe_select_sql_explain(query)` runs `EXPLAIN <query>` against the live DB inside `prepare_create_report` (Query Report path), with `%(filter_name)s` placeholders substituted to `NULL` so legitimate parameterized reports pass. On schema/syntax failure, returns `_wrap_db_error`'s structured hint — LLM sees "Table `tabpurchase_order` doesn't exist. ERPNext doctype tables are `tab<Doctype Name>` (with the space, no underscore)…" in the same turn and re-stages. Permission/transient errors pass through (don't fail-close on DB locks). Same probe also runs at `commit_prepared` time as defense-in-depth (line ~4148 in `tools.py`).
+Fix ([tools.py](lazychat_mcp_erpnext/desk_assistant/tools.py)): new `_probe_select_sql_explain(query)` runs `EXPLAIN <query>` against the live DB inside `prepare_create_report` (Query Report path), with `%(filter_name)s` placeholders substituted to `NULL` so legitimate parameterized reports pass. On schema/syntax failure, returns `_wrap_db_error`'s structured hint — LLM sees "Table `tabpurchase_order` doesn't exist. ERPNext doctype tables are `tab<Doctype Name>` (with the space, no underscore)…" in the same turn and re-stages. Permission/transient errors pass through (don't fail-close on DB locks). Same probe also runs at `commit_prepared` time as defense-in-depth (line ~4148 in `tools.py`).
 
 Smoke coverage ([scripts/smoke-test-tools.py](scripts/smoke-test-tools.py)): T87a (bad table rejected), T87b (valid SQL passes), T87c (unknown column rejected), T87d (`%(name)s` placeholder tolerated). 158 in-process / 91 HTTP-wire still 100% green.
 
@@ -1429,7 +1429,7 @@ turn history. Three independent gaps stacked:
 
 1. `tools.py:3367` (now wrapped) ran `frappe.db.sql(query)` with no inner
    try/except. The OperationalError fell through to the outer handler at
-   [tools.py:4048-4054](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py),
+   [tools.py:4048-4054](lazychat_mcp_erpnext/desk_assistant/tools.py),
    which returned `{ok: false, error: str(e), action}` — a flat opaque
    string with no diagnostic context.
 2. The chat-ui's `messagesToTurns` (in `agent.ts`) only emitted
@@ -1444,7 +1444,7 @@ turn history. Three independent gaps stacked:
 ### Fixes
 
 - **`tools.py` `_wrap_db_error(e, query, action)`** — new helper near
-  [`_validate_select_sql`](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py).
+  [`_validate_select_sql`](lazychat_mcp_erpnext/desk_assistant/tools.py).
   Detects MySQL error codes 1054 (unknown column), 1146 (table not found),
   1064 (syntax), 1142 (permission) and emits a structured response:
   ```python
@@ -1525,7 +1525,7 @@ turn history. Three independent gaps stacked:
 
 End-to-end perf pass on the embedded iframe. Companion changes in [../lazychat.ai/CLAUDE.md](../lazychat.ai/CLAUDE.md) Cycle 6. **First-paint critical bytes ~186 KB brotli (~221 KB gz)** down from ~321 KB-gz single-bundle baseline (~70% drop behind nginx).
 
-### Iframe element tightening ([lazychat_panel.bundle.js:509-528](lazychat_mcp_erpnext/lazychat_mcp_erpnext/public/js/lazychat_panel.bundle.js))
+### Iframe element tightening ([lazychat_panel.bundle.js:509-528](lazychat_mcp_erpnext/public/js/lazychat_panel.bundle.js))
 
 - `iframe.title = "Lazy Chat assistant"` (a11y).
 - `iframe.loading = "eager"` — explicit because the FAB-triggered open is what reveals the iframe and we want it fully booted on first reveal.
@@ -1554,7 +1554,7 @@ Two `location` blocks for the dist path, plus an embedded README:
 - Both serve precompressed `.br` / `.gz` sidecars when the client supports them. Falls back to dynamic `gzip` for anything without a sidecar.
 - Add either to the `nginx.conf` template (persists across `bench setup nginx`) or via `include /etc/nginx/conf.d/lazychat.conf` in the Frappe-generated server block.
 
-**Once this nginx config is live**, the `?v=` cache-bust in [lazychat_panel.bundle.js:154-158](lazychat_mcp_erpnext/lazychat_mcp_erpnext/public/js/lazychat_panel.bundle.js) becomes redundant and can be deleted (the no-cache header on `index.html` does the revalidation; the immutable header on hashed assets does the long-term caching).
+**Once this nginx config is live**, the `?v=` cache-bust in [lazychat_panel.bundle.js:154-158](lazychat_mcp_erpnext/public/js/lazychat_panel.bundle.js) becomes redundant and can be deleted (the no-cache header on `index.html` does the revalidation; the immutable header on hashed assets does the long-term caching).
 
 ### Lighthouse CI ([scripts/lighthouse-iframe.sh](scripts/lighthouse-iframe.sh))
 
@@ -1575,8 +1575,8 @@ When user opens a new task in this repo:
    - Read `tools.py` + `tool_schemas.py` + the new-tool checklist above
    - Pattern-match on the closest existing tool (read or prepare_*)
    - Add smoke case
-3. If task is "tune system prompt": [claude_bridge.py:27-60](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/claude_bridge.py#L27)
-4. If task is "iframe / panel UI changes": [public/js/lazychat_panel.bundle.js](lazychat_mcp_erpnext/lazychat_mcp_erpnext/public/js/lazychat_panel.bundle.js) + [public/css/lazychat_panel.css](lazychat_mcp_erpnext/lazychat_mcp_erpnext/public/css/lazychat_panel.css)
+3. If task is "tune system prompt": [claude_bridge.py:27-60](lazychat_mcp_erpnext/desk_assistant/claude_bridge.py#L27)
+4. If task is "iframe / panel UI changes": [public/js/lazychat_panel.bundle.js](lazychat_mcp_erpnext/public/js/lazychat_panel.bundle.js) + [public/css/lazychat_panel.css](lazychat_mcp_erpnext/public/css/lazychat_panel.css)
 5. If task is "different LLM provider": Desk → LLM Provider doctype, no code change
 6. If task is "deploy to a new ERPNext bench": `./scripts/deploy-local.sh` with `BENCH_ROOT` + `DEPLOY_SITE` env
 
@@ -1584,7 +1584,7 @@ When user opens a new task in this repo:
 
 | # | Sub-project | Status |
 |---|---|---|
-| MCP wire | JSONRPC-over-HTTP MCP transport at `/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle` (initialize / ping / tools/list / tools/call) — Claude Desktop and other MCP clients can connect via Frappe API key+secret; chat-ui's browser-LLM path also calls it. See [desk_assistant/mcp.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/mcp.py). Smoke covered T52–T59. | **DONE** |
+| MCP wire | JSONRPC-over-HTTP MCP transport at `/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle` (initialize / ping / tools/list / tools/call) — Claude Desktop and other MCP clients can connect via Frappe API key+secret; chat-ui's browser-LLM path also calls it. See [desk_assistant/mcp.py](lazychat_mcp_erpnext/desk_assistant/mcp.py). Smoke covered T52–T59. | **DONE** |
 | Theme sync | `pushTheme()` reads Frappe's resolved theme mode → posts `setTheme`. Also posts `setThemeTokens` with ONLY `--color-primary` (brand accent). **Surface tokens (bg/fg/border) are intentionally NOT pushed** — `setThemeTokens` writes inline styles on `<html>` which override `[data-theme="dark"]` CSS rules, so pushing surface tokens locked the iframe's theme and prevented the user's dark/light toggle from working. Fixed 2026-05-05. `MutationObserver` on parent `<html data-theme>` re-pushes on Frappe desk theme toggle. | **DONE** |
 | Route context | `deskRoute()` reads `cur_frm.doc` (name/doctype/title/workflow_state/status/dirty) on Form view + `cur_list.get_checked_items()` on List view. `_route_context_summary()` in `claude_bridge.py` prepends a briefing to the system prompt so the LLM auto-grounds "this doc" / "summarize" queries. Smoke covered T48–T51. | **DONE** |
 | Lazychat Settings doctype | Single doctype at `/app/lazychat-settings` (System Manager edit) — 8 fields: enabled, iframe_base_url, iframe_query_params, chat_path (auto/browser/backend), mcp_endpoint, legacy_widget_enabled, allow_email, allow_dangerous_tools. Replaces site_config flag scattering; site_config still wins as advanced override. boot.py `get_lazychat_settings()` is the unified resolver. T60–T64 cover defaults, boot-extension shape, fallback behavior, validation, save_conversation. | **DONE** (commit 55b432f) |

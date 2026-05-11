@@ -21,7 +21,7 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-APP_PUBLIC="$REPO_ROOT/lazychat_mcp_erpnext/lazychat_mcp_erpnext/public"
+APP_PUBLIC="$REPO_ROOT/lazychat_mcp_erpnext/public"
 DIST_DST="$APP_PUBLIC/lazychat_dist"
 
 LAZYCHAT_REPO="${LAZYCHAT_REPO:-}"

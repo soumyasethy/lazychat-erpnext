@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lazychat_mcp_erpnext"
-version = "0.2.5"
+version = "0.2.7"
 description = "Multi-provider AI assistant panel for ERPNext desk"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -18,5 +18,9 @@ dependencies = ["requests>=2.28"]
 Homepage = "https://github.com/soumyasethy/lazychat-mcp-erpnext"
 Issues = "https://github.com/soumyasethy/lazychat-mcp-erpnext/issues"
 
+[tool.setuptools]
+include-package-data = true
+
 [tool.setuptools.packages.find]
-where = ["."]
+include = ["lazychat_mcp_erpnext", "lazychat_mcp_erpnext.*"]
+namespaces = false
