@@ -896,13 +896,66 @@ _RELATIONSHIP_HINTS = {
 		}],
 	},
 	"Stock Ledger Entry": {
-		"row_link_to": [{
-			"target": "Purchase Receipt Item", "via": "voucher_detail_no",
-			"join": (
-				"sle.voucher_detail_no = pri.name "
-				"AND sle.voucher_type = 'Purchase Receipt'"
-			),
-		}],
+		"row_link_to": [
+			{
+				"target": "Purchase Receipt Item", "via": "voucher_detail_no",
+				"join": "sle.voucher_detail_no = pri.name AND sle.voucher_type = 'Purchase Receipt'",
+				"warning": "ALWAYS include voucher_type — voucher_detail_no is shared across all voucher types.",
+			},
+			{
+				"target": "Delivery Note Item", "via": "voucher_detail_no",
+				"join": "sle.voucher_detail_no = dni.name AND sle.voucher_type = 'Delivery Note'",
+				"warning": "ALWAYS include voucher_type — voucher_detail_no is shared across all voucher types.",
+			},
+			{
+				"target": "Stock Entry Detail", "via": "voucher_detail_no",
+				"join": "sle.voucher_detail_no = sed.name AND sle.voucher_type = 'Stock Entry'",
+				"warning": "ALWAYS include voucher_type — voucher_detail_no is shared across all voucher types.",
+			},
+			{
+				"target": "Purchase Invoice Item", "via": "voucher_detail_no",
+				"join": "sle.voucher_detail_no = pii.name AND sle.voucher_type = 'Purchase Invoice'",
+				"warning": "Only fires for invoice-first flows where PI updates stock; most stock movements come via PR not PI.",
+			},
+			{
+				"target": "Sales Invoice Item", "via": "voucher_detail_no",
+				"join": "sle.voucher_detail_no = sii.name AND sle.voucher_type = 'Sales Invoice'",
+				"warning": "Only fires when SI updates stock (POS / direct ship); most stock movements come via DN.",
+			},
+		],
+	},
+	# Dynamic-Link routes for the General Ledger — every accounting voucher type
+	# emits GL Entries keyed by `voucher_type` + `voucher_no`. Without these
+	# hints, BFS can't traverse from GLE to its source voucher (the Dynamic Link
+	# target is data-driven, not declarable in DocField metadata).
+	"GL Entry": {
+		"row_link_to": [
+			{
+				"target": "Purchase Invoice", "via": "voucher_no",
+				"join": "gle.voucher_no = pi.name AND gle.voucher_type = 'Purchase Invoice'",
+				"warning": "ALWAYS include voucher_type in the ON clause — voucher_no is shared across PI/SI/JE/PE/SE/etc.",
+			},
+			{
+				"target": "Sales Invoice", "via": "voucher_no",
+				"join": "gle.voucher_no = si.name AND gle.voucher_type = 'Sales Invoice'",
+				"warning": "ALWAYS include voucher_type in the ON clause — voucher_no is shared across PI/SI/JE/PE/SE/etc.",
+			},
+			{
+				"target": "Payment Entry", "via": "voucher_no",
+				"join": "gle.voucher_no = pe.name AND gle.voucher_type = 'Payment Entry'",
+				"warning": "ALWAYS include voucher_type in the ON clause — voucher_no is shared across PI/SI/JE/PE/SE/etc.",
+			},
+			{
+				"target": "Journal Entry", "via": "voucher_no",
+				"join": "gle.voucher_no = je.name AND gle.voucher_type = 'Journal Entry'",
+				"warning": "ALWAYS include voucher_type in the ON clause — voucher_no is shared across PI/SI/JE/PE/SE/etc.",
+			},
+			{
+				"target": "Stock Entry", "via": "voucher_no",
+				"join": "gle.voucher_no = se.name AND gle.voucher_type = 'Stock Entry'",
+				"warning": "ALWAYS include voucher_type in the ON clause — voucher_no is shared across PI/SI/JE/PE/SE/etc.",
+			},
+		],
 	},
 	"Purchase Receipt Item": {
 		"row_link_to": [{
@@ -916,7 +969,345 @@ _RELATIONSHIP_HINTS = {
 			"join": "dni.so_detail = soi.name",
 		}],
 	},
+	# Dynamic-Link routes — Payment Entry Reference's reference_name field is
+	# a Dynamic Link whose target is determined by reference_doctype. The graph
+	# walker can't discover these via Frappe meta alone (no static target),
+	# so we declare the canonical routes explicitly.
+	"Payment Entry Reference": {
+		"row_link_to": [{
+			"target": "Purchase Invoice", "via": "reference_name",
+			"join": "per.reference_name = pi.name AND per.reference_doctype = 'Purchase Invoice'",
+			"warning": (
+				"ALWAYS include reference_doctype in the ON clause — reference_name "
+				"is shared across PI/SI/JE and a name-only join produces wrong matches."
+			),
+		}, {
+			"target": "Sales Invoice", "via": "reference_name",
+			"join": "per.reference_name = si.name AND per.reference_doctype = 'Sales Invoice'",
+			"warning": (
+				"ALWAYS include reference_doctype in the ON clause — reference_name "
+				"is shared across PI/SI/JE and a name-only join produces wrong matches."
+			),
+		}, {
+			"target": "Journal Entry", "via": "reference_name",
+			"join": "per.reference_name = je.name AND per.reference_doctype = 'Journal Entry'",
+			"warning": (
+				"ALWAYS include reference_doctype in the ON clause — reference_name "
+				"is shared across PI/SI/JE and a name-only join produces wrong matches."
+			),
+		}, {
+			"target": "Purchase Order", "via": "reference_name",
+			"join": "per.reference_name = po.name AND per.reference_doctype = 'Purchase Order'",
+			"warning": (
+				"Advance-payment flow: Payment Entry can be allocated against a PO "
+				"(prepayment) before any invoice exists. Filter accordingly."
+			),
+		}, {
+			"target": "Sales Order", "via": "reference_name",
+			"join": "per.reference_name = so.name AND per.reference_doctype = 'Sales Order'",
+			"warning": (
+				"Advance-payment flow: Payment Entry can be allocated against an SO "
+				"(prepayment) before any invoice exists. Filter accordingly."
+			),
+		}],
+		"parent_link_to": [{
+			"target": "Payment Entry", "via": "parent",
+			"join": "per.parent = pe.name",
+			"note": "Standard child-to-parent backref via the Table fieldname.",
+		}],
+	},
 }
+
+
+# Tracking doctypes — generic Dynamic-Link references that can target ANY
+# business doctype (Communication, File, ToDo, Comment, Tag, Version). Spec
+# table drives the populator below; adding a new tracking doctype is one row.
+_TRACKING_DYNAMIC_LINKS = {
+	# tracking_doctype: {dt_field, name_field, alias}
+	"Communication":  {"dt_field": "reference_doctype", "name_field": "reference_name", "alias": "comm"},
+	"File":           {"dt_field": "attached_to_doctype", "name_field": "attached_to_name", "alias": "f"},
+	"ToDo":           {"dt_field": "reference_type",  "name_field": "reference_name", "alias": "td"},
+	"Comment":        {"dt_field": "reference_doctype", "name_field": "reference_name", "alias": "cmt"},
+	"Tag Link":       {"dt_field": "document_type", "name_field": "document_name", "alias": "tl"},
+	"Version":        {"dt_field": "ref_doctype", "name_field": "docname", "alias": "ver"},
+}
+
+# Common business-doc targets. Add to this list as new doctype families come
+# into scope; every tracking doctype above instantly gains coverage to them.
+_TRACKING_TARGETS = [
+	"Purchase Invoice", "Sales Invoice", "Purchase Order", "Sales Order",
+	"Delivery Note", "Purchase Receipt", "Quotation",
+	"Journal Entry", "Payment Entry",
+	"Customer", "Supplier", "Item",
+]
+
+
+def _populate_tracking_hints():
+	"""Generate _RELATIONSHIP_HINTS entries for tracking-doctype × target
+	pairs. Same shape as a hand-written hint; uses a stable alias-letter map
+	for the target side so the LLM can adopt them directly."""
+	target_alias = {
+		"Purchase Invoice": "pi", "Sales Invoice": "si",
+		"Purchase Order": "po", "Sales Order": "so",
+		"Delivery Note": "dn", "Purchase Receipt": "pr",
+		"Quotation": "q", "Journal Entry": "je", "Payment Entry": "pe",
+		"Customer": "cust", "Supplier": "sup", "Item": "item",
+	}
+	for tracking_dt, spec in _TRACKING_DYNAMIC_LINKS.items():
+		bucket = _RELATIONSHIP_HINTS.setdefault(tracking_dt, {"row_link_to": []})
+		bucket.setdefault("row_link_to", [])
+		for target in _TRACKING_TARGETS:
+			tgt_alias = target_alias.get(target, "x")
+			bucket["row_link_to"].append({
+				"target": target,
+				"via": spec["name_field"],
+				"join": (
+					f"{spec['alias']}.{spec['name_field']} = {tgt_alias}.name "
+					f"AND {spec['alias']}.{spec['dt_field']} = '{target}'"
+				),
+				"warning": (
+					f"Dynamic Link — ALWAYS include {spec['dt_field']} in the ON clause; "
+					f"{spec['name_field']} is shared across all reference doctypes."
+				),
+			})
+
+
+_populate_tracking_hints()
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 — Doctype Relationship Graph (find_join_path)
+# Walks Frappe's DocField metadata as a graph; returns the shortest join chain
+# between two doctypes. Eliminates the need for hand-maintained canonical SQL
+# templates in the system prompt for every (from, to) pair the LLM might need.
+# Curated hints (_RELATIONSHIP_HINTS above) override graph-discovered routes
+# when both exist — accumulated knowledge beats inference.
+# ---------------------------------------------------------------------------
+
+
+def _outgoing_edges_for(doctype):
+	"""Yield edge dicts for every Link / Table / Dynamic-Link field on
+	doctype that points elsewhere. Each edge:
+		{from, target, via_field, via_kind, on_template, child_table?}
+	`on_template` uses literal `<a>` and `<b>` placeholders for the alias of
+	the FROM and TARGET doctype's underlying tables — the caller substitutes
+	concrete aliases when assembling SQL.
+
+	Skips Dynamic Link fields (target is data-driven, not declarable) — those
+	are routed via explicit `_RELATIONSHIP_HINTS` entries.
+	"""
+	edges = []
+	try:
+		meta = frappe.get_meta(doctype)
+	except Exception:
+		return edges
+	for f in (meta.fields or []):
+		ft = f.get("fieldtype") or ""
+		if ft == "Link" and f.options:
+			edges.append({
+				"from": doctype, "target": f.options, "via_field": f.fieldname,
+				"via_kind": "link",
+				"on_template": "<a>.{fk} = <b>.name".format(fk=f.fieldname),
+			})
+		elif ft == "Table" and f.options:
+			# Parent->child traversal; the child rows live in tab<options>
+			edges.append({
+				"from": doctype, "target": f.options, "via_field": "parent",
+				"via_kind": "parent_to_child",
+				"on_template": ("<b>.parent = <a>.name "
+				                "AND <b>.parenttype = '{p}'".format(p=doctype)),
+				"child_table": True,
+			})
+	# Reverse edge: if THIS doctype is a child table, find parents that
+	# include it. Bounded query — child doctypes rarely appear as Table on
+	# many parents in practice (typically 1-2).
+	try:
+		if getattr(meta, "istable", False):
+			parents = frappe.get_all("DocField", filters={"fieldtype": "Table", "options": doctype},
+			                         fields=["parent"], distinct=True, limit=20)
+			for p in parents:
+				edges.append({
+					"from": doctype, "target": p["parent"], "via_field": "parent",
+					"via_kind": "child_to_parent",
+					"on_template": "<b>.name = <a>.parent",
+				})
+	except Exception:
+		pass
+	return edges
+
+
+def _curated_canonical_hop(from_dt, to_dt):
+	"""If _RELATIONSHIP_HINTS declares a direct canonical row-link from
+	from_dt to to_dt, return it as a single hop. Else None."""
+	hint = _RELATIONSHIP_HINTS.get(from_dt) or {}
+	for entry in (hint.get("row_link_to") or []) + (hint.get("parent_link_to") or []):
+		if entry.get("target") == to_dt:
+			return {
+				"from": from_dt, "target": to_dt,
+				"via_field": entry.get("via"),
+				"via_kind": "curated",
+				"on_template": entry.get("join", ""),
+				"warning": entry.get("warning"),
+				"note": entry.get("note"),
+			}
+	return None
+
+
+def _incoming_link_edges_for(target_dt):
+	"""Reverse Link traversal: find every doctype that has a `Link` field
+	pointing to `target_dt`. Returns edges starting AT target_dt and leading
+	TO each source doctype that points to it.
+
+	Why: BFS forward-only misses common "from master to transaction" routes
+	like Customer → Sales Invoice (SI.customer is a Link to Customer; the
+	forward graph from Customer has no edge back to SI). This unlocks the
+	~50% of report queries that start from a master doctype (Customer,
+	Supplier, Item) and need to reach a transaction.
+
+	Bounded query — Frappe's tabDocField is small (~5k rows in vanilla;
+	~10-15k with custom fields) and indexed on (fieldtype, options).
+	"""
+	edges = []
+	try:
+		rows = frappe.get_all(
+			"DocField",
+			filters={"fieldtype": "Link", "options": target_dt},
+			fields=["parent", "fieldname"],
+			limit=200,
+		)
+	except Exception:
+		return edges
+	# Also scan Custom Field — many ERPNext sites override / extend with
+	# custom Link fields that should be traversable too.
+	try:
+		rows += frappe.get_all(
+			"Custom Field",
+			filters={"fieldtype": "Link", "options": target_dt},
+			fields=["dt as parent", "fieldname"],
+			limit=200,
+		)
+	except Exception:
+		pass
+	for r in rows:
+		source_dt = r.get("parent")
+		fk = r.get("fieldname")
+		if not source_dt or not fk or source_dt == target_dt:
+			continue
+		edges.append({
+			"from": target_dt,
+			"target": source_dt,
+			"via_field": fk,
+			"via_kind": "link_reverse",
+			"on_template": "<b>.{fk} = <a>.name".format(fk=fk),
+		})
+	return edges
+
+
+def _curated_incoming_hops_to(target_dt):
+	"""Reverse of _curated_canonical_hop: scan ALL hints to find ones declaring
+	`target_dt` as their target. Returns edges that start AT target_dt and lead
+	TO the curated source doctype.
+
+	Why: dynamic-link / child-table references (e.g. `Payment Entry Reference.
+	reference_name → Purchase Invoice`) only have a forward arrow in
+	_RELATIONSHIP_HINTS. To traverse Purchase Invoice → Payment Entry, BFS needs
+	to know "who points TO me" — that's what this function provides.
+
+	The returned `on_template` reuses the original join string verbatim
+	(literal aliases like `per` and `pi`), so the LLM should adopt those
+	aliases or rename the FROM/TO accordingly.
+	"""
+	edges = []
+	for source_dt, hint in _RELATIONSHIP_HINTS.items():
+		for entry in (hint.get("row_link_to") or []) + (hint.get("parent_link_to") or []):
+			if entry.get("target") == target_dt:
+				edges.append({
+					"from": target_dt, "target": source_dt,
+					"via_field": entry.get("via"),
+					"via_kind": "curated_reverse",
+					"on_template": entry.get("join", ""),
+					"warning": entry.get("warning"),
+					"note": entry.get("note"),
+				})
+	return edges
+
+
+def _find_join_path(from_dt, to_dt, max_hops=3):
+	"""BFS over Frappe's DocField metadata graph. Returns the shortest list
+	of hops from from_dt to to_dt, preferring curated canonical edges when
+	they exist for the same (from, to) pair.
+
+	Returns None when no path is found within max_hops.
+	"""
+	if not from_dt or not to_dt or from_dt == to_dt:
+		return None
+	# Direct canonical hop — return immediately.
+	canonical = _curated_canonical_hop(from_dt, to_dt)
+	if canonical:
+		return [canonical]
+	# BFS
+	from collections import deque
+	queue = deque([(from_dt, [])])
+	seen = {from_dt}
+	while queue:
+		current, path = queue.popleft()
+		if len(path) >= max_hops:
+			continue
+		# Forward edges (this doctype's own Link/Table fields)
+		# + reverse-curated edges (who declares us as a target via a hint)
+		# + reverse-Link edges (who has a Link field pointing to us)
+		# Curated takes precedence; reverse-Link covers the long tail
+		# (Customer→Sales Invoice, Item→Purchase Order Item, etc.).
+		all_edges = (_outgoing_edges_for(current)
+		             + _curated_incoming_hops_to(current)
+		             + _incoming_link_edges_for(current))
+		for edge in all_edges:
+			target = edge["target"]
+			if target in seen:
+				continue
+			new_path = path + [edge]
+			if target == to_dt:
+				return new_path
+			seen.add(target)
+			queue.append((target, new_path))
+	return None
+
+
+def find_join_path(from_doctype, to_doctype, max_hops=3):
+	"""Public tool. Returns the canonical/shortest join chain between two
+	doctypes so the LLM doesn't have to memorize join shapes.
+
+	Output:
+	    {found: True, hops: [...], from, to, max_hops_used}
+	  | {found: False, reason, from, to}
+	"""
+	if not from_doctype or not to_doctype:
+		return {"found": False, "reason": "from_doctype and to_doctype are required",
+		        "from": from_doctype, "to": to_doctype}
+	# Coerce max_hops to int, clamp to [1,5]
+	try:
+		max_hops = max(1, min(5, int(max_hops)))
+	except (TypeError, ValueError):
+		max_hops = 3
+	hops = _find_join_path(from_doctype, to_doctype, max_hops=max_hops)
+	if hops is None:
+		return {
+			"found": False,
+			"reason": (
+				f"No join path from '{from_doctype}' to '{to_doctype}' within {max_hops} hops. "
+				"Try increasing max_hops, or one of the doctypes may not exist / may use a "
+				"Dynamic Link route that needs an explicit canonical hint."
+			),
+			"from": from_doctype, "to": to_doctype,
+		}
+	return {
+		"found": True,
+		"from": from_doctype,
+		"to": to_doctype,
+		"hops": hops,
+		"hop_count": len(hops),
+		"canonical": any(h.get("via_kind") in ("curated", "curated_reverse") for h in hops),
+	}
 
 
 def describe_doctype(doctype, *, conversation_id=None):
@@ -1433,6 +1824,13 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 
 	if name == "get_doctype_relationships":
 		return _doctype_relationships(args.get("doctype"))
+
+	if name == "find_join_path":
+		return find_join_path(
+			from_doctype=args.get("from_doctype") or args.get("from"),
+			to_doctype=args.get("to_doctype") or args.get("to"),
+			max_hops=args.get("max_hops", 3),
+		)
 
 	if name == "prepare_create_doc":
 		dt = args.get("doctype")

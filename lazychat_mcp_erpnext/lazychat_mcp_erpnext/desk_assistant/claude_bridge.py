@@ -220,6 +220,17 @@ WRITE / WORKFLOW / COMMS (always two-phase via prepare_* + /commit):
   doctype you'll reference. Schema-hallucinated columns are the #1 failure mode and surface as
   "Unknown column" OperationalErrors with a structured `hint` field — read it and retry.
 
+  DISCOVERY-FIRST: Before composing ANY cross-doctype JOIN, call
+  `find_join_path(from_doctype, to_doctype)` first. It walks Frappe's
+  metadata graph and returns the canonical join chain — including the
+  exact ON clause, fk field, and any curated warnings (e.g. "always include
+  reference_doctype in PE Reference joins"). For the most-common PR↔PI,
+  PI↔PE, SI↔PE, SO↔SI routes it returns curated canonical hops with
+  inline gotcha notes. Stop memorizing join shapes; ask the graph.
+  Multi-hop example: `find_join_path("Purchase Invoice", "Payment Entry")`
+  returns 1 hop via the `Payment Entry Reference` child table including
+  the required `reference_doctype = 'Purchase Invoice'` predicate.
+
   CHILD-TABLE LINKS: In ERPNext, cross-document references typically live on the CHILD table,
   not the parent. Common cases:
     • Purchase Receipt ↔ Purchase Order: `Purchase Receipt Item.purchase_order` (NOT a column on `tabPurchase Receipt`)
@@ -227,6 +238,7 @@ WRITE / WORKFLOW / COMMS (always two-phase via prepare_* + /commit):
     • Purchase Invoice ↔ Purchase Order:   `Purchase Invoice Item.purchase_order`
     • Sales Invoice ↔ Sales Order:         `Sales Invoice Item.sales_order`
     • Delivery Note ↔ Sales Order:         `Delivery Note Item.against_sales_order`
+    • Payment Entry → any Invoice:         `Payment Entry Reference.reference_doctype` + `.reference_name` (child of Payment Entry)
   Pattern: SELECT ... FROM `tabPurchase Receipt` pr
            JOIN `tabPurchase Receipt Item` pri ON pri.parent = pr.name
            WHERE pri.purchase_order = '...'
@@ -241,6 +253,35 @@ WRITE / WORKFLOW / COMMS (always two-phase via prepare_* + /commit):
   DO NOT join on `item_code` alone — items repeat across PRs/PIs and you'll get
   bogus matches. DO NOT rely on `pri.purchase_invoice` alone — it's only populated
   for invoice-first flows and most receipts won't have it set.
+
+  PI ↔ PAYMENT ENTRY LINKAGE (canonical for "which invoices are paid?" / "who paid what?"):
+  Payment Entry's allocation to a specific invoice lives on its CHILD table:
+    • `Payment Entry Reference.reference_doctype` = 'Purchase Invoice' / 'Sales Invoice'
+    • `Payment Entry Reference.reference_name`    → invoice name (PI or SI)
+    • `Payment Entry Reference.allocated_amount`  → portion of PE applied to that invoice
+    • `Payment Entry Reference.parent`            → Payment Entry name
+  DO NOT join Payment Entry to the invoice directly — the child table is the
+  only authoritative link. `pi.outstanding_amount = 0` tells you IF an invoice
+  is paid but not WHICH PE paid it (use the child table for that).
+  Pattern (PIs in a date range with their PEs, including unpaid; LEFT JOIN keeps unpaid rows):
+    SELECT pi.name, pi.supplier, pi.posting_date, pi.grand_total, pi.outstanding_amount,
+           GROUP_CONCAT(DISTINCT per.parent SEPARATOR ', ') AS payment_entries,
+           COALESCE(SUM(per.allocated_amount), 0)              AS paid_via_pe
+      FROM `tabPurchase Invoice` pi
+      LEFT JOIN `tabPayment Entry Reference` per
+        ON per.reference_doctype = 'Purchase Invoice'
+        AND per.reference_name = pi.name
+        AND per.docstatus = 1
+      WHERE pi.docstatus = 1
+        AND pi.posting_date BETWEEN %(from_date)s AND %(to_date)s
+      GROUP BY pi.name
+  Common HAVING clauses:
+    • Fully paid:  HAVING paid_via_pe >= pi.grand_total - 0.01  (penny tolerance)
+    • Unpaid:      HAVING paid_via_pe < pi.grand_total - 0.01 OR pi.outstanding_amount > 0
+    • Has any PE:  HAVING COUNT(per.name) > 0
+  For "December 2025 PIs with payment entries" type prompts: filter `pi.posting_date
+  BETWEEN '2025-12-01' AND '2025-12-31'` (resolve "December" to the most recent
+  December at request time — never assume the current year is correct).
 
   ERPNext doesn't have separate "Debit Note" / "Credit Note" doctypes. They're
   Purchase Invoice / Sales Invoice with `is_return=1` (and `return_against=<original>`).
