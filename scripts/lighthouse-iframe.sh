@@ -13,7 +13,7 @@
 #
 # Env vars:
 #   SITE_URL          base URL of the Frappe site (default: http://localhost:8000)
-#   IFRAME_PATH       path to the iframe HTML (default: /assets/lazychat_mcp_erpnext/lazychat_dist/index.html?frame=sidebar)
+#   IFRAME_PATH       path to the iframe HTML (default: /assets/lazychat_erpnext/lazychat_dist/index.html?frame=sidebar)
 #   PERF_MIN          performance score floor (0-100, default: 85)
 #   FCP_MAX_MS        First Contentful Paint ceiling in ms (default: 1500)
 #   LCP_MAX_MS        Largest Contentful Paint ceiling (default: 2500)
@@ -29,7 +29,7 @@
 set -euo pipefail
 
 SITE_URL="${SITE_URL:-http://localhost:8000}"
-IFRAME_PATH="${IFRAME_PATH:-/assets/lazychat_mcp_erpnext/lazychat_dist/index.html?frame=sidebar}"
+IFRAME_PATH="${IFRAME_PATH:-/assets/lazychat_erpnext/lazychat_dist/index.html?frame=sidebar}"
 PERF_MIN="${PERF_MIN:-85}"
 FCP_MAX_MS="${FCP_MAX_MS:-1500}"
 LCP_MAX_MS="${LCP_MAX_MS:-2500}"

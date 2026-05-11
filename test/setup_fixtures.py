@@ -5,8 +5,8 @@ with `_lz_smoke_`, so re-running just refreshes / no-ops. Pair with
 `teardown_fixtures.py` to remove them all.
 
 Run via:
-    cp test/setup_fixtures.py <bench>/.../lazychat_mcp_erpnext/_setup_fixtures.py
-    bench --site <site> execute lazychat_mcp_erpnext._setup_fixtures.run
+    cp test/setup_fixtures.py <bench>/.../lazychat_erpnext/_setup_fixtures.py
+    bench --site <site> execute lazychat_erpnext._setup_fixtures.run
 
 Side-effect: writes the resolved fixture names to
     test/results/fixtures.json
@@ -183,8 +183,8 @@ def _write_results_file(out: dict) -> None:
     """Persist fixture handles where curl_smoke.py can read them.
 
     The setup script lives in two places:
-      - source: lazychat-mcp-erpnext/test/setup_fixtures.py
-      - bench:  <bench>/.../lazychat_mcp_erpnext/_setup_fixtures.py (copy)
+      - source: lazychat-erpnext/test/setup_fixtures.py
+      - bench:  <bench>/.../lazychat_erpnext/_setup_fixtures.py (copy)
 
     From the bench copy, walk back to the source by env var or by best-effort
     repo discovery. If neither works, we still print to stdout so the user
@@ -195,7 +195,7 @@ def _write_results_file(out: dict) -> None:
     if env_dst:
         candidates.append(Path(env_dst))
     # Common dev path on this machine — works for the user.
-    candidates.append(Path("/Users/<you>/Desktop/code-chat/lazychat-mcp-erpnext/test/results/fixtures.json"))
+    candidates.append(Path("/Users/<you>/Desktop/code-chat/lazychat-erpnext/test/results/fixtures.json"))
     written = []
     for p in candidates:
         try:

@@ -5,10 +5,10 @@ import re
 import frappe
 from frappe import _
 
-from lazychat_mcp_erpnext.desk_assistant.password_utils import safe_provider_api_key
-from lazychat_mcp_erpnext.desk_assistant.providers import resolve_model
-from lazychat_mcp_erpnext.desk_assistant.tool_schemas import TOOL_SCHEMAS
-from lazychat_mcp_erpnext.desk_assistant.tools import execute_tool
+from lazychat_erpnext.desk_assistant.password_utils import safe_provider_api_key
+from lazychat_erpnext.desk_assistant.providers import resolve_model
+from lazychat_erpnext.desk_assistant.tool_schemas import TOOL_SCHEMAS
+from lazychat_erpnext.desk_assistant.tools import execute_tool
 
 MAX_TURNS = 8
 
@@ -508,7 +508,7 @@ Desk context JSON: """
 	# the user has no skills active. compose_active_prompt is defensive: filters
 	# out stale / disabled / inaccessible skill names automatically.
 	try:
-		from lazychat_mcp_erpnext.desk_assistant import skills as _skills
+		from lazychat_erpnext.desk_assistant import skills as _skills
 
 		s = _skills.compose_active_prompt(s)
 	except Exception:

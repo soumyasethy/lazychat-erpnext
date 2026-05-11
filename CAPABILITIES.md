@@ -413,7 +413,7 @@ Next steps:
 | Add a chat-ui component | [lazychat.ai/CLAUDE.md](../lazychat.ai/CLAUDE.md) → "Message kinds" |
 | Wire a new postMessage envelope | `packages/types/src/postmessage.ts` (lazychat.ai) + `public/js/lazychat_panel.bundle.js` (this repo) |
 | Add a system-prompt rule | `routerSystemPrompt.ts` (browser path) + `claude_bridge._system_prompt` (backend path) — keep them in sync |
-| Test end-to-end | Smoke test: `cp scripts/smoke-test-tools.py <bench>/apps/.../_smoke.py && bench --site <site> execute lazychat_mcp_erpnext._smoke.run` (currently 72 cases) |
+| Test end-to-end | Smoke test: `cp scripts/smoke-test-tools.py <bench>/apps/.../_smoke.py && bench --site <site> execute lazychat_erpnext._smoke.run` (currently 72 cases) |
 
 ---
 
@@ -432,4 +432,4 @@ Next steps:
 
 ## Feedback / requests
 
-Open an issue at [github.com/soumyasethy/lazychat-mcp-erpnext](https://github.com/soumyasethy/lazychat-mcp-erpnext/issues). For chat-UI behavior specifically, [github.com/soumyasethy/lazychat.ai](https://github.com/soumyasethy/lazychat.ai/issues).
+Open an issue at [github.com/soumyasethy/lazychat-erpnext](https://github.com/soumyasethy/lazychat-erpnext/issues). For chat-UI behavior specifically, [github.com/soumyasethy/lazychat.ai](https://github.com/soumyasethy/lazychat.ai/issues).

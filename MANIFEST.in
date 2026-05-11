@@ -1,5 +1,5 @@
-recursive-include lazychat_mcp_erpnext *.json *.py *.js *.css *.md *.html *.svg *.png
-recursive-include lazychat_mcp_erpnext/public *
-graft lazychat_mcp_erpnext/doctype
-graft lazychat_mcp_erpnext/desk_assistant
+recursive-include lazychat_erpnext *.json *.py *.js *.css *.md *.html *.svg *.png
+recursive-include lazychat_erpnext/public *
+graft lazychat_erpnext/doctype
+graft lazychat_erpnext/desk_assistant
 global-exclude __pycache__ *.py[cod]

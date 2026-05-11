@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src=".github/assets/logo.svg" width="96" alt="lazychat-mcp-erpnext"/>
+<img src=".github/assets/logo.svg" width="96" alt="lazychat-erpnext"/>
 
-# lazychat-mcp-erpnext
+# lazychat-erpnext
 
 **Talk to ERPNext like a senior consultant.**
 
@@ -286,8 +286,8 @@ Tool calls don't return raw JSON dumps to the user. Lazychat's response renderer
 
 ```bash
 cd /path/to/your/frappe-bench
-bench get-app https://github.com/soumyasethy/lazychat-mcp-erpnext --branch main
-bench --site <your-site> install-app lazychat_mcp_erpnext
+bench get-app https://github.com/soumyasethy/lazychat-erpnext --branch main
+bench --site <your-site> install-app lazychat_erpnext
 bench restart   # then open /app and look for the chat icon (right edge)
 ```
 
@@ -295,7 +295,7 @@ That's it. After-install seeds disabled-by-default LLM Provider rows (OpenAI, An
 
 ---
 
-## Why lazychat-mcp-erpnext
+## Why lazychat-erpnext
 
 - **Built for ERPNext, not bolted on.** Every tool runs as `frappe.session.user` — Frappe permissions, role checks, workflow guards, and the audit trail apply automatically. No god-mode bypass; no separate auth surface.
 - **Mutations require explicit Apply.** The LLM stages every write to a Redis token; you click Apply (or the 3-second auto-Apply countdown for low-risk actions) to commit inside `frappe.db.savepoint`. A 30-second composer-critic LLM second-opinion shows up as an amber strip when it disagrees with the staged action.
@@ -352,7 +352,7 @@ No setup required — works for Claude / OpenAI / NVIDIA / OpenRouter / Vercel /
   <img src=".github/assets/architecture.svg" alt="Architecture: ERPNext Desk → panel-shim → chat-ui iframe → mcp.handle / send_message_stream → tools.py → LLM provider"/>
 </p>
 
-The Frappe app ships a 280-line vanilla-JS shim ([`public/js/lazychat_panel.bundle.js`](lazychat_mcp_erpnext/public/js/lazychat_panel.bundle.js)) loaded via `app_include_js` on every Desk page. The shim mounts the chat-ui (a React app, sibling repo [lazychat.ai](https://github.com/soumyasethy/lazychat.ai), bundled into `public/lazychat_dist/`) as a same-origin iframe, sets up the postMessage protocol, and intercepts `/commit <token>` slash commands to call the server.
+The Frappe app ships a 280-line vanilla-JS shim ([`public/js/lazychat_panel.bundle.js`](lazychat_erpnext/public/js/lazychat_panel.bundle.js)) loaded via `app_include_js` on every Desk page. The shim mounts the chat-ui (a React app, sibling repo [lazychat.ai](https://github.com/soumyasethy/lazychat.ai), bundled into `public/lazychat_dist/`) as a same-origin iframe, sets up the postMessage protocol, and intercepts `/commit <token>` slash commands to call the server.
 
 Tool dispatch goes through one of two paths, both backed by the same 95-tool registry:
 
@@ -373,8 +373,8 @@ For consultants who want the panel up in 60 seconds with no `pnpm`, no `npm`, no
 
 ```bash
 cd /path/to/your/frappe-bench
-bench get-app https://github.com/soumyasethy/lazychat-mcp-erpnext --branch release
-bench --site <your-site> install-app lazychat_mcp_erpnext
+bench get-app https://github.com/soumyasethy/lazychat-erpnext --branch release
+bench --site <your-site> install-app lazychat_erpnext
 bench restart
 ```
 
@@ -384,18 +384,18 @@ If you want to customize the chat-ui, develop a new tool, or run HMR while editi
 
 ```bash
 git clone https://github.com/soumyasethy/lazychat.ai.git
-git clone https://github.com/soumyasethy/lazychat-mcp-erpnext.git
+git clone https://github.com/soumyasethy/lazychat-erpnext.git
 
 # Build the chat-ui dist into the Frappe app's public dir
-./lazychat-mcp-erpnext/scripts/build-lazychat-dist.sh
+./lazychat-erpnext/scripts/build-lazychat-dist.sh
 
 # Deploy to a bench
 BENCH_ROOT=/path/to/frappe-bench DEPLOY_SITE=erp.local \
-  ./lazychat-mcp-erpnext/scripts/deploy-local.sh
+  ./lazychat-erpnext/scripts/deploy-local.sh
 
 cd /path/to/frappe-bench
-bench get-app file:///absolute/path/to/lazychat-mcp-erpnext
-bench --site erp.local install-app lazychat_mcp_erpnext
+bench get-app file:///absolute/path/to/lazychat-erpnext
+bench --site erp.local install-app lazychat_erpnext
 ```
 
 ### Option C — HMR dev (chat-ui + Frappe side-by-side)
@@ -434,10 +434,10 @@ sh dev.sh
 | Field | Default | What it does |
 |---|---|---|
 | `enabled` | `true` | Master switch — mount the panel at all |
-| `iframe_base_url` | `/assets/lazychat_mcp_erpnext/lazychat_dist/index.html` | Where chat-ui loads from. Override for HMR (`http://127.0.0.1:5173`) or remote chat-ui |
+| `iframe_base_url` | `/assets/lazychat_erpnext/lazychat_dist/index.html` | Where chat-ui loads from. Override for HMR (`http://127.0.0.1:5173`) or remote chat-ui |
 | `iframe_query_params` | `?frame=sidebar` | Appended to base_url |
 | `chat_path` | `auto` | `auto` / `browser` / `backend` — see Architecture above |
-| `mcp_endpoint` | `/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle` | Read-only; browser-LLM path uses this |
+| `mcp_endpoint` | `/api/method/lazychat_erpnext.desk_assistant.mcp.handle` | Read-only; browser-LLM path uses this |
 | `legacy_widget_enabled` | `false` | Mount the OLD vanilla-JS widget INSTEAD of the iframe (mutually exclusive) |
 | `allow_email` | `true` | Enable `prepare_send_email` |
 | `allow_dangerous_tools` | `true` | Enable `prepare_run_sql` + `prepare_run_python` (still gated by System Manager role + `/commit`) |
@@ -807,7 +807,7 @@ Grouped into 12 categories. Every tool runs scoped to `frappe.session.user`'s pe
 <summary><strong>🧰 Misc / discovery helpers (6)</strong> — get_system_info, list_doc_versions, restore_deleted_doc, update_notification_settings, run_sql_select, run_python_readonly</summary>
 
 #### `get_system_info`
-**What** — Returns ERPNext version, Frappe version, app list, and `lazychat_mcp_erpnext` version.  
+**What** — Returns ERPNext version, Frappe version, app list, and `lazychat_erpnext` version.  
 **Why** — First-line diagnostic when something behaves oddly across versions.  
 **Try it** — *"What ERPNext version are we on?"*
 <img src=".github/assets/tools/get_system_info.svg" alt="get_system_info success card" width="100%"/>
@@ -1159,7 +1159,7 @@ bench --site <site> set-config lazychat_mcp_bearer_token "$(python3 -c "import s
 
 # 2. Wire into Claude Code (user scope = available in any directory)
 claude mcp add --scope user --transport http lazychat-erpnext \
-  http://localhost:8000/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle_bearer \
+  http://localhost:8000/api/method/lazychat_erpnext.desk_assistant.mcp.handle_bearer \
   --header "Authorization: Bearer <YOUR_TOKEN>"
 
 # 3. Restart Claude Code → all 95 tools available
@@ -1178,7 +1178,7 @@ Works against either endpoint:
     "lazychat-erpnext": {
       "command": "npx",
       "args": ["-y", "mcp-remote",
-               "https://your-bench.example.com/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle_bearer",
+               "https://your-bench.example.com/api/method/lazychat_erpnext.desk_assistant.mcp.handle_bearer",
                "--header", "Authorization: Bearer YOUR_TOKEN"]
     }
   }
@@ -1209,7 +1209,7 @@ In claude.ai → Settings → Connectors → **Add Custom Connector**:
 
 | Field | Value |
 |---|---|
-| **Remote MCP server URL** | `https://your-public-bench.example.com/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle` |
+| **Remote MCP server URL** | `https://your-public-bench.example.com/api/method/lazychat_erpnext.desk_assistant.mcp.handle` |
 | **OAuth Client ID** (Advanced settings) | from the bench command above |
 | **OAuth Client Secret** | from the bench command above |
 
@@ -1229,13 +1229,13 @@ Two layers, both must be green to ship:
 
 ```bash
 # Layer 1 — in-process (95 cases as of cycle 13 M3)
-cp lazychat-mcp-erpnext/scripts/smoke-test-tools.py \
-   <bench>/apps/lazychat_mcp_erpnext/lazychat_mcp_erpnext/_smoke.py
-cd <bench> && bench --site <site> execute lazychat_mcp_erpnext._smoke.run
+cp lazychat-erpnext/scripts/smoke-test-tools.py \
+   <bench>/apps/lazychat_erpnext/lazychat_erpnext/_smoke.py
+cd <bench> && bench --site <site> execute lazychat_erpnext._smoke.run
 # expected: === 244 pass, 0 fail, 2 skip ===
 
 # Layer 2 — HTTP MCP wire (all 95 tools)
-python3 lazychat-mcp-erpnext/test/curl_smoke.py
+python3 lazychat-erpnext/test/curl_smoke.py
 # expected: tools registered: 95, called: 95
 ```
 

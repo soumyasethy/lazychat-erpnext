@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Sync lazychat_mcp_erpnext into local frappe-bench, migrate DB, build assets, optional clear-cache.
+# Sync lazychat_erpnext into local frappe-bench, migrate DB, build assets, optional clear-cache.
 #
 # Typical bench sequence (this script automates when DEPLOY_SITE is set):
 #   bench --site <site> migrate     — doctypes, LLM Provider Header, seed JSON (Provider/Model), branding patch
-#   bench build --app lazychat_mcp_erpnext — bundles llm_setup_shared.js, llm_provider_form.js, llm_model_form.js, llm_setup.css
+#   bench build --app lazychat_erpnext — bundles llm_setup_shared.js, llm_provider_form.js, llm_model_form.js, llm_setup.css
 #   bench --site <site> clear-cache — after DB is reachable (refresh Desk hook metadata)
 #
 # Usage (use bash or execute directly — avoid `sh`, which skips the shebang):
@@ -31,10 +31,10 @@ _script_resolve="$0"
 [[ $_script_resolve == */* ]] || _script_resolve="./$_script_resolve"
 SCRIPT_DIR="$(cd "$(dirname "$_script_resolve")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-APP_NAME="lazychat_mcp_erpnext"
-# Repo root IS the Frappe app dir — pyproject.toml + the lazychat_mcp_erpnext/ package
+APP_NAME="lazychat_erpnext"
+# Repo root IS the Frappe app dir — pyproject.toml + the lazychat_erpnext/ package
 # live at the top level (like every Frappe app, and what `bench get-app` expects).
-# So the local rsync mirrors repo-root → <bench>/apps/lazychat_mcp_erpnext/.
+# So the local rsync mirrors repo-root → <bench>/apps/lazychat_erpnext/.
 APP_SRC="$REPO_ROOT"
 
 is_valid_bench() {
@@ -87,7 +87,7 @@ SKIP_CACHE="${SKIP_CACHE:-0}"
 
 usage() {
 	cat <<'EOF'
-Sync lazychat_mcp_erpnext into BENCH_ROOT, migrate (optional), bench build, optional clear-cache.
+Sync lazychat_erpnext into BENCH_ROOT, migrate (optional), bench build, optional clear-cache.
 
   ./scripts/deploy-local.sh
 
@@ -99,7 +99,7 @@ Sync lazychat_mcp_erpnext into BENCH_ROOT, migrate (optional), bench build, opti
 
 With DEPLOY_SITE set:
   1) bench migrate   — optional (skipped when SKIP_MIGRATE=1 or --quick; use --full after DocType/seed changes)
-  2) bench build --app lazychat_mcp_erpnext — JS/CSS bundles
+  2) bench build --app lazychat_erpnext — JS/CSS bundles
   3) bench clear-cache — Desk cache
 
 Env / flags: BENCH_ROOT, DEPLOY_SITE, SKIP_SYNC, SKIP_MIGRATE, SKIP_CACHE,

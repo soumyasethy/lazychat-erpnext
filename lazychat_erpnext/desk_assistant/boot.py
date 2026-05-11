@@ -21,10 +21,10 @@ _DEFAULT_LLM_PROXY_HOSTS = [
 
 _SETTINGS_DEFAULTS = {
 	"enabled": True,
-	"iframe_base_url": "/assets/lazychat_mcp_erpnext/lazychat_dist/index.html",
+	"iframe_base_url": "/assets/lazychat_erpnext/lazychat_dist/index.html",
 	"iframe_query_params": "?frame=sidebar",
 	"chat_path": "auto",
-	"mcp_endpoint": "/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle",
+	"mcp_endpoint": "/api/method/lazychat_erpnext.desk_assistant.mcp.handle",
 	"legacy_widget_enabled": False,
 	# Cycle 10: allow-all defaults. Defense-in-depth via System Manager
 	# role checks at tool-dispatch time + /commit confirmation per call.
@@ -107,7 +107,7 @@ def _deploy_version():
 	try:
 		import frappe as _f
 
-		app_path = _f.get_app_path("lazychat_mcp_erpnext")
+		app_path = _f.get_app_path("lazychat_erpnext")
 		index_html = os.path.join(app_path, "public", "lazychat_dist", "index.html")
 		mt = int(os.path.getmtime(index_html)) if os.path.exists(index_html) else 0
 	except Exception:
@@ -115,7 +115,7 @@ def _deploy_version():
 	# Ship version too — even when dist mtime is 0 (e.g. dist not built yet on this bench)
 	# we still get a fresh token if the app version bumps.
 	try:
-		from lazychat_mcp_erpnext import __version__ as _v
+		from lazychat_erpnext import __version__ as _v
 	except Exception:
 		_v = "0"
 	return f"{_v}.{mt}"
@@ -130,7 +130,7 @@ def boot_session(bootinfo):
 	  3. site_config.json keys (advanced override)
 
 	Defaults work without ANY admin action — the bundled chat-ui dist is served
-	at /assets/lazychat_mcp_erpnext/lazychat_dist/index.html (same-origin).
+	at /assets/lazychat_erpnext/lazychat_dist/index.html (same-origin).
 	"""
 	settings = get_lazychat_settings()
 	# Inject deploy_version so the shim can cache-bust the iframe URL when the dist changes.

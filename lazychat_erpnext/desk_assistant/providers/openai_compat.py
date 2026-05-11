@@ -2,8 +2,8 @@ import json
 
 import requests
 
-from lazychat_mcp_erpnext.desk_assistant.password_utils import safe_provider_api_key
-from lazychat_mcp_erpnext.desk_assistant.providers.base import AdapterResponse, BaseAdapter
+from lazychat_erpnext.desk_assistant.password_utils import safe_provider_api_key
+from lazychat_erpnext.desk_assistant.providers.base import AdapterResponse, BaseAdapter
 
 
 class OpenAICompatAdapter(BaseAdapter):

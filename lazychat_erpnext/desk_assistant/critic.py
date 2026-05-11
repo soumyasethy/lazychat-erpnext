@@ -133,7 +133,7 @@ def critique_composition(intent, action, payload, evidence, *, effort="medium"):
 
 	try:
 		import frappe
-		from lazychat_mcp_erpnext.desk_assistant.providers import resolve_model
+		from lazychat_erpnext.desk_assistant.providers import resolve_model
 
 		# resolve_model raises frappe.ValidationError (via frappe.throw) when
 		# the model label is unknown/disabled — catch that too.

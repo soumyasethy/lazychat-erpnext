@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """HTTP-level smoke test for the lazychat MCP wire (Layer 1 of the harness).
 
-Hits POST /api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle directly
+Hits POST /api/method/lazychat_erpnext.desk_assistant.mcp.handle directly
 with no client-side timeout, so a slow backend completes and a stuck
 connection only fails at the OS / urllib default. This brackets the bug:
 
@@ -52,7 +52,7 @@ USER = os.environ.get("FRAPPE_USER", "Administrator")
 PWD = os.environ.get("FRAPPE_PWD", "")
 QUICK = os.environ.get("QUICK_PROBE", "0") == "1"
 
-MCP_ENDPOINT = f"{URL}/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle"
+MCP_ENDPOINT = f"{URL}/api/method/lazychat_erpnext.desk_assistant.mcp.handle"
 LOGIN_ENDPOINT = f"{URL}/api/method/login"
 
 # Pull args after env load so user can override paths in env (future).

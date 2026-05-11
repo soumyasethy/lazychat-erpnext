@@ -2,7 +2,7 @@
 (function () {
 	"use strict";
 
-	frappe.provide("lazychat_mcp_erpnext.llm_setup");
+	frappe.provide("lazychat_erpnext.llm_setup");
 
 	function stripQuotes(s) {
 		const t = (s || "").trim();
@@ -66,7 +66,7 @@
 		}
 	}
 
-	lazychat_mcp_erpnext.llm_setup.parseCurl = function (raw) {
+	lazychat_erpnext.llm_setup.parseCurl = function (raw) {
 		const text = (raw || "").trim();
 		if (!text) return { error: __("Paste a cURL command first.") };
 		const url = findUrlInCurl(text);
@@ -89,7 +89,7 @@
 		return { base_url, api_key, headers, url };
 	};
 
-	lazychat_mcp_erpnext.llm_setup.applyParsedToProviderForm = function (frm, parsed) {
+	lazychat_erpnext.llm_setup.applyParsedToProviderForm = function (frm, parsed) {
 		if (parsed.error) {
 			frappe.msgprint({ title: __("cURL"), message: parsed.error, indicator: "red" });
 			return;
@@ -108,7 +108,7 @@
 	};
 
 	/** Add desk styling hook for cURL / setup modals (UI polish). */
-	lazychat_mcp_erpnext.llm_setup.wrapSetupDialog = function (d) {
+	lazychat_erpnext.llm_setup.wrapSetupDialog = function (d) {
 		const orig = d.show;
 		d.show = function () {
 			const out = orig.apply(this, arguments);

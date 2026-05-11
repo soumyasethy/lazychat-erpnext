@@ -65,7 +65,7 @@ def _server_url() -> str:
 
 def _mcp_endpoint() -> str:
 	"""The canonical MCP endpoint URL — what oauth-protected-resource.resource points at."""
-	return f"{_server_url()}/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle"
+	return f"{_server_url()}/api/method/lazychat_erpnext.desk_assistant.mcp.handle"
 
 
 def _set_response(payload: dict) -> None:
@@ -104,7 +104,7 @@ def authorization_server_metadata():
 		"token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
 		"code_challenge_methods_supported": ["S256", "plain"],
 		"scopes_supported": ["all", "openid"],
-		"service_documentation": "https://github.com/soumyasethy/lazychat-mcp-erpnext",
+		"service_documentation": "https://github.com/soumyasethy/lazychat-erpnext",
 	})
 
 
@@ -118,9 +118,9 @@ def protected_resource_metadata():
 	"""
 	base = _server_url()
 	_set_response({
-		"resource": f"{base}/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle",
+		"resource": f"{base}/api/method/lazychat_erpnext.desk_assistant.mcp.handle",
 		"authorization_servers": [base],
 		"bearer_methods_supported": ["header"],
 		"scopes_supported": ["all"],
-		"resource_documentation": "https://github.com/soumyasethy/lazychat-mcp-erpnext",
+		"resource_documentation": "https://github.com/soumyasethy/lazychat-erpnext",
 	})

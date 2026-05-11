@@ -39,7 +39,7 @@
    "description": "Master switch. If unchecked, the chat panel is not mounted on any Desk page."
   },
   {
-   "default": "/assets/lazychat_mcp_erpnext/lazychat_dist/index.html",
+   "default": "/assets/lazychat_erpnext/lazychat_dist/index.html",
    "fieldname": "iframe_base_url",
    "fieldtype": "Data",
    "label": "Iframe Base URL",
@@ -66,7 +66,7 @@
    "description": "Which side of the embed orchestrates the LLM call.\n\n* auto (default): chat-ui uses Browser-LLM if user has a custom model configured, else falls back to Backend-LLM.\n* browser: always Browser-LLM. User must configure a custom model + API key in chat-ui's model picker. Keys never reach the server.\n* backend: always Backend-LLM. Uses the LLM Provider + LLM Model doctypes (admin-controlled, shared keys). Custom models in chat-ui are ignored."
   },
   {
-   "default": "/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle",
+   "default": "/api/method/lazychat_erpnext.desk_assistant.mcp.handle",
    "fieldname": "mcp_endpoint",
    "fieldtype": "Data",
    "label": "MCP Endpoint",
@@ -77,7 +77,7 @@
    "fieldname": "section_proxy",
    "fieldtype": "Section Break",
    "label": "LLM Proxy (Browser-LLM Path)",
-   "description": "When chat-ui calls cross-origin LLM endpoints (e.g. NVIDIA, OpenAI), the request is forwarded through the Frappe proxy at /api/method/lazychat_mcp_erpnext.desk_assistant.llm_proxy.handle. The allowlist below prevents using the proxy as an open relay."
+   "description": "When chat-ui calls cross-origin LLM endpoints (e.g. NVIDIA, OpenAI), the request is forwarded through the Frappe proxy at /api/method/lazychat_erpnext.desk_assistant.llm_proxy.handle. The allowlist below prevents using the proxy as an open relay."
   },
   {
    "default": "[\"api.anthropic.com\", \"api.openai.com\", \"integrate.api.nvidia.com\", \"openrouter.ai\", \"ai-gateway.vercel.sh\", \"api.together.xyz\", \"api.groq.com\", \"api.fireworks.ai\", \"generativelanguage.googleapis.com\", \"api.deepseek.com\", \"api.mistral.ai\", \"api.cohere.com\", \"api.x.ai\"]",

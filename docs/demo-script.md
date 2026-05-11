@@ -23,7 +23,7 @@ Open [`http://localhost:8000/app/sales-invoice`](http://localhost:8000/app/sales
 
 | Time | Scene | Action |
 |---|---|---|
-| **0–5s** | Sales Invoice list view, ~40 rows visible | Title overlay (bottom-left): *lazychat-mcp-erpnext — talk to ERPNext* |
+| **0–5s** | Sales Invoice list view, ~40 rows visible | Title overlay (bottom-left): *lazychat-erpnext — talk to ERPNext* |
 | **5–15s** | Click chat FAB (right edge) → panel slides out. Type into composer: *"How many unpaid invoices do we have, grouped by customer? Top 10."* | The `aggregate` tool dispatch card appears with live elapsed timer; result table renders inline beneath it. |
 | **15–28s** | Type: *"Send a polite reminder email to the top 3 customers with their balance."* | Three `prepare_send_email` Apply cards stack. Each shows the small "verifier checked: ok" tag (critic verdict). |
 | **28–42s** | Click Apply on card 1. Watch the 3-second auto-Apply countdown finish on cards 2-3 (Edit-auto mode behavior). | Each card transitions to a green-checked Done state. |

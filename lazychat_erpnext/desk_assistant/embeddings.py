@@ -32,12 +32,12 @@ import struct
 
 import frappe
 
-from lazychat_mcp_erpnext.desk_assistant.knowledge import (
+from lazychat_erpnext.desk_assistant.knowledge import (
 	KB_DOCTYPE,
 	_user_can_read_kb,
 	extract_file_text,
 )
-from lazychat_mcp_erpnext.desk_assistant.password_utils import safe_provider_api_key
+from lazychat_erpnext.desk_assistant.password_utils import safe_provider_api_key
 
 CHUNK_DOCTYPE = "Lazychat KB Chunk"
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
@@ -400,7 +400,7 @@ def on_file_attach(doc, method=None):
 	except Exception:
 		pass
 	frappe.enqueue(
-		"lazychat_mcp_erpnext.desk_assistant.embeddings.process_kb_file",
+		"lazychat_erpnext.desk_assistant.embeddings.process_kb_file",
 		queue="default",
 		timeout=600,
 		file_name=doc.name,
@@ -453,7 +453,7 @@ def reindex_kb(kb_name):
 	for f in files:
 		try:
 			frappe.enqueue(
-				"lazychat_mcp_erpnext.desk_assistant.embeddings.process_kb_file",
+				"lazychat_erpnext.desk_assistant.embeddings.process_kb_file",
 				queue="default",
 				timeout=600,
 				file_name=f["name"],

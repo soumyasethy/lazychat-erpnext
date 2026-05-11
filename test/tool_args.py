@@ -32,8 +32,8 @@ if not _FIXTURES_PATH.exists():
     raise SystemExit(
         f"fixtures.json not found at {_FIXTURES_PATH}\n"
         "Provision fixtures first:\n"
-        "  cp test/setup_fixtures.py <bench>/.../lazychat_mcp_erpnext/_setup_fixtures.py\n"
-        "  cd <bench> && bench --site <site> execute lazychat_mcp_erpnext._setup_fixtures.run"
+        "  cp test/setup_fixtures.py <bench>/.../lazychat_erpnext/_setup_fixtures.py\n"
+        "  cd <bench> && bench --site <site> execute lazychat_erpnext._setup_fixtures.run"
     )
 F = json.loads(_FIXTURES_PATH.read_text())
 

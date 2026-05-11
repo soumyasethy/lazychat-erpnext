@@ -73,7 +73,7 @@ _DEFAULT_ALLOWED_HOSTS = [
 
 def _allowed_hosts() -> list[str]:
 	"""Resolve the host allowlist via Lazychat Settings (with fallback default)."""
-	from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+	from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 
 	raw = get_lazychat_settings().get("llm_proxy_allowed_hosts")
 	if isinstance(raw, list):
@@ -139,7 +139,7 @@ def _make_response(generator, *, status: int = 200, mimetype: str | None = None,
 	return resp
 
 
-_PROXY_PATH_API = "/api/method/lazychat_mcp_erpnext.desk_assistant.llm_proxy.handle"
+_PROXY_PATH_API = "/api/method/lazychat_erpnext.desk_assistant.llm_proxy.handle"
 _PROXY_PATH_LEGACY = "/llm-proxy"
 
 
@@ -273,7 +273,7 @@ def handle():
 	except requests.exceptions.ConnectionError as e:
 		return _make_response(f"Upstream error: connection ({e})".encode("utf-8"), status=504, mimetype="text/plain")
 	except Exception as e:
-		frappe.log_error(frappe.get_traceback(), "lazychat_mcp_erpnext.llm_proxy")
+		frappe.log_error(frappe.get_traceback(), "lazychat_erpnext.llm_proxy")
 		return _make_response(f"Proxy error: {e}".encode("utf-8"), status=502, mimetype="text/plain")
 
 	upstream_ct = upstream.headers.get("content-type") or "application/octet-stream"
@@ -286,7 +286,7 @@ def handle():
 					yield chunk
 		except Exception as e:
 			# Client disconnected or upstream died mid-stream — log + bail
-			frappe.log_error(f"llm_proxy stream error: {e}", "lazychat_mcp_erpnext.llm_proxy")
+			frappe.log_error(f"llm_proxy stream error: {e}", "lazychat_erpnext.llm_proxy")
 		finally:
 			try:
 				upstream.close()

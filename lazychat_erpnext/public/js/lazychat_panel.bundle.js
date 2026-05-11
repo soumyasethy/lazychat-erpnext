@@ -2,10 +2,10 @@
  * ERPNext Desk — lazychat-ai iframe panel.
  * Mounts a fixed-position right slide-out hosting the lazychat React UI.
  * Speaks the lazychat postMessage protocol (envelope {v:1, src, id, type, payload}).
- * Proxies agentRequest -> lazychat_mcp_erpnext.desk_assistant.api.send_message_stream (SSE)
+ * Proxies agentRequest -> lazychat_erpnext.desk_assistant.api.send_message_stream (SSE)
  * with batch send_message as fallback, replaying its events as a fake stream.
  *
- * After changing this file: bench build --app lazychat_mcp_erpnext && bench --site <site> clear-cache
+ * After changing this file: bench build --app lazychat_erpnext && bench --site <site> clear-cache
  */
 (function () {
 	"use strict";
@@ -201,7 +201,7 @@
 		const boot = (window.frappe && frappe.boot) || {};
 		const settings = boot.lazychat_settings || {};
 		const legacyIframeSrc = boot.lazychat_iframe_src || null;
-		const baseUrl = settings.iframe_base_url || "/assets/lazychat_mcp_erpnext/lazychat_dist/index.html";
+		const baseUrl = settings.iframe_base_url || "/assets/lazychat_erpnext/lazychat_dist/index.html";
 		const queryParams = settings.iframe_query_params || "?frame=sidebar";
 		// Cache-bust the iframe URL when the bundled chat-ui changes. Frappe serves the dist
 		// with Cache-Control: max-age=43200 (12h), so without this the browser keeps loading
@@ -214,7 +214,7 @@
 		// hashed assets immutable, so the entry HTML always returns the current
 		// asset hashes without a query-string nudge. Until then, leave this in.
 		const cacheBust = (settings.deploy_version
-			|| (boot.versions && boot.versions.lazychat_mcp_erpnext)
+			|| (boot.versions && boot.versions.lazychat_erpnext)
 			|| "");
 		const sep = queryParams.includes("?") ? "&" : "?";
 		const finalQuery = cacheBust ? queryParams + sep + "v=" + encodeURIComponent(cacheBust) : queryParams;
@@ -222,7 +222,7 @@
 			enabled: settings.enabled !== undefined ? !!settings.enabled : (boot.lazychat_panel_enabled !== false),
 			legacyWidget: !!(settings.legacy_widget_enabled || boot.lazychat_legacy_widget_enabled),
 			chatPath: settings.chat_path || "auto",
-			mcpEndpoint: settings.mcp_endpoint || "/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle",
+			mcpEndpoint: settings.mcp_endpoint || "/api/method/lazychat_erpnext.desk_assistant.mcp.handle",
 			iframeSrc: legacyIframeSrc || (baseUrl + finalQuery),
 		};
 	}
@@ -297,12 +297,12 @@
 	}
 
 	/* ------------------------------------------------------------------
-	 * Agent path — runs a single user turn against lazychat_mcp_erpnext.
+	 * Agent path — runs a single user turn against lazychat_erpnext.
 	 * Intercepts /commit slash commands; tries SSE first; falls back to batch + event replay.
 	 * ------------------------------------------------------------------ */
 	function runCommitCommand(token, emit) {
 		emit.chunk("Committing token `" + token + "` ...\n\n");
-		fetch("/api/method/lazychat_mcp_erpnext.desk_assistant.api.commit_prepared_action", {
+		fetch("/api/method/lazychat_erpnext.desk_assistant.api.commit_prepared_action", {
 			method: "POST",
 			credentials: "include",
 			headers: {
@@ -373,7 +373,7 @@
 						throw new Error("upload_file returned no file_url: " + JSON.stringify(uploaded));
 					}
 					emit.chunk("Uploaded → " + fileUrl + ". Attaching …\n\n");
-					return fetch("/api/method/lazychat_mcp_erpnext.desk_assistant.api.commit_prepared_action", {
+					return fetch("/api/method/lazychat_erpnext.desk_assistant.api.commit_prepared_action", {
 						method: "POST",
 						credentials: "include",
 						headers: {
@@ -420,7 +420,7 @@
 		const ctx = deskRoute();
 		const modelLabel = req.model && req.model !== "default" ? req.model : null;
 
-		const sseUrl = "/api/method/lazychat_mcp_erpnext.desk_assistant.api.send_message_stream";
+		const sseUrl = "/api/method/lazychat_erpnext.desk_assistant.api.send_message_stream";
 		const body = JSON.stringify({
 			message,
 			conversation_id: convoId,
@@ -467,7 +467,7 @@
 	}
 
 	function runBatchFallback(message, convoId, ctx, modelLabel, req, emit, setConvoId) {
-		const url = "/api/method/lazychat_mcp_erpnext.desk_assistant.api.send_message";
+		const url = "/api/method/lazychat_erpnext.desk_assistant.api.send_message";
 		return fetch(url, {
 			method: "POST",
 			credentials: "include",
@@ -716,10 +716,10 @@
 			chatPath: settings.chatPath,
 			mcpEndpoint: _abs(settings.mcpEndpoint),
 			mcpAuth: { csrf: csrf },
-			saveEndpoint: _abs("/api/method/lazychat_mcp_erpnext.desk_assistant.api.save_conversation"),
+			saveEndpoint: _abs("/api/method/lazychat_erpnext.desk_assistant.api.save_conversation"),
 			// Server-side LLM proxy for cross-origin custom-model calls (NVIDIA, OpenAI, etc).
 			// chat-ui's resolveFetchTarget routes here instead of the dev-only /llm-proxy.
-			llmProxyUrl: _abs("/api/method/lazychat_mcp_erpnext.desk_assistant.llm_proxy.handle"),
+			llmProxyUrl: _abs("/api/method/lazychat_erpnext.desk_assistant.llm_proxy.handle"),
 			// Cycle 10 — role flags for chat-ui admin-panel gating
 			isSystemManager: isSystemManager,
 			userRoles: userRoles,

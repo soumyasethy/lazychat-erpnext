@@ -79,7 +79,7 @@ API keys stay empty in fixtures — the user fills them via the form so they're 
 A clean shape: every adapter takes the same internal canonical format (which mirrors Anthropic's, since that's already what your loop speaks) and returns the same shape. The OpenAI adapter does the translation; everything else stays untouched.
 
 ```
-lazychat_mcp_erpnext/
+lazychat_erpnext/
 └── providers/
     ├── __init__.py
     ├── base.py
@@ -484,12 +484,12 @@ Patch `public/js/chat_widget.js` from §3 of the main guide. Two changes: a head
 
 ```js
 const modelPicker = $("#model-picker");
-const STORAGE_KEY = "lazychat_mcp_erpnext_model";
+const STORAGE_KEY = "lazychat_erpnext_model";
 let selectedModel = localStorage.getItem(STORAGE_KEY) || null;
 
 async function loadModels() {
   try {
-    const r = await fetch("/api/method/lazychat_mcp_erpnext.api.list_models", {
+    const r = await fetch("/api/method/lazychat_erpnext.api.list_models", {
       headers: { "X-Frappe-CSRF-Token": frappe.csrf_token },
     });
     const data = await r.json();
@@ -606,7 +606,7 @@ If you want a *model-agnostic agent* that an external client can talk to, expose
 @mcp.tool()
 def ask_erpnext_assistant(message: str, model_label: str | None = None) -> str:
     """Run the full ERPNext agent with tools, return the final answer."""
-    return _call("lazychat_mcp_erpnext.api.chat_sync", message=message, model_label=model_label)
+    return _call("lazychat_erpnext.api.chat_sync", message=message, model_label=model_label)
 ```
 
 Now Claude Desktop can use *any* provider you've configured inside ERPNext, by name, just by saying "ask the ERPNext assistant using the NVIDIA model".

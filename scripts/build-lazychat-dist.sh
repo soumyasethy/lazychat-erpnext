@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Build the lazychat chat-ui SPA and bundle the output into the lazychat_mcp_erpnext Frappe app.
+# Build the lazychat chat-ui SPA and bundle the output into the lazychat_erpnext Frappe app.
 #
-# After this runs, lazychat_mcp_erpnext/public/lazychat_dist/index.html exists and gets served at
-#   /assets/lazychat_mcp_erpnext/lazychat_dist/index.html
+# After this runs, lazychat_erpnext/public/lazychat_dist/index.html exists and gets served at
+#   /assets/lazychat_erpnext/lazychat_dist/index.html
 # on every bench that has the app installed. The boot extension uses that path as the iframe
 # src in production (developer_mode = 0).
 #
@@ -21,7 +21,7 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-APP_PUBLIC="$REPO_ROOT/lazychat_mcp_erpnext/public"
+APP_PUBLIC="$REPO_ROOT/lazychat_erpnext/public"
 DIST_DST="$APP_PUBLIC/lazychat_dist"
 
 LAZYCHAT_REPO="${LAZYCHAT_REPO:-}"
@@ -105,7 +105,7 @@ fi
 
 echo ""
 echo "================================================================"
-echo "Built lazychat dist into lazychat_mcp_erpnext."
+echo "Built lazychat dist into lazychat_erpnext."
 echo "Files:"
 ls -la "$DIST_DST" | head -10
 echo ""

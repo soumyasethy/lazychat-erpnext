@@ -1,7 +1,7 @@
 """One-shot helpers for configuring LLM Provider + LLM Model from the bench CLI.
 
 Usage:
-    bench --site <site> execute lazychat_mcp_erpnext.desk_assistant.setup_helpers.configure_provider_model \\
+    bench --site <site> execute lazychat_erpnext.desk_assistant.setup_helpers.configure_provider_model \\
         --kwargs '{"provider_name": "NVIDIA", "model_id": "bytedance/seed-oss-36b-instruct", "model_label": "NVIDIA Bytedance Seed", "supports_tools": 0, "make_default": 1}'
 
 API keys are NOT taken via this script (would land in shell history). Set via Desk UI:
@@ -78,7 +78,7 @@ def configure_provider_model(
 	frappe.db.commit()
 
 	# Check whether the API key is set
-	from lazychat_mcp_erpnext.desk_assistant.password_utils import safe_provider_api_key
+	from lazychat_erpnext.desk_assistant.password_utils import safe_provider_api_key
 
 	key = safe_provider_api_key(p)
 	site = getattr(frappe.local, "site", "<site>")

@@ -6,8 +6,8 @@ import threading
 import frappe
 from frappe import _
 
-from lazychat_mcp_erpnext.desk_assistant.claude_bridge import run_agentic_turn
-from lazychat_mcp_erpnext.desk_assistant.password_utils import safe_provider_api_key
+from lazychat_erpnext.desk_assistant.claude_bridge import run_agentic_turn
+from lazychat_erpnext.desk_assistant.password_utils import safe_provider_api_key
 
 
 def _get_or_create_conversation(conversation_id):
@@ -235,7 +235,7 @@ def list_models():
 
 @frappe.whitelist()
 def ping():
-	return {"ok": True, "app": "lazychat_mcp_erpnext"}
+	return {"ok": True, "app": "lazychat_erpnext"}
 
 
 # ---------------------------------------------------------------------------
@@ -440,7 +440,7 @@ def commit_prepared_action(token, file_url=None, fields=None):
 	  - fields: chat-ui's field-picker UI passes the selected fields list (or
 	    comma-separated string) so the export_csv action runs the actual CSV.
 	"""
-	from lazychat_mcp_erpnext.desk_assistant.tools import commit_prepared
+	from lazychat_erpnext.desk_assistant.tools import commit_prepared
 
 	tok = str(token or "").strip()
 	if not tok:
@@ -791,7 +791,7 @@ def get_lazychat_admin_snapshot():
 	Non-admin users still get the snapshot but with is_system_manager=false
 	so the chat-ui renders read-only.
 	"""
-	from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+	from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 
 	settings = get_lazychat_settings()
 	conf = {}

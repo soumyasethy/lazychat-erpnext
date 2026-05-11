@@ -41,7 +41,7 @@
 # ============================================================================
 
 # 1) Hashed assets — long-lived, immutable.
-location ^~ /assets/lazychat_mcp_erpnext/lazychat_dist/assets/ {
+location ^~ /assets/lazychat_erpnext/lazychat_dist/assets/ {
     # Vite emits content-hash filenames (e.g. index-5voQmT5N.js) so the URL
     # itself changes when the file changes. Safe to cache forever.
     add_header Cache-Control "public, max-age=31536000, immutable" always;
@@ -67,7 +67,7 @@ location ^~ /assets/lazychat_mcp_erpnext/lazychat_dist/assets/ {
 # 2) Entry HTML — must revalidate every load.
 #    The match is exact: `=` so the regex doesn't accidentally also catch
 #    `index.html?frame=sidebar` requests with extra path segments.
-location = /assets/lazychat_mcp_erpnext/lazychat_dist/index.html {
+location = /assets/lazychat_erpnext/lazychat_dist/index.html {
     add_header Cache-Control "no-cache, must-revalidate" always;
 
     brotli_static on;
@@ -113,10 +113,10 @@ location = /assets/lazychat_mcp_erpnext/lazychat_dist/index.html {
 # Notes for ops
 # -------------
 # - Verify after reload:
-#     curl -I https://erp.example.com/assets/lazychat_mcp_erpnext/lazychat_dist/assets/index-<hash>.js
+#     curl -I https://erp.example.com/assets/lazychat_erpnext/lazychat_dist/assets/index-<hash>.js
 #       → expect: Cache-Control: public, max-age=31536000, immutable
 #                 Content-Encoding: br   (when Accept-Encoding includes br)
-#     curl -I https://erp.example.com/assets/lazychat_mcp_erpnext/lazychat_dist/index.html
+#     curl -I https://erp.example.com/assets/lazychat_erpnext/lazychat_dist/index.html
 #       → expect: Cache-Control: no-cache, must-revalidate
 #                 Content-Security-Policy: ...
 # - If brotli_static errors out on `nginx -t`, your nginx is built without
