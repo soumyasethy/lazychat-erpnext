@@ -238,6 +238,161 @@ def ping():
 	return {"ok": True, "app": "lazychat_mcp_erpnext"}
 
 
+# ---------------------------------------------------------------------------
+# Usage tracking — chat-ui reports per-turn token counts here after every LLM
+# call (both browser-LLM path via runChatWithMcp and standalone runChatWith-
+# Turns). Backend run_agentic_turn writes directly via the same Document
+# insert in claude_bridge.py — single doctype, two writers.
+# ---------------------------------------------------------------------------
+
+# Provider rate hints when LLM Model lookup misses (e.g. user runs a custom
+# model not in the LLM Model registry). Conservative: zero cost when unknown
+# rather than guessing. Override per-model via LLM Model.input_price_per_mtok
+# / output_price_per_mtok.
+_USD_RATES = {  # input_per_mtok, output_per_mtok (in USD)
+	"claude-haiku-4-5": (0.25, 1.25),
+	"claude-haiku-4.5": (0.25, 1.25),
+	"claude-sonnet-4-6": (3.00, 15.00),
+	"claude-sonnet-4.6": (3.00, 15.00),
+	"claude-opus-4-7": (15.00, 75.00),
+	"claude-opus-4.7": (15.00, 75.00),
+	"gpt-4o": (2.50, 10.00),
+	"gpt-4o-mini": (0.15, 0.60),
+}
+
+
+def _resolve_cost(model_label: str, input_tokens: int, output_tokens: int) -> float:
+	"""Look up the cost per LLM Model row first; fall back to _USD_RATES;
+	return 0 when unknown. NEVER raise — cost is best-effort."""
+	try:
+		row = frappe.db.get_value(
+			"LLM Model",
+			{"model_label": model_label},
+			["input_price_per_mtok", "output_price_per_mtok"],
+			as_dict=True,
+		)
+		if row and (row.get("input_price_per_mtok") or row.get("output_price_per_mtok")):
+			ip = float(row.get("input_price_per_mtok") or 0)
+			op = float(row.get("output_price_per_mtok") or 0)
+			return (input_tokens / 1_000_000.0) * ip + (output_tokens / 1_000_000.0) * op
+	except Exception:
+		pass
+	rates = _USD_RATES.get((model_label or "").lower())
+	if rates:
+		ip, op = rates
+		return (input_tokens / 1_000_000.0) * ip + (output_tokens / 1_000_000.0) * op
+	return 0.0
+
+
+@frappe.whitelist(methods=["POST"])
+def record_usage(model_label=None, provider=None, input_tokens=0, output_tokens=0,
+                 session_id=None, path="browser"):
+	"""Persist one usage row. Called by chat-ui after each LLM turn completes.
+
+	Defensive: zero-tokens calls (no usage info from upstream) skip the write
+	entirely — no point storing empty rows.
+	"""
+	try:
+		input_tokens = int(input_tokens or 0)
+		output_tokens = int(output_tokens or 0)
+	except (TypeError, ValueError):
+		return {"ok": False, "error": "input_tokens / output_tokens must be integers"}
+	if input_tokens <= 0 and output_tokens <= 0:
+		return {"ok": True, "skipped": "zero tokens — nothing to record"}
+	if frappe.session.user in ("", "Guest"):
+		return {"ok": False, "error": "must be authenticated"}
+
+	cost = _resolve_cost(model_label or "", input_tokens, output_tokens)
+	doc = frappe.get_doc({
+		"doctype": "Lazychat Usage Log",
+		"user": frappe.session.user,
+		"model_label": (model_label or "")[:140],
+		"provider": (provider or "")[:140],
+		"input_tokens": input_tokens,
+		"output_tokens": output_tokens,
+		"cost_estimate": round(cost, 6),
+		"currency": "USD",
+		"session_id": (session_id or "")[:140],
+		"path": (path or "browser")[:32],
+	})
+	doc.insert(ignore_permissions=True)
+	return {"ok": True, "name": doc.name}
+
+
+@frappe.whitelist(methods=["GET", "POST"])
+def get_usage_summary(days=30):
+	"""Aggregate usage for the calling user (or ALL users when caller is
+	System Manager). Returns per-model rollup + totals + a tiny daily series
+	for the last `days` days.
+
+	Output:
+	  {
+	    user_scope: 'self' | 'all',
+	    days: int,
+	    totals: {input_tokens, output_tokens, cost_estimate, calls},
+	    by_model: [{model_label, provider, calls, input, output, cost}],
+	    daily: [{day: 'YYYY-MM-DD', input, output, cost}],
+	  }
+	"""
+	try:
+		days = max(1, min(365, int(days or 30)))
+	except (TypeError, ValueError):
+		days = 30
+	from frappe.utils import nowdate, add_days
+
+	is_sysmgr = "System Manager" in frappe.get_roles(frappe.session.user)
+	scope = "all" if is_sysmgr else "self"
+
+	since = add_days(nowdate(), -days + 1)  # inclusive: today - (days-1) covers `days` days
+	filters = ["creation >= %(since)s"]
+	values = {"since": since + " 00:00:00"}
+	if not is_sysmgr:
+		filters.append("user = %(user)s")
+		values["user"] = frappe.session.user
+	where = " AND ".join(filters)
+
+	by_model_rows = frappe.db.sql(f"""
+		SELECT model_label, provider,
+		       COUNT(*) AS calls,
+		       SUM(input_tokens) AS input_tokens,
+		       SUM(output_tokens) AS output_tokens,
+		       ROUND(SUM(cost_estimate), 4) AS cost_estimate
+		  FROM `tabLazychat Usage Log`
+		 WHERE {where}
+		 GROUP BY model_label, provider
+		 ORDER BY (SUM(input_tokens) + SUM(output_tokens)) DESC
+	""", values, as_dict=True)
+
+	daily_rows = frappe.db.sql(f"""
+		SELECT DATE(creation) AS day,
+		       SUM(input_tokens) AS input_tokens,
+		       SUM(output_tokens) AS output_tokens,
+		       ROUND(SUM(cost_estimate), 4) AS cost_estimate
+		  FROM `tabLazychat Usage Log`
+		 WHERE {where}
+		 GROUP BY DATE(creation)
+		 ORDER BY day ASC
+	""", values, as_dict=True)
+
+	totals = {
+		"input_tokens": sum(int(r["input_tokens"] or 0) for r in by_model_rows),
+		"output_tokens": sum(int(r["output_tokens"] or 0) for r in by_model_rows),
+		"cost_estimate": round(sum(float(r["cost_estimate"] or 0) for r in by_model_rows), 4),
+		"calls": sum(int(r["calls"] or 0) for r in by_model_rows),
+	}
+	# Cast day to str for JSON safety
+	for r in daily_rows:
+		r["day"] = str(r["day"])
+	return {
+		"user_scope": scope,
+		"days": days,
+		"since": since,
+		"totals": totals,
+		"by_model": by_model_rows,
+		"daily": daily_rows,
+	}
+
+
 @frappe.whitelist(methods=["POST"])
 def save_conversation(conversation_id=None, messages=None, title=None, model_label=None, usage=None):
 	"""Persist a conversation turn into Claude Conversation (Browser-LLM path entry).

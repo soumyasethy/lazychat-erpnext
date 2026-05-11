@@ -1,0 +1,115 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-05-11 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "user",
+  "model_label",
+  "provider",
+  "input_tokens",
+  "output_tokens",
+  "cost_estimate",
+  "currency",
+  "session_id",
+  "path"
+ ],
+ "fields": [
+  {
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "label": "User",
+   "options": "User",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "model_label",
+   "fieldtype": "Data",
+   "label": "Model",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "description": "Display label of the model used (e.g. 'claude-haiku-4.5')"
+  },
+  {
+   "fieldname": "provider",
+   "fieldtype": "Data",
+   "label": "Provider",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "description": "anthropic | openai | nvidia | vercel | openrouter | etc."
+  },
+  {
+   "default": "0",
+   "fieldname": "input_tokens",
+   "fieldtype": "Int",
+   "label": "Input Tokens",
+   "in_list_view": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "output_tokens",
+   "fieldtype": "Int",
+   "label": "Output Tokens",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "cost_estimate",
+   "fieldtype": "Float",
+   "label": "Cost Estimate",
+   "precision": "6",
+   "description": "USD cost computed from per-Mtoken rates on LLM Model. Zero when rates unset."
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Data",
+   "label": "Currency",
+   "default": "USD"
+  },
+  {
+   "fieldname": "session_id",
+   "fieldtype": "Data",
+   "label": "Session ID",
+   "description": "chat-ui session id this turn belonged to (optional)"
+  },
+  {
+   "fieldname": "path",
+   "fieldtype": "Data",
+   "label": "Path",
+   "description": "backend | browser — which agent path produced this turn"
+  }
+ ],
+ "links": [],
+ "modified": "2026-05-11 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Desk Assistant",
+ "name": "Lazychat Usage Log",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "if_owner": 1,
+   "read": 1,
+   "report": 1,
+   "role": "All"
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0,
+ "track_seen": 0
+}
