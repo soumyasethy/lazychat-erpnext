@@ -32,7 +32,10 @@ _script_resolve="$0"
 SCRIPT_DIR="$(cd "$(dirname "$_script_resolve")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 APP_NAME="lazychat_mcp_erpnext"
-APP_SRC="$REPO_ROOT/$APP_NAME"
+# Repo root IS the Frappe app dir — pyproject.toml + the lazychat_mcp_erpnext/ package
+# live at the top level (like every Frappe app, and what `bench get-app` expects).
+# So the local rsync mirrors repo-root → <bench>/apps/lazychat_mcp_erpnext/.
+APP_SRC="$REPO_ROOT"
 
 is_valid_bench() {
 	[[ -n "${1:-}" && -d "$1/apps" && -d "$1/sites" ]]
@@ -129,7 +132,7 @@ die() {
 	exit 1
 }
 
-[[ -d "$APP_SRC" ]] || die "app source not found: $APP_SRC (expected $APP_NAME next to scripts/)"
+[[ -f "$APP_SRC/pyproject.toml" && -d "$APP_SRC/$APP_NAME" ]] || die "not a Frappe app root: $APP_SRC (expected pyproject.toml + $APP_NAME/ here)"
 if [[ -z "$BENCH_ROOT" ]]; then
 	echo "deploy-local: Could not find a frappe-bench directory (must contain apps/ and sites/)." >&2
 	echo "" >&2
@@ -176,6 +179,11 @@ if [[ "$SKIP_SYNC" != "1" ]]; then
 		--exclude '.mypy_cache/' \
 		--exclude '.pytest_cache/' \
 		--exclude '.ruff_cache/' \
+		--exclude '.cursor/' \
+		--exclude '.github/' \
+		--exclude 'test/evidence/' \
+		--exclude 'test/results/' \
+		--exclude 'test/.env.local' \
 		"$APP_SRC/" "$APP_DST/"
 else
 	echo "==> SKIP_SYNC=1 — not rsyncing"

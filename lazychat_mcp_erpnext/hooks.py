@@ -22,6 +22,12 @@ app_description = "Multi-provider LLM assistant docked on the ERPNext desk"
 app_email = "sethy.soumyaranjan@gmail.com"
 app_license = "MIT"
 app_version = _v
+source_link = "https://github.com/soumyasethy/lazychat-mcp-erpnext"
+
+# Installer pulls ERPNext first — the tool registry reads ERPNext doctypes
+# (Purchase Invoice, Payment Entry, Stock Ledger Entry, …). `frappe` is
+# implied by `erpnext`.
+required_apps = ["erpnext"]
 
 # Shared helpers (cURL parse) — load before desk + doctype scripts
 app_include_js = [
