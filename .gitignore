@@ -23,8 +23,8 @@ lazychat_erpnext/_smoke.py
 # Layer-1 test harness: secrets + per-run output, not committed
 test/.env.local
 test/results/*.json
-test/evidence/*.png
-test/evidence/*.jpg
+test/evidence/
+
 
 
 # macOS
