@@ -392,7 +392,7 @@ Shipped UX:
 3. Chat-ui renders the new `<FieldPickerCard>` inline: scrollable checkbox list with every Item field, default-checked per `in_list_view`, search filter (live), All / None / Defaults presets, row-count estimate.
 4. You tick checkboxes → click **Generate CSV (N)** → card POSTs `commit_prepared_action({token, fields: [...]})` → backend writes the actual CSV → card flips to a "CSV ready · X rows · Y fields" state with a clickable download button.
 
-Reused the existing two-phase pattern + the same `commit_prepared_action` endpoint extended with a `fields` extra. New component lives at [FieldPickerCard.tsx](/Users/<you>/Desktop/code-chat/lazychat.ai/apps/chat-ui/src/components/messages/FieldPickerCard.tsx).
+Reused the existing two-phase pattern + the same `commit_prepared_action` endpoint extended with a `fields` extra. New component lives at `FieldPickerCard.tsx` in the chat-ui repo.
 
 ### Larger context handling (continuous improvement)
 

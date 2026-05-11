@@ -194,8 +194,9 @@ def _write_results_file(out: dict) -> None:
     candidates = []
     if env_dst:
         candidates.append(Path(env_dst))
-    # Common dev path on this machine — works for the user.
-    candidates.append(Path("/Users/<you>/Desktop/code-chat/lazychat-erpnext/test/results/fixtures.json"))
+    # Fallback: cwd-relative path (works when run from the repo root). Set
+    # LAZYCHAT_FIXTURES_PATH to write elsewhere; otherwise we still print to stdout.
+    candidates.append(Path("test/results/fixtures.json"))
     written = []
     for p in candidates:
         try:
