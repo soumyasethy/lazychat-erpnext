@@ -28,7 +28,7 @@ Result: **34 OK + 11 OK_ERROR + 20 SKIP_NEEDS_FIXTURE → 54 OK + 11 OK_ERROR + 
 
 ### 1b. Real impl bug fixed in tools.py — `cancel_job` (commit-ready)
 
-`cancel_job` against an already-terminal job was raising `rq.exceptions.InvalidJobOperation` with an empty message, surfacing as the confusing `cancel failed:` error. Fixed in [tools.py:1693](../lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py#L1693):
+`cancel_job` against an already-terminal job was raising `rq.exceptions.InvalidJobOperation` with an empty message, surfacing as the confusing `cancel failed:` error. Fixed in [tools.py:1693](../lazychat_erpnext/lazychat_erpnext/desk_assistant/tools.py#L1693):
 
 - Pre-flight check: if `job.status` is already `finished/failed/stopped/canceled/cancelled`, return `{ok, status, already_terminal: true}` without calling stop_job.
 - Catch `InvalidJobOperation` / `NoSuchJobError` in the except path and treat as idempotent success (RQ raises these when stop_job hits an already-terminal state asynchronously).
@@ -40,7 +40,7 @@ Regression coverage in `smoke-test-tools.py` T73 + T74 (queue a real 30s sleep j
 
 `T67 LLM proxy forwards body + Authorization + CSRF, strips host/cookie/accept-encoding/sec-fetch-*` was failing with `keep_authorization=False, keep_csrf=False`.
 
-Reading the actual impl ([`llm_proxy.py:38–55`](../lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/llm_proxy.py#L38-L55) and [`llm_proxy.py:239–245`](../lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/llm_proxy.py#L239-L245)):
+Reading the actual impl ([`llm_proxy.py:38–55`](../lazychat_erpnext/lazychat_erpnext/desk_assistant/llm_proxy.py#L38-L55) and [`llm_proxy.py:239–245`](../lazychat_erpnext/lazychat_erpnext/desk_assistant/llm_proxy.py#L239-L245)):
 
 > `Authorization` is also denied because Frappe's auth middleware processes it BEFORE this handler runs. The user's actual LLM API key arrives via `x-target-authorization` which Frappe leaves alone, and we rename it to `Authorization` upstream.
 
@@ -67,7 +67,7 @@ Plus in `agent.ts:_streamToolTurn` (line 755):
 Built + deployed (bundle hash `index-BIRyPKK0.js`). The error message format for the hang is now diagnostic:
 ```
 Failed after 60.0s: MCP fetch aborted after 60003ms
-  (tools/call → /api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle): signal timed out
+  (tools/call → /api/method/lazychat_erpnext.desk_assistant.mcp.handle): signal timed out
 ```
 
 The hang itself, however, **persists**. The fetch never resolves — even after the body-read hardening — so the issue is at the network layer (Chrome-internal queue, AbortSignal composition, or interaction with the just-closed LLM SSE connection on the same origin), not in the response handling. Reproduction details below.
@@ -112,7 +112,7 @@ Current setting: `chat_path = "auto"` (chat-ui's mcpRpc path is selected when a 
 ## What got built this session
 
 ```
-lazychat-mcp-erpnext/
+lazychat-erpnext/
 ├── test/
 │   ├── curl_smoke.py             ← Layer 1: 65 tools probed with content validation
 │   ├── tool_args.py              ← canonical args + per-tool VALIDATORS + EXPECT_ERROR_OK
@@ -146,21 +146,21 @@ lazychat.ai/apps/chat-ui/src/lib/
 ```bash
 # === Layer 1 — every tool, real fixtures, content validation ===
 cp test/setup_fixtures.py \
-   ~/Desktop/agilitas_code/erpnext/frappe-bench/apps/lazychat_mcp_erpnext/lazychat_mcp_erpnext/_setup_fixtures.py
+   ~/Desktop/agilitas_code/erpnext/frappe-bench/apps/lazychat_erpnext/lazychat_erpnext/_setup_fixtures.py
 cd ~/Desktop/agilitas_code/erpnext/frappe-bench
-bench --site erp.local execute lazychat_mcp_erpnext._setup_fixtures.run
+bench --site erp.local execute lazychat_erpnext._setup_fixtures.run
 
 cd ~/Desktop/code-chat
-python3 lazychat-mcp-erpnext/test/curl_smoke.py
+python3 lazychat-erpnext/test/curl_smoke.py
 # → [curl_smoke] summary: OK=54 | OK_ERROR=11
 # → [curl_smoke] tools registered: 65, called: 65
 echo "Exit: $?"   # → 0
 
 # === Layer 2 — in-process smoke ===
-cp lazychat-mcp-erpnext/scripts/smoke-test-tools.py \
-   ~/Desktop/agilitas_code/erpnext/frappe-bench/apps/lazychat_mcp_erpnext/lazychat_mcp_erpnext/_smoke.py
+cp lazychat-erpnext/scripts/smoke-test-tools.py \
+   ~/Desktop/agilitas_code/erpnext/frappe-bench/apps/lazychat_erpnext/lazychat_erpnext/_smoke.py
 cd ~/Desktop/agilitas_code/erpnext/frappe-bench
-bench --site erp.local execute lazychat_mcp_erpnext._smoke.run | tail -1
+bench --site erp.local execute lazychat_erpnext._smoke.run | tail -1
 # → === 80 pass, 0 fail, 0 skip ===
 
 # === Layer 3 — repro the chat-ui hang (model dependent) ===

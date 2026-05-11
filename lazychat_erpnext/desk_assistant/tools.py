@@ -28,7 +28,7 @@ SQL_ALLOWED_PATTERN = re.compile(r"^\s*(WITH|SELECT|\()", re.IGNORECASE)
 def _dangerous_tools_enabled():
 	# Defer import to avoid circular imports during install (boot.py imports nothing here,
 	# but execute_tool can be called very early from MCP wire / smoke tests).
-	from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+	from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 
 	if not get_lazychat_settings().get("allow_dangerous_tools"):
 		return False, (
@@ -58,7 +58,7 @@ def _attach_critic_feedback(
 	cycle9_enabled before invoking — this function does not check.
 	"""
 	try:
-		from lazychat_mcp_erpnext.desk_assistant.critic import critique_composition
+		from lazychat_erpnext.desk_assistant.critic import critique_composition
 		intent = args.get("_intent_summary") or default_intent
 		response_dict["critic_feedback"] = critique_composition(
 			intent, action, payload, evidence,
@@ -812,7 +812,7 @@ def _form_prefill_capabilities(doctype):
 	at compose time to learn what's prefillable on the destination form
 	without needing the prompt to enumerate fields verbatim.
 	"""
-	from lazychat_mcp_erpnext.install import (
+	from lazychat_erpnext.install import (
 		LAZYCHAT_PARENT_WHITELIST,
 		LAZYCHAT_ITEM_WHITELIST,
 		LAZYCHAT_FORM_HELPER_TARGETS,
@@ -865,7 +865,7 @@ def prepare_form_prefill(doctype, parent_fields=None, items=None, ttl=None):
 	  Same shape as api.prepare_form_prefill: {ok, token, url} on success,
 	  {ok: False, error} on validation failure.
 	"""
-	from lazychat_mcp_erpnext.desk_assistant.api import prepare_form_prefill as _api_prepare_form_prefill
+	from lazychat_erpnext.desk_assistant.api import prepare_form_prefill as _api_prepare_form_prefill
 	return _api_prepare_form_prefill(doctype=doctype, parent_fields=parent_fields, items=items, ttl=ttl)
 
 
@@ -1322,7 +1322,7 @@ def describe_doctype(doctype, *, conversation_id=None):
 	"""
 	# M3.1 — schema graph cache lookup.
 	if conversation_id:
-		from lazychat_mcp_erpnext.desk_assistant.schema_graph import schema_get, schema_put
+		from lazychat_erpnext.desk_assistant.schema_graph import schema_get, schema_put
 		cached = schema_get(conversation_id, doctype)
 		if cached is not None:
 			return {**cached, "_from_cache": True}
@@ -1368,7 +1368,7 @@ def describe_doctype(doctype, *, conversation_id=None):
 
 	# M3.1 — persist to schema graph on miss (only clean results, no errors).
 	if conversation_id and isinstance(result, dict) and not result.get("error"):
-		from lazychat_mcp_erpnext.desk_assistant.schema_graph import schema_put
+		from lazychat_erpnext.desk_assistant.schema_graph import schema_put
 		schema_put(conversation_id, doctype, result)
 
 	return result
@@ -1856,7 +1856,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		if not frappe.has_permission(dt, "create"):
 			return {"error": "no create permission"}
 		# Universal payload validator (M1.4) — only runs when cycle9_enabled.
-		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 		_settings = get_lazychat_settings()
 		if _settings.get("cycle9_enabled"):
 			# Build child_tables map: {fieldname: child_doctype} from doctype meta.
@@ -1884,7 +1884,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				_intent,
 			)
 			# M3.3 — recall matching exemplars as few-shot grounding (gated on cycle9 + Effort).
-			from lazychat_mcp_erpnext.desk_assistant.claude_bridge import EFFORT_MAP
+			from lazychat_erpnext.desk_assistant.claude_bridge import EFFORT_MAP
 			_effort = args.get("_effort") or "medium"
 			_top_n = EFFORT_MAP.get(_effort, EFFORT_MAP["medium"]).get("exemplar_top_n", 0)
 			if _top_n > 0:
@@ -1949,7 +1949,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		for f, v in patch.items():
 			diff[f] = {"from": doc.get(f) if hasattr(doc, "get") else None, "to": v}
 		# M1.7 — universal validator on update path.
-		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 		_settings_upd = get_lazychat_settings()
 		if _settings_upd.get("cycle9_enabled"):
 			_meta_upd = frappe.get_meta(dt)
@@ -1975,7 +1975,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				_intent,
 			)
 			# M3.3 — recall matching exemplars as few-shot grounding (gated on cycle9 + Effort).
-			from lazychat_mcp_erpnext.desk_assistant.claude_bridge import EFFORT_MAP
+			from lazychat_erpnext.desk_assistant.claude_bridge import EFFORT_MAP
 			_effort = args.get("_effort") or "medium"
 			_top_n = EFFORT_MAP.get(_effort, EFFORT_MAP["medium"]).get("exemplar_top_n", 0)
 			if _top_n > 0:
@@ -2038,7 +2038,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		# pre-submit doc shape — current workflow state + whether a
 		# workflow is active for the doctype — so critic can flag
 		# submitting before validation or wrong-state submission.
-		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 		if get_lazychat_settings().get("cycle9_enabled"):
 			try:
 				_current_state = frappe.db.get_value(dt, dn, "workflow_state") or None
@@ -2122,7 +2122,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		# Cycle 12 — M2: critic verdict (cycle9-gated). Reuses the doc + transitions
 		# captured during validation above so the critic can reason about the
 		# transition itself (current state, requested action, resulting state).
-		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 		if get_lazychat_settings().get("cycle9_enabled"):
 			_current_state = getattr(_doc, "workflow_state", None) if _doc else None
 			_next_state = next(
@@ -2586,7 +2586,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 	if name == "prepare_send_email":
 		# Gated to prevent accidental mass-mail. Reads Lazychat Settings doctype first,
 		# then site_config (advanced override).
-		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings as _gls
+		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings as _gls
 
 		if not _gls().get("allow_email"):
 			return {
@@ -2633,7 +2633,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		# Cycle 12 — M2: critic verdict (cycle9-gated). Evidence is shape +
 		# small samples — no full recipient list / content / subject body in
 		# the payload, so privacy is preserved.
-		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 		if get_lazychat_settings().get("cycle9_enabled"):
 			_attach_critic_feedback(
 				response_dict,
@@ -2674,7 +2674,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		# Cycle 12 — M2: critic verdict (cycle9-gated). Cheap fixed-cost
 		# count of incoming Link references gives critic real "blast radius"
 		# signal without scanning rows.
-		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 		if get_lazychat_settings().get("cycle9_enabled"):
 			try:
 				_incoming = frappe.db.count("DocField", {"options": dt, "fieldtype": "Link"})
@@ -3043,7 +3043,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"confirm_with": "click the inline Apply button to confirm",
 		}
 		# M2.6 — augment response with verification_brief when cycle9_enabled.
-		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings as _gls_sql
+		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings as _gls_sql
 		if _gls_sql().get("cycle9_enabled"):
 			_intent = args.get("_intent_summary") or ""
 			response_dict["verification_brief"] = _build_verification_brief(
@@ -3052,7 +3052,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				_intent,
 			)
 			# M3.3 — recall matching exemplars as few-shot grounding (gated on cycle9 + Effort).
-			from lazychat_mcp_erpnext.desk_assistant.claude_bridge import EFFORT_MAP
+			from lazychat_erpnext.desk_assistant.claude_bridge import EFFORT_MAP
 			_effort = args.get("_effort") or "medium"
 			_top_n = EFFORT_MAP.get(_effort, EFFORT_MAP["medium"]).get("exemplar_top_n", 0)
 			if _top_n > 0:
@@ -3109,7 +3109,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		# functions — without dry-running the script (which would need
 		# its own sandbox layer). The full source is also passed so the
 		# critic can spot logic errors.
-		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings as _gls_py
+		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings as _gls_py
 		if _gls_py().get("cycle9_enabled"):
 			_ast_summary: dict = {"imports": [], "calls": []}
 			try:
@@ -3245,7 +3245,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		}
 		# Cycle 12 — M2: critic verdict (cycle9-gated). link_refs_count gives
 		# critic visibility into how many references will need to update.
-		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 		if get_lazychat_settings().get("cycle9_enabled"):
 			try:
 				_link_refs = frappe.db.count("DocField", {"options": dt, "fieldtype": "Link"})
@@ -3352,7 +3352,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		}
 		# Cycle 12 — M2: critic verdict (cycle9-gated). fields_being_reverted
 		# helps critic flag a revert that touches surprising/sensitive fields.
-		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 		if get_lazychat_settings().get("cycle9_enabled"):
 			_attach_critic_feedback(
 				response_dict,
@@ -3525,7 +3525,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 	# every save (anywhere) pings the chat-ui as a toast. Read-only / config
 	# tools, no /commit needed.
 	if name == "subscribe_doc_changes":
-		from lazychat_mcp_erpnext.desk_assistant import realtime_subs as _rt
+		from lazychat_erpnext.desk_assistant import realtime_subs as _rt
 
 		dt = (args.get("doctype") or "").strip()
 		dn = (args.get("name") or "").strip()
@@ -3534,7 +3534,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		return _rt.subscribe(dt, dn)
 
 	if name == "unsubscribe_doc_changes":
-		from lazychat_mcp_erpnext.desk_assistant import realtime_subs as _rt
+		from lazychat_erpnext.desk_assistant import realtime_subs as _rt
 
 		dt = (args.get("doctype") or "").strip()
 		dn = (args.get("name") or "").strip()
@@ -3543,7 +3543,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		return _rt.unsubscribe(dt, dn)
 
 	if name == "list_my_subscriptions":
-		from lazychat_mcp_erpnext.desk_assistant import realtime_subs as _rt
+		from lazychat_erpnext.desk_assistant import realtime_subs as _rt
 
 		return _rt.list_my()
 
@@ -3972,12 +3972,12 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 	# txt/md/csv/json/yaml (UTF-8) + xlsx (openpyxl) + pdf (pdfplumber/pypdf) +
 	# docx (python-docx). Embeddings/vector search deferred to slice 2.
 	if name == "list_knowledge_bases":
-		from lazychat_mcp_erpnext.desk_assistant import knowledge as _kb
+		from lazychat_erpnext.desk_assistant import knowledge as _kb
 
 		return {"ok": True, "knowledge_bases": _kb.list_kbs_for_user()}
 
 	if name == "get_kb_files":
-		from lazychat_mcp_erpnext.desk_assistant import knowledge as _kb
+		from lazychat_erpnext.desk_assistant import knowledge as _kb
 
 		kb_name = (args.get("kb_name") or "").strip()
 		if not kb_name:
@@ -3985,7 +3985,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		return _kb.get_kb_files(kb_name)
 
 	if name == "search_kb":
-		from lazychat_mcp_erpnext.desk_assistant import knowledge as _kb
+		from lazychat_erpnext.desk_assistant import knowledge as _kb
 
 		query = (args.get("query") or "").strip()
 		if not query:
@@ -3995,7 +3995,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		return _kb.search(query, kb_name=kb_name, max_chunks=max_chunks)
 
 	if name == "reindex_kb":
-		from lazychat_mcp_erpnext.desk_assistant import embeddings as _emb
+		from lazychat_erpnext.desk_assistant import embeddings as _emb
 
 		kb_name = (args.get("kb_name") or "").strip()
 		if not kb_name:
@@ -4167,10 +4167,10 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			sample_columns = exec_probe.get("columns") or []
 			sample_truncated = bool(exec_probe.get("row_count_capped"))
 			# M1.6 — HTML cell scan for staged Query Reports.
-			from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+			from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 			_settings_html = get_lazychat_settings()
 			if _settings_html.get("cycle9_enabled") and sample_rows:
-				from lazychat_mcp_erpnext.install import (
+				from lazychat_erpnext.install import (
 					LAZYCHAT_PARENT_WHITELIST, LAZYCHAT_ITEM_WHITELIST,
 				)
 				_html_err = _validate_query_report_html_cells(
@@ -4263,7 +4263,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"confirm_with": "click the inline Apply button to confirm",
 		}
 		# M2.6 — augment response with verification_brief when cycle9_enabled.
-		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings as _gls_cr
+		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings as _gls_cr
 		if _gls_cr().get("cycle9_enabled"):
 			_intent_vb = args.get("_intent_summary") or ""
 			_evidence_vb = (
@@ -4282,7 +4282,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				sample_evidence=_evidence_vb,
 			)
 			# M3.3 — recall matching exemplars as few-shot grounding (gated on cycle9 + Effort).
-			from lazychat_mcp_erpnext.desk_assistant.claude_bridge import EFFORT_MAP
+			from lazychat_erpnext.desk_assistant.claude_bridge import EFFORT_MAP
 			_effort = args.get("_effort") or "medium"
 			_top_n = EFFORT_MAP.get(_effort, EFFORT_MAP["medium"]).get("exemplar_top_n", 0)
 			if _top_n > 0:
@@ -4346,7 +4346,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		if not frappe.has_permission("Scheduled Job Type", "create"):
 			return {"error": "no create permission on Scheduled Job Type"}
 		# M1.7 — universal validator on typed create.
-		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 		_settings_typ = get_lazychat_settings()
 		if _settings_typ.get("cycle9_enabled"):
 			_dtype_typ = "Scheduled Job Type"
@@ -4439,7 +4439,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			if not cname or not frappe.db.exists("Number Card", cname):
 				return {"error": f"Number Card '{cname}' not found"}
 		# M1.7 — universal validator on typed create.
-		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 		_settings_typ = get_lazychat_settings()
 		if _settings_typ.get("cycle9_enabled"):
 			_dtype_typ = "Dashboard"
@@ -4484,7 +4484,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		participants = args.get("participants") or []
 		description = args.get("description") or ""
 		# M1.7 — universal validator on typed create.
-		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 		_settings_typ = get_lazychat_settings()
 		if _settings_typ.get("cycle9_enabled"):
 			_dtype_typ = "Event"
@@ -4555,7 +4555,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		content = args.get("content") or ""
 		public = bool(args.get("public"))
 		# M1.7 — universal validator on typed create (runs on args before field checks).
-		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 		_settings_typ = get_lazychat_settings()
 		if _settings_typ.get("cycle9_enabled"):
 			_dtype_typ = "Note"
@@ -4610,7 +4610,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		# Resolve the configured ceiling. Lazychat Settings → bulk_update_max_rows
 		# (default 500). Site_config can override via lazychat_bulk_update_max_rows.
 		try:
-			from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings as _gls
+			from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings as _gls
 			settings_max = int(_gls().get("bulk_update_max_rows") or 500)
 		except Exception:
 			settings_max = 500
@@ -4671,7 +4671,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		# Cycle 12 — M2: critic verdict (cycle9-gated). affected_count is
 		# already computed by the bulk-update gate — pass it as evidence so
 		# the critic can flag overly-broad bulk operations without re-scanning.
-		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 		if get_lazychat_settings().get("cycle9_enabled"):
 			_attach_critic_feedback(
 				response_dict,
@@ -4740,7 +4740,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			except Exception as e:
 				return {"error": f"Jinja template did not render: {type(e).__name__}: {e}"}
 		# M1.7 — universal validator on typed create.
-		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 		_settings_typ = get_lazychat_settings()
 		if _settings_typ.get("cycle9_enabled"):
 			_dtype_typ = "Print Format"
@@ -4836,7 +4836,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		except Exception as e:
 			return {"error": f"response (body) Jinja did not render: {type(e).__name__}: {e}"}
 		# M1.7 — universal validator on typed create.
-		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 		_settings_typ = get_lazychat_settings()
 		if _settings_typ.get("cycle9_enabled"):
 			_dtype_typ = "Email Template"
@@ -4944,7 +4944,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		if cond_err:
 			return {"error": cond_err}
 		# M1.7 — universal validator on typed create.
-		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 		_settings_typ = get_lazychat_settings()
 		if _settings_typ.get("cycle9_enabled"):
 			_dtype_typ = "Notification"
@@ -5018,7 +5018,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		if not frappe.has_permission("Auto Email Report", "create"):
 			return {"error": "no create permission on Auto Email Report"}
 		# M1.7 — universal validator on typed create.
-		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 		_settings_typ = get_lazychat_settings()
 		if _settings_typ.get("cycle9_enabled"):
 			_dtype_typ = "Auto Email Report"
@@ -5106,7 +5106,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		if fld.fieldtype not in ("Link", "Select"):
 			return {"error": f"track_field='{track_field}' must be a Link or Select field (got {fld.fieldtype})"}
 		# M1.7 — universal validator on typed create.
-		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 		_settings_typ = get_lazychat_settings()
 		if _settings_typ.get("cycle9_enabled"):
 			_dtype_typ = "Milestone Tracker"
@@ -5186,7 +5186,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		if submit_on_creation and not frappe.has_permission(ref_dt, "submit"):
 			return {"error": f"submit_on_creation=True requires submit permission on {ref_dt}"}
 		# M1.7 — universal validator on typed create.
-		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 		_settings_typ = get_lazychat_settings()
 		if _settings_typ.get("cycle9_enabled"):
 			_dtype_typ = "Auto Repeat"
@@ -5300,7 +5300,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		if not frappe.has_permission("Newsletter", "create"):
 			return {"error": "no create permission on Newsletter"}
 		# M1.7 — universal validator on typed create.
-		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 		_settings_typ = get_lazychat_settings()
 		if _settings_typ.get("cycle9_enabled"):
 			_dtype_typ = "Newsletter"
@@ -5368,7 +5368,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		if "System Manager" not in frappe.get_roles(frappe.session.user):
 			return {"error": "System Manager role required to configure Email Accounts"}
 		try:
-			from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings as _gls
+			from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings as _gls
 			if not _gls().get("allow_email_setup"):
 				return {"error": "prepare_create_email_account is gated: enable Lazychat Settings → Allow prepare_create_email_account Tool"}
 		except Exception as e:
@@ -5546,7 +5546,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		if err:
 			return {"error": f"unassign_condition: {err}"}
 		# M1.7 — universal validator on typed create.
-		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 		_settings_typ = get_lazychat_settings()
 		if _settings_typ.get("cycle9_enabled"):
 			_dtype_typ = "Assignment Rule"
@@ -5650,7 +5650,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"description": args.get("description") or "",
 		}
 		# M1.7 — universal validator on typed create.
-		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 		_settings_typ = get_lazychat_settings()
 		if _settings_typ.get("cycle9_enabled"):
 			_dtype_typ = "Custom Field"
@@ -5707,7 +5707,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			n += 1
 		payload = {"dt": dt, "view": view, "script": script, "enabled": enabled, "name": cs_name}
 		# M1.7 — universal validator on typed create.
-		from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 		_settings_typ = get_lazychat_settings()
 		if _settings_typ.get("cycle9_enabled"):
 			_dtype_typ = "Client Script"
@@ -5771,7 +5771,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 	# tool universe, and claude_bridge._system_prompt reads it to compose the
 	# active skill snippets onto the base prompt.
 	if name in ("list_skills", "activate_skill", "deactivate_skill"):
-		from lazychat_mcp_erpnext.desk_assistant import skills
+		from lazychat_erpnext.desk_assistant import skills
 
 		if name == "list_skills":
 			return {"ok": True, "skills": skills.list_skills_for_user()}
@@ -5852,7 +5852,7 @@ def commit_prepared(token, **extras):
 			)
 			doc = frappe.get_doc(payload["doctype"], payload["name"])
 		elif action == "send_email":
-			from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings as _gls
+			from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings as _gls
 
 			if not _gls().get("allow_email"):
 				return {"ok": False, "error": "Email disabled at commit time (Lazychat Settings → Allow Email is unchecked)"}
@@ -6525,7 +6525,7 @@ def commit_prepared(token, **extras):
 			# Re-check both gates at commit (admin may have flipped flag off).
 			if "System Manager" not in frappe.get_roles(frappe.session.user):
 				return {"ok": False, "error": "System Manager role required to configure Email Accounts"}
-			from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings as _gls
+			from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings as _gls
 			if not _gls().get("allow_email_setup"):
 				return {"ok": False, "error": "allow_email_setup flag is now off"}
 			if not frappe.has_permission("Email Account", "create"):
@@ -6633,7 +6633,7 @@ def commit_prepared(token, **extras):
 		_consume_action(token)
 		# M3.3 — persist successful Apply as an exemplar for future recall.
 		try:
-			from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+			from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 			if get_lazychat_settings().get("cycle9_enabled"):
 				_action_persist = action  # e.g. "create_report", "create_doc"
 				_target_persist = (
@@ -6650,7 +6650,7 @@ def commit_prepared(token, **extras):
 				)
 		except Exception:
 			# Persist failure must NEVER break a commit. Log + continue.
-			frappe.log_error(frappe.get_traceback(), "lazychat_mcp_erpnext.persist_exemplar")
+			frappe.log_error(frappe.get_traceback(), "lazychat_erpnext.persist_exemplar")
 		# URL routing exception: Report doctype with report_type in
 		# {Query Report, Script Report} opens at /app/query-report/<name>,
 		# NOT /app/report/<name> (which is Report-Builder-only). The generic

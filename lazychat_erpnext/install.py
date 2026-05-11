@@ -3,8 +3,8 @@ import os
 
 import frappe
 
-_ASSET_LOGO = "/assets/lazychat_mcp_erpnext/images/agilitas-txt-logo.svg"
-_ASSET_ICON = "/assets/lazychat_mcp_erpnext/images/agilitas.icon.svg"
+_ASSET_LOGO = "/assets/lazychat_erpnext/images/agilitas-txt-logo.svg"
+_ASSET_ICON = "/assets/lazychat_erpnext/images/agilitas.icon.svg"
 
 
 def run_after_migrate():
@@ -16,7 +16,7 @@ def run_after_migrate():
 
 
 def after_install():
-	"""Called once when bench --site <site> install-app lazychat_mcp_erpnext succeeds.
+	"""Called once when bench --site <site> install-app lazychat_erpnext succeeds.
 
 	Defaults work without any admin action:
 	  - Lazychat Settings doctype auto-created with chat_path=auto, enabled=true
@@ -43,19 +43,19 @@ def seed_lazychat_settings():
 		frappe.get_single("Lazychat Settings")
 		frappe.db.commit()
 	except Exception:
-		frappe.log_error(frappe.get_traceback(), "lazychat_mcp_erpnext.seed_lazychat_settings")
+		frappe.log_error(frappe.get_traceback(), "lazychat_erpnext.seed_lazychat_settings")
 
 
 def lazychat_setup_check():
 	"""Verify the bundled chat-ui dist exists; warn (don't fail) with the build command if missing."""
-	app_path = frappe.get_app_path("lazychat_mcp_erpnext")
+	app_path = frappe.get_app_path("lazychat_erpnext")
 	index_html = os.path.join(app_path, "public", "lazychat_dist", "index.html")
 	if not os.path.exists(index_html):
 		msg = (
-			"\n[lazychat_mcp_erpnext] WARNING: bundled chat-ui dist NOT found at\n"
+			"\n[lazychat_erpnext] WARNING: bundled chat-ui dist NOT found at\n"
 			f"    {index_html}\n"
 			"  The lazychat panel will fail to load until you build it.\n"
-			"  From your lazychat-mcp-erpnext repo:\n"
+			"  From your lazychat-erpnext repo:\n"
 			"    ./scripts/build-lazychat-dist.sh\n"
 			"    ./scripts/deploy-local.sh\n"
 			"  Or set 'lazychat_iframe_src' in site_config.json to a running chat-ui URL.\n"
@@ -65,7 +65,7 @@ def lazychat_setup_check():
 		except Exception:
 			pass
 		try:
-			frappe.log_error(msg, "lazychat_mcp_erpnext lazychat dist missing")
+			frappe.log_error(msg, "lazychat_erpnext lazychat dist missing")
 		except Exception:
 			pass
 
@@ -75,7 +75,7 @@ def _print_welcome_banner():
 	banner = (
 		"\n"
 		"================================================================\n"
-		" lazychat_mcp_erpnext installed\n"
+		" lazychat_erpnext installed\n"
 		"================================================================\n"
 		f" Site:     {site}\n"
 		" Panel:    enabled by default (right-side slide-out via FAB)\n"
@@ -104,7 +104,7 @@ def _print_welcome_banner():
 		"   }\n"
 		"\n"
 		" Smoke test (verifies all 38 tools + settings + MCP against real data):\n"
-		f"   bench --site {site} execute lazychat_mcp_erpnext._smoke.run\n"
+		f"   bench --site {site} execute lazychat_erpnext._smoke.run\n"
 		"================================================================\n"
 	)
 	try:
@@ -171,7 +171,7 @@ LAZYCHAT_FORM_HELPER_TARGETS = (
 )
 
 _LAZYCHAT_FORM_HELPER_SCRIPT = r"""
-// Lazychat form-fill helper — seeded by lazychat_mcp_erpnext install hooks.
+// Lazychat form-fill helper — seeded by lazychat_erpnext install hooks.
 // Reads URL params on a NEW form and prefills parent fields + the items
 // child table. The variance-report HTML buttons emit URLs like:
 //   /app/purchase-invoice/new?is_return=1&return_against=PI-XXX&supplier=ACME&_lz_items=<base64-json>
@@ -334,7 +334,7 @@ _LAZYCHAT_FORM_HELPER_SCRIPT = r"""
       frm.__lz_token_fetching = true;
       // First fetch — single-use, server consumes on read.
       frappe.call({
-        method: "lazychat_mcp_erpnext.desk_assistant.api.fetch_form_prefill",
+        method: "lazychat_erpnext.desk_assistant.api.fetch_form_prefill",
         args: { token: token },
         callback: function (r) {
           frm.__lz_token_fetching = false;
@@ -437,7 +437,7 @@ def seed_lazychat_form_helpers():
 					"script": body,
 				}).insert(ignore_permissions=True)
 		except Exception:
-			frappe.log_error(frappe.get_traceback(), f"lazychat_mcp_erpnext.seed_lazychat_form_helpers/{dt}")
+			frappe.log_error(frappe.get_traceback(), f"lazychat_erpnext.seed_lazychat_form_helpers/{dt}")
 	frappe.db.commit()
 
 
@@ -488,4 +488,4 @@ def patch_agilitas_branding():
 
 		frappe.db.commit()
 	except Exception:
-		frappe.log_error(frappe.get_traceback(), "lazychat_mcp_erpnext.patch_agilitas_branding")
+		frappe.log_error(frappe.get_traceback(), "lazychat_erpnext.patch_agilitas_branding")

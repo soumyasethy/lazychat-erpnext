@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# deploy-remote.sh — SSH-push lazychat_mcp_erpnext to a remote frappe-bench, clear-cache.
+# deploy-remote.sh — SSH-push lazychat_erpnext to a remote frappe-bench, clear-cache.
 #
 # Twin of deploy-local.sh, but the bench lives on another box. Use this for staging /
 # teammate machines you have SSH to.
@@ -15,16 +15,16 @@
 #   SSH_OPTS         — extra ssh args (e.g. "-i ~/.ssh/deploy_key -p 2222")
 #
 # Pre-req on the remote bench:
-#   apps/lazychat_mcp_erpnext must already exist (one-time bootstrap):
-#     ssh user@host "cd /abs/bench && bench get-app https://github.com/soumyasethy/lazychat-mcp-erpnext --branch release"
-#     ssh user@host "cd /abs/bench && bench --site <site> install-app lazychat_mcp_erpnext"
+#   apps/lazychat_erpnext must already exist (one-time bootstrap):
+#     ssh user@host "cd /abs/bench && bench get-app https://github.com/soumyasethy/lazychat-erpnext --branch release"
+#     ssh user@host "cd /abs/bench && bench --site <site> install-app lazychat_erpnext"
 #
 set -euo pipefail
 if [ -z "${BASH_VERSION:-}" ]; then exec /usr/bin/env bash "$0" "$@"; fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-APP_NAME="lazychat_mcp_erpnext"
+APP_NAME="lazychat_erpnext"
 APP_SRC="$REPO_ROOT/$APP_NAME"
 
 # shellcheck source=/dev/null

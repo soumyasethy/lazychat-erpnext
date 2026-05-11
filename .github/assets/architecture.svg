@@ -10,7 +10,7 @@
   </defs>
 
   <!-- Title -->
-  <text x="440" y="28" text-anchor="middle" font-size="16" font-weight="600" fill="#111">lazychat-mcp-erpnext — request flow</text>
+  <text x="440" y="28" text-anchor="middle" font-size="16" font-weight="600" fill="#111">lazychat-erpnext — request flow</text>
 
   <!-- Browser column -->
   <text x="120" y="62" text-anchor="middle" font-size="13" fill="#888" font-weight="600" letter-spacing="1">BROWSER</text>

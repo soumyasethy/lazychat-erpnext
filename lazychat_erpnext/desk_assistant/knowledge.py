@@ -96,7 +96,7 @@ def get_kb_files(kb_name):
 	# Tier H2 — surface per-file embedding status so the agent (and the user)
 	# knows whether semantic search is available or we're still on keyword-only.
 	try:
-		from lazychat_mcp_erpnext.desk_assistant import embeddings as _emb
+		from lazychat_erpnext.desk_assistant import embeddings as _emb
 
 		index_status = _emb.kb_index_status(kb_name)
 	except Exception:
@@ -279,7 +279,7 @@ def search(query, kb_name=None, max_chunks=8, max_chars_per_file=30000):
 		any_chunks = 0
 	if any_chunks > 0:
 		try:
-			from lazychat_mcp_erpnext.desk_assistant import embeddings as _emb
+			from lazychat_erpnext.desk_assistant import embeddings as _emb
 
 			chunks = _emb.hybrid_search(query, kb_names, max_chunks=max_chunks)
 			return {

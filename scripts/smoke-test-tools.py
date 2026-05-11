@@ -1,8 +1,8 @@
-"""Smoke-test every lazychat_mcp_erpnext tool against the live site.
+"""Smoke-test every lazychat_erpnext tool against the live site.
 
 Run via:
   cd /path/to/frappe-bench
-  bench --site <site> execute lazychat_mcp_erpnext.smoke_runner.run
+  bench --site <site> execute lazychat_erpnext.smoke_runner.run
 
 Prints PASS/SKIP/FAIL per tool. Cleans up any docs it created.
 This file is the source; copy it into the app via run_via_console() at the bottom.
@@ -22,7 +22,7 @@ def _skip(label, reason):
 
 def run():
 	frappe.set_user("Administrator")
-	from lazychat_mcp_erpnext.desk_assistant.tools import execute_tool, commit_prepared
+	from lazychat_erpnext.desk_assistant.tools import execute_tool, commit_prepared
 
 	results = {"pass": 0, "fail": 0, "skip": 0}
 
@@ -309,7 +309,7 @@ def run():
 		"prepare_send_email",
 		{"recipients": ["test@example.com"], "subject": "smoke", "content": "x"},
 	)
-	from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings as _get_lazychat_settings
+	from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings as _get_lazychat_settings
 	allow = bool(_get_lazychat_settings().get("allow_email"))
 	if allow:
 		record(_ok("T32 prepare_send_email staged (email allowed by Lazychat Settings)", bool(r.get("preview_token"))))
@@ -503,7 +503,7 @@ def run():
 		frappe.get_site_config = original_get_config
 
 	# T48–T51: route-context briefing renders correctly into the system prompt
-	from lazychat_mcp_erpnext.desk_assistant.claude_bridge import _route_context_summary
+	from lazychat_erpnext.desk_assistant.claude_bridge import _route_context_summary
 
 	form_ctx = {
 		"view": "Form",
@@ -527,7 +527,7 @@ def run():
 	record(_ok("T51 empty/None context = empty briefing (no spurious noise)", _route_context_summary(None) == "" and _route_context_summary({}) == ""))
 
 	# T52–T57: MCP wire-protocol dispatcher (initialize, tools/list, tools/call, errors)
-	from lazychat_mcp_erpnext.desk_assistant.mcp import dispatch as mcp_dispatch
+	from lazychat_erpnext.desk_assistant.mcp import dispatch as mcp_dispatch
 	# T52: initialize handshake
 	r = mcp_dispatch("initialize", {}, req_id=1)
 	res = r.get("result") or {}
@@ -535,7 +535,7 @@ def run():
 		"T52 MCP initialize returns capabilities + serverInfo",
 		r.get("jsonrpc") == "2.0" and r.get("id") == 1
 		and "tools" in (res.get("capabilities") or {})
-		and (res.get("serverInfo") or {}).get("name") == "lazychat-mcp-erpnext",
+		and (res.get("serverInfo") or {}).get("name") == "lazychat-erpnext",
 	))
 	# T53: ping
 	r = mcp_dispatch("ping", {}, req_id=2)
@@ -543,7 +543,7 @@ def run():
 	# T54: tools/list returns the full registry with MCP-shaped inputSchema.
 	# We compare against TOOL_SCHEMAS so this stays correct when tools are
 	# added (the count drifted from 38 → 65 silently before this fix).
-	from lazychat_mcp_erpnext.desk_assistant.tool_schemas import TOOL_SCHEMAS as _ALL
+	from lazychat_erpnext.desk_assistant.tool_schemas import TOOL_SCHEMAS as _ALL
 	r = mcp_dispatch("tools/list", {}, req_id=3)
 	tools = (r.get("result") or {}).get("tools") or []
 	first = tools[0] if tools else {}
@@ -596,7 +596,7 @@ def run():
 
 	# T61: boot_session populates frappe.boot.lazychat_settings with all expected fields
 	# AND fills missing values from defaults (this is how blank doctype values resolve).
-	from lazychat_mcp_erpnext.desk_assistant.boot import boot_session as _bs, _SETTINGS_DEFAULTS
+	from lazychat_erpnext.desk_assistant.boot import boot_session as _bs, _SETTINGS_DEFAULTS
 	bootinfo = {}
 	_bs(bootinfo)
 	ls = bootinfo.get("lazychat_settings") or {}
@@ -611,7 +611,7 @@ def run():
 
 	# T62: site_config wins over doctype (backward-compat fallback path)
 	# Set doctype False, mock site_config with True, get_lazychat_settings should return True.
-	from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings as _gls
+	from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings as _gls
 	original_get_config = frappe.get_site_config
 
 	def patched_config_t62(*a, **kw):
@@ -630,7 +630,7 @@ def run():
 		frappe.get_site_config = original_get_config
 
 	# T63: save_conversation creates a Claude Conversation row scoped to current user
-	from lazychat_mcp_erpnext.desk_assistant.api import save_conversation
+	from lazychat_erpnext.desk_assistant.api import save_conversation
 	r = save_conversation(
 		conversation_id=None,
 		messages=[{"role": "user", "content": "smoke test"}, {"role": "assistant", "content": "hi"}],
@@ -677,7 +677,7 @@ def run():
 	# We test llm_proxy at the unit level (mock requests.post + frappe.request) so we don't
 	# fire actual HTTP requests during smoke. Browser E2E covers the live wire.
 	from unittest.mock import patch, MagicMock
-	from lazychat_mcp_erpnext.desk_assistant import llm_proxy as _lp
+	from lazychat_erpnext.desk_assistant import llm_proxy as _lp
 
 	def _mock_request(target_url: str, body: bytes = b"{}", method: str = "POST", extra_headers: dict | None = None):
 		req = MagicMock()
@@ -1486,7 +1486,7 @@ def run():
 	# the new helper detects items clobber via signature mismatch and
 	# re-applies. Verify the body contains the signature helpers + the
 	# expanded parent-whitelist (supplier handling).
-	from lazychat_mcp_erpnext.install import seed_lazychat_form_helpers
+	from lazychat_erpnext.install import seed_lazychat_form_helpers
 	seed_lazychat_form_helpers()
 	cs_doc = frappe.get_doc("Client Script", "Lazychat Form Helper (Purchase Invoice)")
 	body = cs_doc.script or ""
@@ -1504,7 +1504,7 @@ def run():
 	# Cycle 10 flipped doctype default 0 → 1 (allow-all). Stored row value
 	# depends on whether the row was created before or after the flip, so
 	# we just assert the field is readable as a boolean (not the value).
-	from lazychat_mcp_erpnext.desk_assistant.boot import get_lazychat_settings
+	from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 	settings = get_lazychat_settings()
 	record(_ok(
 		"T89a cycle9_enabled is wired (readable as boolean)",
@@ -1514,7 +1514,7 @@ def run():
 
 	# T89b: install.py exposes whitelist constants used by both helper-script
 	# JS body and the new get_form_prefill_capabilities tool. Single source.
-	from lazychat_mcp_erpnext.install import (
+	from lazychat_erpnext.install import (
 		LAZYCHAT_PARENT_WHITELIST,
 		LAZYCHAT_ITEM_WHITELIST,
 		LAZYCHAT_FORM_HELPER_TARGETS,
@@ -1692,7 +1692,7 @@ def run():
 	# and contains the `_lz_items` URL-param parser. This is what makes the
 	# variance-report HTML buttons populate the items child table — URL
 	# params alone can't reach child rows in Frappe.
-	from lazychat_mcp_erpnext.install import seed_lazychat_form_helpers
+	from lazychat_erpnext.install import seed_lazychat_form_helpers
 	seed_lazychat_form_helpers()
 	pi_helper_name = "Lazychat Form Helper (Purchase Invoice)"
 	cs_exists = frappe.db.exists("Client Script", pi_helper_name)
@@ -1788,7 +1788,7 @@ def run():
 	# directly inside IN — separated by an extra paren), but EXPLAIN catches
 	# 1235. _wrap_db_error must classify it as `syntax` so the probe
 	# surfaces it instead of swallowing.
-	from lazychat_mcp_erpnext.desk_assistant.tools import _wrap_db_error
+	from lazychat_erpnext.desk_assistant.tools import _wrap_db_error
 
 	class _FakeNotSupportedError(Exception):
 		pass
@@ -1835,7 +1835,7 @@ def run():
 	# Use a known-existing report from fixtures.json.
 	import json as _json
 	from pathlib import Path
-	fx = _json.loads((Path(frappe.get_app_path("lazychat_mcp_erpnext")).parent / "test/results/fixtures.json").read_text()) if (Path(frappe.get_app_path("lazychat_mcp_erpnext")).parent / "test/results/fixtures.json").exists() else {}
+	fx = _json.loads((Path(frappe.get_app_path("lazychat_erpnext")).parent / "test/results/fixtures.json").read_text()) if (Path(frappe.get_app_path("lazychat_erpnext")).parent / "test/results/fixtures.json").exists() else {}
 	existing = fx.get("report") or "Account Balance"  # Account Balance is a stock standard report
 	r = execute_tool("prepare_create_report", {
 		"report_name": existing,
@@ -2411,7 +2411,7 @@ def run():
 		))
 
 	# T89l: composition session opens on first call, resumes on intent_hash match.
-	from lazychat_mcp_erpnext.desk_assistant.composition import (
+	from lazychat_erpnext.desk_assistant.composition import (
 		open_or_resume_session, append_iteration, finalize_session,
 	)
 	intent = "Test variance report for PR vs PI for Customer X"
@@ -2448,7 +2448,7 @@ def run():
 
 	# T89n: critic.build_critic_prompt produces a prompt that includes
 	# user intent + composed payload + evidence sections.
-	from lazychat_mcp_erpnext.desk_assistant.critic import build_critic_prompt
+	from lazychat_erpnext.desk_assistant.critic import build_critic_prompt
 	prompt = build_critic_prompt(
 		intent="variance report for PR vs PI",
 		action="create_report",
@@ -2466,7 +2466,7 @@ def run():
 	))
 
 	# T89o: parse_critic_verdict round-trips a structured response.
-	from lazychat_mcp_erpnext.desk_assistant.critic import parse_critic_verdict
+	from lazychat_erpnext.desk_assistant.critic import parse_critic_verdict
 	mock_resp = '{"verdict": "mismatch", "severity": "high", "mismatches": [{"observation": "blank rows", "why_it_matters": "join wrong"}], "suggested_revisions": ["use pr_detail"]}'
 	parsed = parse_critic_verdict(mock_resp)
 	record(_ok(
@@ -2491,7 +2491,7 @@ def run():
 	# T89q: critique_composition gracefully handles missing critic provider config.
 	# When no LLM Model row exists for "claude-haiku-4-5", the function should
 	# return skipped=True with a reason rather than throwing.
-	from lazychat_mcp_erpnext.desk_assistant.critic import critique_composition
+	from lazychat_erpnext.desk_assistant.critic import critique_composition
 	r = critique_composition(
 		intent="test smoke critique",
 		action="create_report",
@@ -2544,7 +2544,7 @@ def run():
 		frappe.db.commit()
 
 	# T89t: schema graph caches describe_doctype results per-conversation.
-	from lazychat_mcp_erpnext.desk_assistant.schema_graph import (
+	from lazychat_erpnext.desk_assistant.schema_graph import (
 		schema_get, schema_put, schema_clear,
 	)
 	conv_id = f"_lz_smoke_conv_{frappe.generate_hash(length=4)}"
@@ -2566,7 +2566,7 @@ def run():
 	schema_clear(conv_id, "Customer")
 
 	# T89v/w: persist_exemplar + recall_exemplars round-trip.
-	from lazychat_mcp_erpnext.desk_assistant.tools import (
+	from lazychat_erpnext.desk_assistant.tools import (
 		persist_exemplar, recall_exemplars,
 	)
 	intent = f"smoke variance test {frappe.generate_hash(length=4)}"
@@ -2597,7 +2597,7 @@ def run():
 	frappe.db.set_value("Lazychat Settings", "Lazychat Settings", "cycle9_enabled", 1)
 	try:
 		# Seed an exemplar first so recall has something to find
-		from lazychat_mcp_erpnext.desk_assistant.tools import persist_exemplar
+		from lazychat_erpnext.desk_assistant.tools import persist_exemplar
 		intent = "smoke test variance report"
 		seeded = persist_exemplar(
 			action="create_report",
@@ -2631,7 +2631,7 @@ def run():
 	# ============================================================
 
 	# T89y: get_lazychat_admin_snapshot returns expected shape for System Manager.
-	from lazychat_mcp_erpnext.desk_assistant.api import (
+	from lazychat_erpnext.desk_assistant.api import (
 		get_lazychat_admin_snapshot,
 		update_lazychat_settings,
 		upsert_llm_provider,
@@ -2741,7 +2741,7 @@ def run():
 	# Cycle 11 — M2: stage-and-redirect form prefill (T91a-c)
 	# ============================================================
 
-	from lazychat_mcp_erpnext.desk_assistant.api import (
+	from lazychat_erpnext.desk_assistant.api import (
 		prepare_form_prefill,
 		fetch_form_prefill,
 	)
@@ -2801,7 +2801,7 @@ def run():
 	# Cycle 11 — M3: structured SQL gate (T92a-b)
 	# ============================================================
 
-	from lazychat_mcp_erpnext.desk_assistant.tools import execute_tool as _execute_tool
+	from lazychat_erpnext.desk_assistant.tools import execute_tool as _execute_tool
 
 	# T92a: prepare_create_report on bad-table SQL returns structured error with sql_phase='explain'.
 	r = _execute_tool("prepare_create_report", {
@@ -2864,7 +2864,7 @@ def run():
 	# couldn't be loaded. Actual 30s timeout behavior is not exercised here
 	# (would require mocking the adapter to hang) — manual ship gate covers
 	# the live behavior.
-	from lazychat_mcp_erpnext.desk_assistant.critic import critique_composition
+	from lazychat_erpnext.desk_assistant.critic import critique_composition
 	r = critique_composition(
 		"test intent", "create_report",
 		{"report_name": "_lz_m4_test", "ref_doctype": "ToDo"},
@@ -3202,7 +3202,7 @@ def run():
 		"prepare_revert_doc",
 	}
 	_tools_path_t94h = _frappe_c12.get_app_path(
-		"lazychat_mcp_erpnext", "desk_assistant", "tools.py"
+		"lazychat_erpnext", "desk_assistant", "tools.py"
 	)
 	_src_t94h = open(_tools_path_t94h).read()
 	_missing_t94h = []

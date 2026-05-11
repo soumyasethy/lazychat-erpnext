@@ -42,7 +42,7 @@ Justified: B2B productivity tool, viscerally painful before-state (manual report
 
 **Verification gate (mandatory before commit):**
 1. `grep -irE 'lotto|agilitas|one8|lottosport' /tmp/playwright-video/` returns empty
-2. `grep -irE 'lotto|agilitas|one8|lottosport' lazychat-mcp-erpnext/.github/assets/*.png` returns empty (visual frames)
+2. `grep -irE 'lotto|agilitas|one8|lottosport' lazychat-erpnext/.github/assets/*.png` returns empty (visual frames)
 3. Sample 10 frames from final mp4 via `ffmpeg -ss N -frames:v 1` and eyeball each for any leaked text in the page background
 
 ---
@@ -53,11 +53,11 @@ Justified: B2B productivity tool, viscerally painful before-state (manual report
 |---|---|---|
 | `/tmp/record_flagship_video.mjs` | NEW | Playwright recorder; 7-scene `injectFlow()` per scene; uses HTML overlay divs for caption animations |
 | `/tmp/compose_flagship_video.sh` | NEW | ffmpeg conversion: webm → mp4 H.264 CRF 22, faststart, 30fps, scale 1440 |
-| `lazychat-mcp-erpnext/.github/assets/demo.mp4` | REPLACE | The 80s flagship (was 37s) |
-| `lazychat-mcp-erpnext/.github/assets/hero-panel-open.png` | REPLACE | Frame 5 still composition |
-| `lazychat-mcp-erpnext/.github/assets/story-{01,02,03}-*.png` | REPLACE | Recapture with filtered-list background |
-| `lazychat-mcp-erpnext/.github/assets/byok-{01,02,03}-*.png` | REPLACE | Recapture with sanitized curl key |
-| `lazychat-mcp-erpnext/README.md` | MODIFY | Tighten hero copy to match new 80s video story; bump `<video>` `<source>` if needed |
+| `lazychat-erpnext/.github/assets/demo.mp4` | REPLACE | The 80s flagship (was 37s) |
+| `lazychat-erpnext/.github/assets/hero-panel-open.png` | REPLACE | Frame 5 still composition |
+| `lazychat-erpnext/.github/assets/story-{01,02,03}-*.png` | REPLACE | Recapture with filtered-list background |
+| `lazychat-erpnext/.github/assets/byok-{01,02,03}-*.png` | REPLACE | Recapture with sanitized curl key |
+| `lazychat-erpnext/README.md` | MODIFY | Tighten hero copy to match new 80s video story; bump `<video>` `<source>` if needed |
 
 ---
 

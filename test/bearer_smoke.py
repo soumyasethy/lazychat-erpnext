@@ -24,7 +24,7 @@ import urllib.request
 
 URL = os.environ.get("FRAPPE_URL", "http://localhost:8000").rstrip("/")
 TOKEN = os.environ.get("BEARER_TOKEN", "")
-ENDPOINT = f"{URL}/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle_bearer"
+ENDPOINT = f"{URL}/api/method/lazychat_erpnext.desk_assistant.mcp.handle_bearer"
 
 if not TOKEN:
     print("BEARER_TOKEN env var is required. Set it to the same value as site_config.lazychat_mcp_bearer_token.", file=sys.stderr)

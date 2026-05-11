@@ -132,7 +132,7 @@
 				looks_masked_api_key_display($field.val())
 			) {
 				frappe.call({
-					method: "lazychat_mcp_erpnext.desk_assistant.api.reveal_llm_provider_api_key",
+					method: "lazychat_erpnext.desk_assistant.api.reveal_llm_provider_api_key",
 					args: { provider_name: frm.doc.name },
 					freeze: true,
 					freeze_message: __("Loading API key…"),
@@ -213,7 +213,7 @@
 			return;
 		}
 		frappe.call({
-			method: "lazychat_mcp_erpnext.desk_assistant.api.test_llm_provider_connection",
+			method: "lazychat_erpnext.desk_assistant.api.test_llm_provider_connection",
 			args: { provider_name: frm.doc.name },
 			freeze: true,
 			freeze_message: __("Testing API connection…"),
@@ -571,7 +571,7 @@
 				return;
 			}
 			frappe.call({
-				method: "lazychat_mcp_erpnext.desk_assistant.api.discover_remote_models",
+				method: "lazychat_erpnext.desk_assistant.api.discover_remote_models",
 				args: { provider_name: frm.doc.name },
 				freeze: true,
 				freeze_message: __("Fetching models…"),
@@ -649,7 +649,7 @@
 			}
 			const label = safe_model_label(frm.doc.provider_name, mid);
 			sessionStorage.setItem(
-				"lazychat_mcp_erpnext_llm_model_prefill",
+				"lazychat_erpnext_llm_model_prefill",
 				JSON.stringify({
 					provider: frm.doc.name,
 					model_id: mid,
@@ -684,11 +684,11 @@
 					runProviderConnectionTest(frm);
 				});
 
-				const raw = sessionStorage.getItem("lazychat_mcp_erpnext_llm_prefill");
+				const raw = sessionStorage.getItem("lazychat_erpnext_llm_prefill");
 				if (raw && frm.is_new()) {
 					try {
 						const p = JSON.parse(raw);
-						sessionStorage.removeItem("lazychat_mcp_erpnext_llm_prefill");
+						sessionStorage.removeItem("lazychat_erpnext_llm_prefill");
 						if (p.provider_name) frm.set_value("provider_name", p.provider_name);
 						if (p.provider_type) frm.set_value("provider_type", p.provider_type);
 						if (p.base_url) frm.set_value("base_url", p.base_url);
@@ -705,14 +705,14 @@
 							indicator: "green",
 						});
 					} catch (e) {
-						sessionStorage.removeItem("lazychat_mcp_erpnext_llm_prefill");
+						sessionStorage.removeItem("lazychat_erpnext_llm_prefill");
 					}
 				}
 
 				frm.add_custom_button(
 					__("Import from cURL"),
 					() => {
-						const d = lazychat_mcp_erpnext.llm_setup.wrapSetupDialog(
+						const d = lazychat_erpnext.llm_setup.wrapSetupDialog(
 							new frappe.ui.Dialog({
 								title: __("Import from cURL"),
 								fields: [
@@ -733,9 +733,9 @@
 								],
 								primary_action_label: __("Apply"),
 								primary_action(values) {
-									const parsed = lazychat_mcp_erpnext.llm_setup.parseCurl(values.curl || "");
+									const parsed = lazychat_erpnext.llm_setup.parseCurl(values.curl || "");
 									d.hide();
-									lazychat_mcp_erpnext.llm_setup.applyParsedToProviderForm(frm, parsed);
+									lazychat_erpnext.llm_setup.applyParsedToProviderForm(frm, parsed);
 								},
 							})
 						);

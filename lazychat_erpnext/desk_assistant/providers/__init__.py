@@ -1,8 +1,8 @@
 import frappe
 from frappe import _
 
-from lazychat_mcp_erpnext.desk_assistant.providers.anthropic import AnthropicAdapter
-from lazychat_mcp_erpnext.desk_assistant.providers.openai_compat import OpenAICompatAdapter
+from lazychat_erpnext.desk_assistant.providers.anthropic import AnthropicAdapter
+from lazychat_erpnext.desk_assistant.providers.openai_compat import OpenAICompatAdapter
 
 _REGISTRY = {
 	"anthropic": AnthropicAdapter(),

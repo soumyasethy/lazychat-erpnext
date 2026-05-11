@@ -5,7 +5,7 @@ JSONRPC-over-HTTP endpoint so external MCP clients (Claude Desktop, agent SDKs,
 custom integrations) can connect to ERPNext.
 
 Endpoint (whitelisted, requires Frappe authentication):
-    POST /api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle
+    POST /api/method/lazychat_erpnext.desk_assistant.mcp.handle
 
 Auth:
     Standard Frappe auth — either an API key/secret pair (Authorization: token KEY:SECRET)
@@ -30,11 +30,11 @@ import uuid
 import frappe
 from frappe import _
 
-from lazychat_mcp_erpnext.desk_assistant.tool_schemas import TOOL_SCHEMAS
-from lazychat_mcp_erpnext.desk_assistant.tools import execute_tool
+from lazychat_erpnext.desk_assistant.tool_schemas import TOOL_SCHEMAS
+from lazychat_erpnext.desk_assistant.tools import execute_tool
 
 PROTOCOL_VERSION = "2024-11-05"
-SERVER_NAME = "lazychat-mcp-erpnext"
+SERVER_NAME = "lazychat-erpnext"
 SERVER_VERSION = "0.2.3"
 
 
@@ -66,7 +66,7 @@ def _tool_schemas_mcp():
 			}
 		)
 	try:
-		from lazychat_mcp_erpnext.desk_assistant import skills as _skills
+		from lazychat_erpnext.desk_assistant import skills as _skills
 
 		return _skills.filter_tools_for_user(out)
 	except Exception:
@@ -260,7 +260,7 @@ def _bearer_error(code: int, message: str):
 	return resp
 
 
-_BEARER_PATH = "/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle_bearer"
+_BEARER_PATH = "/api/method/lazychat_erpnext.desk_assistant.mcp.handle_bearer"
 
 
 def bearer_pre_strip():

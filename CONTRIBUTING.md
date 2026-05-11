@@ -15,14 +15,14 @@ Both gates must be green:
 
 ```bash
 # 1) In-process smoke (in your bench)
-cp lazychat-mcp-erpnext/scripts/smoke-test-tools.py \
-   <bench>/apps/lazychat_mcp_erpnext/lazychat_mcp_erpnext/_smoke.py
+cp lazychat-erpnext/scripts/smoke-test-tools.py \
+   <bench>/apps/lazychat_erpnext/lazychat_erpnext/_smoke.py
 cd <bench>
-bench --site <site> execute lazychat_mcp_erpnext._smoke.run
+bench --site <site> execute lazychat_erpnext._smoke.run
 # expected last line: === N pass, 0 fail, X skip ===
 
 # 2) HTTP-wire smoke (from the repo root)
-python3 lazychat-mcp-erpnext/test/curl_smoke.py
+python3 lazychat-erpnext/test/curl_smoke.py
 # expected last line: tools registered: 94, called: 94
 ```
 

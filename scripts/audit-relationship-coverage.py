@@ -13,10 +13,10 @@ value candidates for new hints.
 
 Run via the same pattern as _smoke.py (file gets wiped on every deploy):
 
-    cp lazychat-mcp-erpnext/scripts/audit-relationship-coverage.py \\
-       <bench>/apps/lazychat_mcp_erpnext/lazychat_mcp_erpnext/_audit_relationships.py
+    cp lazychat-erpnext/scripts/audit-relationship-coverage.py \\
+       <bench>/apps/lazychat_erpnext/lazychat_erpnext/_audit_relationships.py
     cd <bench>
-    bench --site <site> execute lazychat_mcp_erpnext._audit_relationships.run
+    bench --site <site> execute lazychat_erpnext._audit_relationships.run
 
 Optional kwargs (all positional in bench execute):
     max_hops=3              BFS depth limit
@@ -48,7 +48,7 @@ CANONICAL_BUSINESS_DOCTYPES = [
 
 def run(max_hops=3, show_paths=False, only_uncovered=False):
 	import frappe  # noqa: F401  (must import for Frappe context)
-	from lazychat_mcp_erpnext.desk_assistant.tools import _find_join_path
+	from lazychat_erpnext.desk_assistant.tools import _find_join_path
 
 	pairs = [(a, b) for a in CANONICAL_BUSINESS_DOCTYPES
 	         for b in CANONICAL_BUSINESS_DOCTYPES if a != b]

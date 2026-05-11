@@ -7,8 +7,8 @@ name: release
 # Trigger:  git tag v0.2.4 && git push origin v0.2.4
 #
 # Anyone with a Frappe bench:
-#   bench get-app https://github.com/soumyasethy/lazychat-mcp-erpnext --branch release
-#   bench --site <site> install-app lazychat_mcp_erpnext
+#   bench get-app https://github.com/soumyasethy/lazychat-erpnext --branch release
+#   bench --site <site> install-app lazychat_erpnext
 
 on:
   push:
@@ -50,9 +50,9 @@ jobs:
 
       - name: Bundle dist into Frappe app
         run: |
-          mkdir -p lazychat_mcp_erpnext/public/lazychat_dist
-          rsync -a --delete ../lazychat.ai/apps/chat-ui/dist/ lazychat_mcp_erpnext/public/lazychat_dist/
-          ls -la lazychat_mcp_erpnext/public/lazychat_dist/ | head -10
+          mkdir -p lazychat_erpnext/public/lazychat_dist
+          rsync -a --delete ../lazychat.ai/apps/chat-ui/dist/ lazychat_erpnext/public/lazychat_dist/
+          ls -la lazychat_erpnext/public/lazychat_dist/ | head -10
 
       - name: Commit + force-push to release branch
         env:
@@ -62,7 +62,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -B release
           # public/lazychat_dist/ is gitignored on main; force-add on release.
-          git add -f lazychat_mcp_erpnext/public/lazychat_dist
+          git add -f lazychat_erpnext/public/lazychat_dist
           git add -A
           git commit -m "release: build dist for ${TAG_NAME}" || echo "(nothing to commit)"
           git push --force origin release

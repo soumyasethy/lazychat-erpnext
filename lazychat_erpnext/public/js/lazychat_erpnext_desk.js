@@ -1,18 +1,18 @@
 /**
  * ERPNext / Frappe desk — right-docked AI assistant (multi-provider).
  * Loaded via hooks app_include_js (?v= app version).
- * After changing this file or desk CSS: bench build --app lazychat_mcp_erpnext && bench --site <site> clear-cache
+ * After changing this file or desk CSS: bench build --app lazychat_erpnext && bench --site <site> clear-cache
  */
 (function () {
 	"use strict";
 
 	if (typeof console !== "undefined" && console.info) {
-		console.info("[lazychat_mcp_erpnext] desk script loaded");
+		console.info("[lazychat_erpnext] desk script loaded");
 	}
 
-	const STORAGE_MODEL = "lazychat_mcp_erpnext_model";
-	const STORAGE_OPEN = "lazychat_mcp_erpnext_panel_open";
-	const STORAGE_WIDTH = "lazychat_mcp_erpnext_panel_width";
+	const STORAGE_MODEL = "lazychat_erpnext_model";
+	const STORAGE_OPEN = "lazychat_erpnext_panel_open";
+	const STORAGE_WIDTH = "lazychat_erpnext_panel_width";
 	const WIDTH_MIN = 280;
 	const WIDTH_MAX_RATIO = 0.92;
 	const OPT_ADD_CUSTOM_MODEL = "__add_custom_model__";
@@ -49,7 +49,7 @@
 	function dbgSkip(reason) {
 		try {
 			if (frappe.boot && frappe.boot.developer_mode) {
-				console.warn("[lazychat_mcp_erpnext] mount skipped:", reason);
+				console.warn("[lazychat_erpnext] mount skipped:", reason);
 			}
 		} catch (e) {
 			/* ignore */
@@ -179,7 +179,7 @@
 		const attachmentListEl = host.querySelector('[data-cad="attachment-list"]');
 
 		if (!wrap || !panel || !tab || !msgs || !modelPicker || !fileInput || !composerFooter || !inp || !sendBtn) {
-			console.error("[lazychat_mcp_erpnext] dock template nodes missing");
+			console.error("[lazychat_erpnext] dock template nodes missing");
 			host.remove();
 			return;
 		}
@@ -578,7 +578,7 @@
 			if (modelPicker) modelPicker.disabled = true;
 			syncComposerFooterState();
 			try {
-				const r = await frappe.call({ method: "lazychat_mcp_erpnext.desk_assistant.api.list_models" });
+				const r = await frappe.call({ method: "lazychat_erpnext.desk_assistant.api.list_models" });
 				const models = r.message || [];
 				modelListCount = models.length;
 				modelListLoadFailed = false;
@@ -753,7 +753,7 @@
 					args.attachments = JSON.stringify(attachmentsSnapshot);
 				}
 				const r = await frappe.call({
-					method: "lazychat_mcp_erpnext.desk_assistant.api.send_message",
+					method: "lazychat_erpnext.desk_assistant.api.send_message",
 					args: args,
 				});
 				const msg = r.message || {};
@@ -1197,7 +1197,7 @@
 			});
 		}
 
-		console.info("[lazychat_mcp_erpnext] desk dock mounted (layout v3 composer)");
+		console.info("[lazychat_erpnext] desk dock mounted (layout v3 composer)");
 	}
 
 	function scheduleMount() {
@@ -1209,7 +1209,7 @@
 			try {
 				tryMountDeskAssistant();
 			} catch (e) {
-				console.error("[lazychat_mcp_erpnext] desk mount failed", e);
+				console.error("[lazychat_erpnext] desk mount failed", e);
 			}
 		};
 		if (typeof frappe !== "undefined" && typeof frappe.ready === "function") {

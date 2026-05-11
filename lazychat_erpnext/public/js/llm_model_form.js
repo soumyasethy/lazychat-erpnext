@@ -1,10 +1,10 @@
 frappe.ui.form.on("LLM Model", {
 	onload(frm) {
-		const raw = sessionStorage.getItem("lazychat_mcp_erpnext_llm_model_prefill");
+		const raw = sessionStorage.getItem("lazychat_erpnext_llm_model_prefill");
 		if (raw && frm.is_new()) {
 			try {
 				const p = JSON.parse(raw);
-				sessionStorage.removeItem("lazychat_mcp_erpnext_llm_model_prefill");
+				sessionStorage.removeItem("lazychat_erpnext_llm_model_prefill");
 				if (p.provider) frm.set_value("provider", p.provider);
 				if (p.model_id) frm.set_value("model_id", p.model_id);
 				if (p.model_label) frm.set_value("model_label", p.model_label);
@@ -13,7 +13,7 @@ frappe.ui.form.on("LLM Model", {
 					indicator: "green",
 				});
 			} catch (e) {
-				sessionStorage.removeItem("lazychat_mcp_erpnext_llm_model_prefill");
+				sessionStorage.removeItem("lazychat_erpnext_llm_model_prefill");
 			}
 		}
 	},
@@ -38,7 +38,7 @@ frappe.listview_settings["LLM Model"] = {
 	onload(listview) {
 		listview.page.add_inner_button(__("New LLM Provider"), () => frappe.new_doc("LLM Provider"));
 		listview.page.add_inner_button(__("Import cURL → new provider"), () => {
-			const d = lazychat_mcp_erpnext.llm_setup.wrapSetupDialog(
+			const d = lazychat_erpnext.llm_setup.wrapSetupDialog(
 				new frappe.ui.Dialog({
 					title: __("New provider from cURL"),
 					fields: [
@@ -66,14 +66,14 @@ frappe.listview_settings["LLM Model"] = {
 					],
 					primary_action_label: __("Create & open"),
 					primary_action(values) {
-						const parsed = lazychat_mcp_erpnext.llm_setup.parseCurl(values.curl || "");
+						const parsed = lazychat_erpnext.llm_setup.parseCurl(values.curl || "");
 						if (parsed.error) {
 							frappe.msgprint({ title: __("cURL"), message: parsed.error, indicator: "red" });
 							return;
 						}
 						d.hide();
 						sessionStorage.setItem(
-							"lazychat_mcp_erpnext_llm_prefill",
+							"lazychat_erpnext_llm_prefill",
 							JSON.stringify({
 								provider_name: values.provider_name,
 								provider_type: values.provider_type,
