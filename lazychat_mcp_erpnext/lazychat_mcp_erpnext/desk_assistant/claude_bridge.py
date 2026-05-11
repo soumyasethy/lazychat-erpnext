@@ -72,6 +72,37 @@ TOOLLESS_PROMPT_SUFFIX = (
 )
 
 
+def _today_anchor():
+	"""Inject a Today: <YYYY-MM-DD> stamp at the top of every system prompt so
+	the LLM can resolve relative-date phrases ("December", "last week",
+	"current quarter") to absolute dates instead of guessing the year. Without
+	this, the LLM hallucinates the year (typically picks training-data
+	majority year, not the actual current year).
+	"""
+	try:
+		from frappe.utils import nowdate
+		today = nowdate()  # 'YYYY-MM-DD'
+	except Exception:
+		import datetime
+		today = datetime.date.today().isoformat()
+	# Map common relative-date phrases to concrete windows the LLM can use directly.
+	# Today is e.g. 2026-05-11 → "December" → "2025-12" (most recent December BEFORE today).
+	import datetime
+	d = datetime.date.fromisoformat(today)
+	last_dec_year = d.year - 1 if d.month <= 12 and d < datetime.date(d.year, 12, 1) else d.year
+	# (above: if we haven't reached December YET this year, last December = previous year.
+	#  Once Dec 1 arrives, this year's December counts.)
+	return (
+		f"Today: {today} (UTC date on the server). For relative date phrases:\n"
+		f"  • 'December'  → posting_date BETWEEN '{last_dec_year}-12-01' AND '{last_dec_year}-12-31' (most recent COMPLETED December)\n"
+		f"  • 'last month' → the calendar month immediately before {today[:7]}\n"
+		f"  • 'this year' → BETWEEN '{d.year}-01-01' AND '{today}'\n"
+		f"  • 'last year' → BETWEEN '{d.year - 1}-01-01' AND '{d.year - 1}-12-31'\n"
+		f"  • 'current quarter' / 'this quarter' → resolve from {today} (Q1=Jan-Mar, Q2=Apr-Jun, Q3=Jul-Sep, Q4=Oct-Dec).\n"
+		f"NEVER guess the year. NEVER assume the LLM training-data majority year is current.\n\n"
+	)
+
+
 def _route_context_summary(context):
 	"""Pull the most useful bits out of desk_context into a one-paragraph briefing for the LLM."""
 	if not isinstance(context, dict):
@@ -114,7 +145,7 @@ def _route_context_summary(context):
 
 
 def _system_prompt(context, supports_tools, mode="edit-auto", plan_resumed=False):
-	base = _route_context_summary(context) + """You are an ERPNext / Frappe desk assistant. Be concise and accurate.
+	base = _today_anchor() + _route_context_summary(context) + """You are an ERPNext / Frappe desk assistant. Be concise and accurate.
 Use tools to fetch real data instead of guessing.
 
 READ tools (no confirmation needed):
