@@ -6,13 +6,13 @@
 
 **Talk to ERPNext like a senior consultant.**
 
-<sub>94 permission-scoped tools · two-phase mutations · composer-critic verification · BYO LLM</sub>
+<sub>95 permission-scoped tools · two-phase mutations · composer-critic verification · BYO LLM</sub>
 
 <br/>
 
 <img src="https://img.shields.io/badge/ERPNext-15-success?style=flat-square" alt="ERPNext 15"/>
 &nbsp;<img src="https://img.shields.io/badge/Python-3.11+-blue?style=flat-square" alt="Python 3.11+"/>
-&nbsp;<img src="https://img.shields.io/badge/Tools-94-d97757?style=flat-square" alt="94 tools"/>
+&nbsp;<img src="https://img.shields.io/badge/Tools-95-d97757?style=flat-square" alt="94 tools"/>
 &nbsp;<img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="MIT"/>
 &nbsp;<img src="https://img.shields.io/badge/release-cycle--12--m2-orange?style=flat-square" alt="release"/>
 
@@ -79,7 +79,7 @@ That ask used to mean opening 3 Frappe doctypes, writing a custom Query Report, 
       <strong>Step 4 — Share the URL with the stakeholder</strong><br/>
       <sub>Copy the report URL. Done. <strong>Time elapsed: ~2 minutes.</strong></sub>
       <br/><br/>
-      The same flow works for cross-doctype reconciliations, variance reports, ad-hoc audits, and bulk operations. <strong>94 permission-scoped tools</strong> back the chat — see the catalog below for what each can do.
+      The same flow works for cross-doctype reconciliations, variance reports, ad-hoc audits, and bulk operations. <strong>95 permission-scoped tools</strong> back the chat — see the catalog below for what each can do.
     </td>
   </tr>
 </table>
@@ -299,7 +299,7 @@ That's it. After-install seeds disabled-by-default LLM Provider rows (OpenAI, An
 
 - **Built for ERPNext, not bolted on.** Every tool runs as `frappe.session.user` — Frappe permissions, role checks, workflow guards, and the audit trail apply automatically. No god-mode bypass; no separate auth surface.
 - **Mutations require explicit Apply.** The LLM stages every write to a Redis token; you click Apply (or the 3-second auto-Apply countdown for low-risk actions) to commit inside `frappe.db.savepoint`. A 30-second composer-critic LLM second-opinion shows up as an amber strip when it disagrees with the staged action.
-- **Bring any model.** Anthropic Claude, OpenAI, NVIDIA NIM, OpenRouter, Vercel AI Gateway, Together, Groq, LM Studio. Same 94-tool registry; the API key never has to leave the browser if you don't want it to.
+- **Bring any model.** Anthropic Claude, OpenAI, NVIDIA NIM, OpenRouter, Vercel AI Gateway, Together, Groq, LM Studio. Same 95-tool registry; the API key never has to leave the browser if you don't want it to.
 
 ---
 
@@ -330,6 +330,20 @@ That's it. After-install seeds disabled-by-default LLM Provider rows (OpenAI, An
 
 Built-in: schema-aware SQL retry on `Unknown column`, two chat paths (server-orchestrated or browser-LLM), real-execution probe before staging Query Reports, structured form prefill for HTTP-414-defying URLs, knowledge bases with reindex, scheduled jobs, dashboards, custom fields, client scripts, and an admin panel that moves all configuration into the chat-ui itself.
 
+### Token + cost tracking <sub>NEW</sub>
+
+Every LLM turn writes a row to the `Lazychat Usage Log` doctype — model · provider · input/output tokens · cost estimate (USD) · session id · path (backend / browser). Cost auto-computed from `LLM Model.input_price_per_mtok` / `output_price_per_mtok` first, falls back to a built-in rate table for common Claude / GPT models, zero when both miss.
+
+Open the chat-ui's **Command Palette → Account & usage…** to see:
+
+- 4-tile totals (calls / input / output / cost)
+- **By-model rollup** — sorted by total tokens, shows provider + cost per model
+- **Daily breakdown** for the last 14 days
+- Range picker (Today / 7d / 30d / 90d)
+- System Manager users see ALL users' usage; everyone else sees their own
+
+No setup required — works for Claude / OpenAI / NVIDIA / OpenRouter / Vercel / Anthropic / Together / Groq / LM Studio, regardless of whether you're on the backend-LLM or browser-LLM path. Set per-model rates on `/app/llm-model/<your-model>` if you want exact billing.
+
 ---
 
 ## Architecture
@@ -340,7 +354,7 @@ Built-in: schema-aware SQL retry on `Unknown column`, two chat paths (server-orc
 
 The Frappe app ships a 280-line vanilla-JS shim ([`public/js/lazychat_panel.bundle.js`](lazychat_mcp_erpnext/lazychat_mcp_erpnext/public/js/lazychat_panel.bundle.js)) loaded via `app_include_js` on every Desk page. The shim mounts the chat-ui (a React app, sibling repo [lazychat.ai](https://github.com/soumyasethy/lazychat.ai), bundled into `public/lazychat_dist/`) as a same-origin iframe, sets up the postMessage protocol, and intercepts `/commit <token>` slash commands to call the server.
 
-Tool dispatch goes through one of two paths, both backed by the same 94-tool registry:
+Tool dispatch goes through one of two paths, both backed by the same 95-tool registry:
 
 | Path | LLM lives | Tool dispatch | Best when |
 |---|---|---|---|
@@ -436,12 +450,12 @@ sh dev.sh
 
 ---
 
-## Tool catalog — all 94
+## Tool catalog — all 95
 
 Grouped into 12 categories. Every tool runs scoped to `frappe.session.user`'s permissions; mutations stage to a Redis token and require explicit Apply. The **Try it** line is verbatim text you can paste into the chat panel right now (assuming you have ecommerce-shaped data — the prompts work great against the canonical ERPNext demo dataset).
 
 <details open>
-<summary><strong>📖 Discovery / reads (12)</strong> — get_list, get_doc, get_value, count_doc, describe_doctype, get_current_context, get_doctype_links, search_doctype, search_global, search_link, get_doctype_relationships, get_form_prefill_capabilities</summary>
+<summary><strong>📖 Discovery / reads (13)</strong> — get_list, get_doc, get_value, count_doc, describe_doctype, get_current_context, get_doctype_links, search_doctype, search_global, search_link, get_doctype_relationships, get_form_prefill_capabilities, find_join_path</summary>
 
 #### `get_list`
 **What** — Fetch rows from any doctype with optional `filters`, `fields`, `limit`. The default workhorse for "show me X."  
@@ -514,6 +528,11 @@ Grouped into 12 categories. Every tool runs scoped to `frappe.session.user`'s pe
 **Why** — Tells the model what's actually safe to encode into a `?_lz_token=...` URL — no guessing.  
 **Try it** — *"What fields can I prefill on a new Purchase Invoice form?"*
 <img src=".github/assets/tools/get_form_prefill_capabilities.svg" alt="get_form_prefill_capabilities success card" width="100%"/>
+
+#### `find_join_path` <sub>NEW</sub>
+**What** — Walks Frappe's DocField metadata graph (Link / Table fields) plus a curated hint table to return the canonical SQL join chain between any two doctypes — including Dynamic-Link routes (PE Reference, GL Entry voucher, etc.) and reverse-Link discovery (Customer → Sales Invoice in 1 hop).  
+**Why** — The LLM no longer has to memorize join shapes per (from, to) pair. 99% of 1056 ordered business-doctype pairs covered at max_hops=3. Each hop carries the exact `on_template` clause and inline warnings (e.g. *"ALWAYS include reference_doctype — reference_name is shared across PI/SI/JE"*). Eliminates the most common SQL bug class in cross-doctype reports.  
+**Try it** — *"List December purchase invoices with the payment entries that paid them."* — agent calls `find_join_path("Purchase Invoice", "Payment Entry")` first, gets `pi → Payment Entry Reference (curated_reverse) → Payment Entry`, composes the SQL using the returned ON clause verbatim.
 
 </details>
 
@@ -1128,26 +1147,79 @@ Mutations marked **⚡ low-risk** (the [`LOW_RISK_ACTIONS`](https://github.com/s
 
 ## External MCP clients
 
-The same `mcp.handle` JSONRPC endpoint that the chat-ui uses is also reachable from any MCP-compliant client (Claude Desktop, MCP Inspector, custom integrations). Auth is standard Frappe API key + secret.
+The same tool registry that powers the in-Desk panel is reachable from any MCP-compliant client. Three auth modes, three endpoints — pick the one that matches your client.
 
-Generate an API key at `/app/user` (your user → API Access → Generate Keys). Then in Claude Desktop config:
+### A — Claude Code (CLI) — simplest
+
+Built-in HTTP MCP transport. ~30 seconds. No tunnel needed if Frappe is on the same machine.
+
+```bash
+# 1. Set a static Bearer token in site_config
+bench --site <site> set-config lazychat_mcp_bearer_token "$(python3 -c "import secrets;print(secrets.token_urlsafe(32))")"
+
+# 2. Wire into Claude Code (user scope = available in any directory)
+claude mcp add --scope user --transport http lazychat-erpnext \
+  http://localhost:8000/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle_bearer \
+  --header "Authorization: Bearer <YOUR_TOKEN>"
+
+# 3. Restart Claude Code → all 95 tools available
+```
+
+### B — Claude Desktop / MCP Inspector / any token-aware client
+
+Works against either endpoint:
+
+- **`mcp.handle`** with Frappe API key+secret (`Authorization: token KEY:SECRET`) — standard Frappe auth, generate key at `/app/user → API Access → Generate Keys`.
+- **`mcp.handle_bearer`** with the static Bearer token from step A above (`Authorization: Bearer <token>`) — simpler if you don't want to manage Frappe API keys.
 
 ```json
 {
   "mcpServers": {
     "lazychat-erpnext": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-fetch"],
-      "env": {
-        "MCP_FETCH_URL": "https://your-bench.example.com/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle",
-        "MCP_FETCH_HEADERS": "{\"Authorization\":\"token API_KEY:API_SECRET\"}"
-      }
+      "args": ["-y", "mcp-remote",
+               "https://your-bench.example.com/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle_bearer",
+               "--header", "Authorization: Bearer YOUR_TOKEN"]
     }
   }
 }
 ```
 
-All 94 tools are available; permissions still re-check per call.
+### C — claude.ai web Custom Connector (Pro / Team / Enterprise)
+
+OAuth 2.1 with auto-discovery. The MCP Authorization spec (2025-06) is fully wired: `/.well-known/oauth-protected-resource` (RFC 9728), `/.well-known/oauth-authorization-server` (RFC 8414), `WWW-Authenticate: Bearer resource_metadata="..."` on 401. Claude.ai discovers everything automatically.
+
+**Setup** (one-time, ~3 min):
+
+In Frappe Desk, open `/app/oauth-client → + New`:
+
+| Field | Value |
+|---|---|
+| App Name | `Claude.ai (lazychat MCP)` |
+| Scopes | `all openid` |
+| Grant Type | `Authorization Code` |
+| Response Type | `Code` |
+| Redirect URIs (one per line) | `https://claude.ai/api/mcp/auth_callback`<br/>`https://claude.com/api/mcp/auth_callback` |
+
+Save. The auto-generated `name` becomes your `client_id`; `client_secret` is shown on the doc (hold-Shift-click the `Client Secret` field to reveal).
+
+> Both callback URLs must be present per [Anthropic docs](https://support.claude.com/en/articles/11175166-getting-started-with-custom-connectors-using-remote-mcp) — `claude.ai` users hit one, `claude.com` users hit the other.
+
+In claude.ai → Settings → Connectors → **Add Custom Connector**:
+
+| Field | Value |
+|---|---|
+| **Remote MCP server URL** | `https://your-public-bench.example.com/api/method/lazychat_mcp_erpnext.desk_assistant.mcp.handle` |
+| **OAuth Client ID** (Advanced settings) | from the bench command above |
+| **OAuth Client Secret** | from the bench command above |
+
+Click Add. claude.ai redirects you to Frappe → log in → "Confirm Access" → back to claude.ai with all 95 tools registered.
+
+> **Public-URL caveat:** claude.ai's backend lives in Anthropic's cloud — `localhost` is not reachable. Either deploy Frappe on a public HTTPS URL or use [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/) (free, no interstitial unlike ngrok-free) to tunnel `localhost:8000`.
+
+### Permission model — same for all three
+
+The configured user (Bearer's run-as user, OAuth-token's user, or API-key's owner) is what `frappe.session.user` reads. Every tool re-checks `frappe.has_permission(...)` on every call. Two-phase mutations (`prepare_*` → user-confirms → `commit_prepared_action`) still apply. No god-mode bypass on any path.
 
 ---
 
@@ -1156,15 +1228,15 @@ All 94 tools are available; permissions still re-check per call.
 Two layers, both must be green to ship:
 
 ```bash
-# Layer 1 — in-process (94 cases as of cycle 12 M2)
+# Layer 1 — in-process (95 cases as of cycle 13 M3)
 cp lazychat-mcp-erpnext/scripts/smoke-test-tools.py \
    <bench>/apps/lazychat_mcp_erpnext/lazychat_mcp_erpnext/_smoke.py
 cd <bench> && bench --site <site> execute lazychat_mcp_erpnext._smoke.run
 # expected: === 244 pass, 0 fail, 2 skip ===
 
-# Layer 2 — HTTP MCP wire (all 94 tools)
+# Layer 2 — HTTP MCP wire (all 95 tools)
 python3 lazychat-mcp-erpnext/test/curl_smoke.py
-# expected: tools registered: 94, called: 94
+# expected: tools registered: 95, called: 95
 ```
 
 The smoke gates exist to catch drift between schema, implementation, and live behavior — please run them before opening a PR. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full checklist.
