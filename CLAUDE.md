@@ -175,6 +175,64 @@ T75 + T76 cover the regression.
 - `lazychat_mcp_erpnext.desk_assistant.mcp.handle` — JSONRPC MCP transport (initialize / ping / tools/list / tools/call). Same auth as any whitelisted method (cookie session OR Frappe API key+secret). Used by both chat-ui's browser path AND external MCP clients (Claude Desktop, etc).
 - `lazychat_mcp_erpnext.desk_assistant.mcp.handle_bearer` — same dispatcher, but `Authorization: Bearer <token>` auth (constant-time compare against site_config `lazychat_mcp_bearer_token`) + `Mcp-Session-Id` response header per Streamable HTTP spec (2025-03-26). For claude.ai web Custom Connector and other clients that don't speak Frappe's `token KEY:SECRET` scheme. Run-as user defaults to Administrator; override with site_config `lazychat_mcp_bearer_user`. Existing defense layers (System Manager role, allow_dangerous_tools, /commit) all remain — Bearer auth is just an alternative way to authenticate, not an authorization bypass. Smoke: [test/bearer_smoke.py](test/bearer_smoke.py) (env-var driven, no creds in-file).
 
+## Phase 1 — Doctype Relationship Graph (find_join_path) (2026-05-10)
+
+New tool `find_join_path(from_doctype, to_doctype, max_hops=3)` walks
+Frappe's DocField metadata graph (Link + Table fieldtypes) via BFS and
+returns the canonical join chain between any two doctypes. Eliminates
+the need to hand-maintain canonical SQL templates in the system prompt
+for every (from, to) pair the LLM might need.
+
+Routing precedence: curated `_RELATIONSHIP_HINTS` direct hops (e.g. PR↔PI
+via `pr_detail`, PI↔PE via Payment Entry Reference + `reference_doctype`
+predicate) override graph-discovered routes when both exist. Curated
+hops carry the gotcha warning inline (e.g. "DO NOT join on item_code
+alone").
+
+Each hop returned: `{from, target, via_field, via_kind, on_template,
+warning?, note?}` where `on_template` uses literal `<a>`/`<b>` placeholders
+for the FROM and TARGET table aliases (caller substitutes concrete aliases
+when assembling SQL). `via_kind` is one of `link / parent_to_child /
+child_to_parent / curated`.
+
+Tool registry count: 94 → **95**. Wired in dispatcher
+([tools.py:find_join_path](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tools.py))
++ schema ([tool_schemas.py](lazychat_mcp_erpnext/lazychat_mcp_erpnext/desk_assistant/tool_schemas.py)).
+Prompts in `claude_bridge.py` + `routerSystemPrompt.ts` (chat-ui mirror)
+both teach `DISCOVERY-FIRST: call find_join_path before writing any
+cross-doctype JOIN`.
+
+Companion: `_RELATIONSHIP_HINTS` extended with `Payment Entry Reference →
+Purchase Invoice / Sales Invoice` + parent_link_to `Payment Entry` so
+PI↔PE / SI↔PE routes return curated canonical hops with the required
+`reference_doctype` predicate baked in.
+
+Phase 2 (exemplar admin curation: mark canonical reports per intent class
+to boost recall ranking) and Phase 3 (more aggressive compose-test-fix
+loop with auto-row-shape diff feedback) are deferred to future cycles.
+Phase 1 ships first; we measure how often it fires before building the
+next layer.
+
+**Phase 1.1 — coverage audit + reverse-Link traversal (2026-05-11)**:
+Added `_incoming_link_edges_for(doctype)` — scans `tabDocField` +
+`tabCustom Field` for Link fields whose `options=doctype`, returns
+reverse edges. BFS now considers (a) forward Link/Table edges, (b)
+reverse-curated edges (from `_RELATIONSHIP_HINTS`), (c) reverse-Link
+edges. Customer→Sales Invoice / Item→Sales Invoice Item / Supplier→PO
+all resolve in 1 hop. Coverage jumped from **70% → 100%** of 702 ordered
+pairs across 27 canonical business doctypes (max_hops=3). See
+[scripts/audit-relationship-coverage.py](scripts/audit-relationship-coverage.py)
+for the audit harness.
+
+Also extended `_RELATIONSHIP_HINTS`:
+- Stock Ledger Entry row_link_to expanded with Delivery Note Item /
+  Stock Entry Detail / Purchase Invoice Item / Sales Invoice Item
+  (each gated by the appropriate `voucher_type` predicate).
+- New `GL Entry` entry — Dynamic Link routes to PI/SI/PE/JE/SE via
+  `voucher_no` + `voucher_type`.
+- Payment Entry Reference extended with Journal Entry / Purchase Order
+  / Sales Order routes (advance-payment flows).
+
 ## Doctypes
 
 - `LLM Provider` — name, provider_type (anthropic | openai_compatible), base_url, api_key (Password), extra_headers, enabled

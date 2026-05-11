@@ -134,6 +134,34 @@ TOOL_SCHEMAS = [
 		},
 	},
 	{
+		"name": "find_join_path",
+		"description": (
+			"Discover the canonical SQL join chain between two doctypes by walking "
+			"Frappe's DocField metadata graph (Link / Table fields) with BFS. "
+			"Returns the shortest hop list, or curated canonical when one exists "
+			"(e.g. Purchase Invoice → Payment Entry returns the route via "
+			"`Payment Entry Reference` child table including the required "
+			"`reference_doctype = 'Purchase Invoice'` predicate). USE THIS BEFORE "
+			"writing any cross-doctype JOIN — eliminates the need to memorize join "
+			"shapes and prevents the most common SQL bug class (wrong join key, "
+			"missing reference_doctype filter, item_code-only joins). Each hop "
+			"includes `via_field`, `via_kind` (link / parent_to_child / "
+			"child_to_parent / curated), and `on_template` with `<a>`/`<b>` alias "
+			"placeholders for the FROM and TARGET tables. Curated routes carry a "
+			"`warning` field with the gotcha — always read it. Output: "
+			"{found, from, to, hops[], hop_count, canonical}."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"from_doctype": {"type": "string", "description": "Source DocType (e.g. 'Purchase Invoice')"},
+				"to_doctype":   {"type": "string", "description": "Target DocType (e.g. 'Payment Entry')"},
+				"max_hops":     {"type": "integer", "description": "Max BFS depth (1-5, default 3)", "default": 3},
+			},
+			"required": ["from_doctype", "to_doctype"],
+		},
+	},
+	{
 		"name": "prepare_create_doc",
 		"description": (
 			"STAGE creating a new document. Does NOT actually create. Returns "
