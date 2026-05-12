@@ -77,9 +77,6 @@ website_redirects = [
 	},
 ]
 
-# Bundled brand SVGs (avoid missing File attachments at /files/agilitas*.svg)
-app_logo_url = "/assets/lazychat_erpnext/images/agilitas-txt-logo.svg"
-
 doctype_js = {
 	"LLM Provider": "public/js/llm_provider_form.js",
 	"LLM Model": "public/js/llm_model_form.js",
