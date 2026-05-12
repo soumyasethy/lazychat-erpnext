@@ -119,7 +119,7 @@ def seed_llm_defaults():
 	path = os.path.join(os.path.dirname(__file__), "seed_data.json")
 	if not os.path.exists(path):
 		return
-	with open(path) as f:
+	with open(path) as f:  # nosemgrep: frappe-security-file-traversal -- fixed bundled path: os.path.join(os.path.dirname(__file__), "seed_data.json"); no external input
 		rows = json.load(f)
 	for row in rows:
 		dt = row["doctype"]

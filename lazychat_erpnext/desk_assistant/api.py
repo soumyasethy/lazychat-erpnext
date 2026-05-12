@@ -351,6 +351,7 @@ def get_usage_summary(days=30):
 		values["user"] = frappe.session.user
 	where = " AND ".join(filters)
 
+	# nosemgrep: frappe-sql-format-injection -- {where} below is built only from constant predicates with %(...)s placeholders; every value is bound via the params dict
 	by_model_rows = frappe.db.sql(f"""
 		SELECT model_label, provider,
 		       COUNT(*) AS calls,
@@ -363,6 +364,7 @@ def get_usage_summary(days=30):
 		 ORDER BY (SUM(input_tokens) + SUM(output_tokens)) DESC
 	""", values, as_dict=True)
 
+	# nosemgrep: frappe-sql-format-injection -- {where} is constant predicates with %(...)s placeholders; values bound via params
 	daily_rows = frappe.db.sql(f"""
 		SELECT DATE(creation) AS day,
 		       SUM(input_tokens) AS input_tokens,
