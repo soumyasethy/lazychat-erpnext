@@ -58,6 +58,38 @@
 	transform: translateX(0);
 }
 
+/* Host-rendered close (✕) — overlays the top-right of the panel, above the
+ * iframe. Bound directly to close() in the shim, so it never depends on the
+ * iframe's own X or the iframe→host postMessage bridge. */
+#lazychat-close-btn {
+	position: absolute;
+	top: 7px;
+	right: 6px;
+	width: 24px;
+	height: 24px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--text-muted, #6b7280);
+	font-size: 15px;
+	line-height: 1;
+	cursor: pointer;
+	z-index: 10;
+	transition: background 120ms ease, color 120ms ease;
+}
+#lazychat-close-btn:hover {
+	background: var(--fill-hover, rgba(0, 0, 0, 0.07));
+	color: var(--text-color, #111827);
+}
+[data-theme="dark"] #lazychat-close-btn:hover,
+[data-theme-mode="dark"] #lazychat-close-btn:hover {
+	background: rgba(255, 255, 255, 0.1);
+	color: #f3f4f6;
+}
+
 #lazychat-resize-handle {
 	position: absolute;
 	left: -3px;

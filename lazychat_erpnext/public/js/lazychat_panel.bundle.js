@@ -568,6 +568,16 @@
 		const handle = document.createElement("div");
 		handle.id = "lazychat-resize-handle";
 
+		// Host-rendered close button — overlays the top-right of the panel, above
+		// the iframe. Calls close() directly (no postMessage), so closing works even
+		// if the chat-ui's own X or the iframe→host bridge ever misbehaves.
+		const closeBtn = document.createElement("button");
+		closeBtn.id = "lazychat-close-btn";
+		closeBtn.type = "button";
+		closeBtn.title = "Close assistant";
+		closeBtn.setAttribute("aria-label", "Close assistant");
+		closeBtn.textContent = "✕"; // ✕
+
 		const iframe = document.createElement("iframe");
 		iframe.id = "lazychat-iframe";
 		iframe.title = "Lazy Chat assistant";
@@ -587,6 +597,7 @@
 
 		panel.appendChild(handle);
 		panel.appendChild(iframe);
+		panel.appendChild(closeBtn);
 
 		root.appendChild(fab);
 		root.appendChild(panel);
@@ -641,6 +652,7 @@
 			localStorage.setItem(STORAGE_OPEN, "0");
 		};
 		fab.addEventListener("click", open);
+		closeBtn.addEventListener("click", close);
 		if (localStorage.getItem(STORAGE_OPEN) === "1") open();
 
 		return { root, panel, iframe, isOpen, open, close };
