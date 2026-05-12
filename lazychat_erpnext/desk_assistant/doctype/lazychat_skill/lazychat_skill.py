@@ -18,7 +18,7 @@ class LazychatSkill(Document):
 			try:
 				parsed = json.loads(raw)
 			except Exception as e:
-				frappe.throw(_("Allowed Tools must be valid JSON: {0}").format(e))
+				frappe.throw(_("Allowed Tools must be valid JSON: {0}").format(str(e)))
 			if not isinstance(parsed, list) or not all(isinstance(t, str) for t in parsed):
 				frappe.throw(_("Allowed Tools must be a JSON array of strings, e.g. [\"get_outstanding\", \"prepare_send_email\"]"))
 		# is_public toggle is System Manager only

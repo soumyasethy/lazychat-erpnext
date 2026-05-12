@@ -29,3 +29,4 @@ test/evidence/
 
 # macOS
 .DS_Store
+.cursor/
