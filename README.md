@@ -278,16 +278,13 @@ Tool calls don't return raw JSON dumps to the user. Lazychat's response renderer
 
 ---
 
-## Quick install
+## Install
 
-```bash
-cd /path/to/your/frappe-bench
-bench get-app https://github.com/soumyasethy/lazychat-erpnext --branch main
-bench --site <your-site> install-app lazychat_erpnext
-bench restart   # then open /app and look for the chat icon (right edge)
-```
+**Frappe Cloud:** install from the marketplace in one click.
 
-That's it. After-install seeds disabled-by-default LLM Provider rows (OpenAI, Anthropic, NVIDIA, OpenRouter, Vercel AI, LM Studio); enable one and add your API key from `/app/llm-provider`. Or skip the server config entirely and let your users bring their own keys via the chat-ui's model picker (browser-LLM path).
+**Self-hosted bench:** see **[INSTALL.md](INSTALL.md)** — the standard `bench` install, the zero-build `release` branch, building from source, and HMR dev are all documented there.
+
+After install, the app seeds disabled-by-default LLM Provider rows (OpenAI, Anthropic, NVIDIA, OpenRouter, Vercel AI, LM Studio) — enable one and add your API key from `/app/llm-provider`, or skip server-side config entirely and let users bring their own keys via the chat-ui's model picker (browser-LLM path).
 
 ---
 
@@ -361,53 +358,6 @@ Default `chat_path = auto`: chat-ui inspects the active model — built-in → b
 
 ---
 
-## Setup options
-
-### Option A — release branch (zero local build)
-
-For consultants who want the panel up in 60 seconds with no `pnpm`, no `npm`, no chat-ui build chain. The `release` branch ships the bundled `public/lazychat_dist/` directly:
-
-```bash
-cd /path/to/your/frappe-bench
-bench get-app https://github.com/soumyasethy/lazychat-erpnext --branch release
-bench --site <your-site> install-app lazychat_erpnext
-bench restart
-```
-
-### Option B — build from source
-
-If you want to customize the chat-ui, develop a new tool, or run HMR while editing React:
-
-```bash
-git clone https://github.com/soumyasethy/lazychat.ai.git
-git clone https://github.com/soumyasethy/lazychat-erpnext.git
-
-# Build the chat-ui dist into the Frappe app's public dir
-./lazychat-erpnext/scripts/build-lazychat-dist.sh
-
-# Deploy to a bench
-BENCH_ROOT=/path/to/frappe-bench DEPLOY_SITE=erp.local \
-  ./lazychat-erpnext/scripts/deploy-local.sh
-
-cd /path/to/frappe-bench
-bench get-app file:///absolute/path/to/lazychat-erpnext
-bench --site erp.local install-app lazychat_erpnext
-```
-
-### Option C — HMR dev (chat-ui + Frappe side-by-side)
-
-Edit React `.tsx` files and watch the panel reload instantly:
-
-```bash
-# Set the iframe src to your local Vite server
-bench --site erp.local execute frappe.db.set_value \
-  --kwargs '{"dt":"Lazychat Settings","dn":"Lazychat Settings","field":"iframe_base_url","val":"http://127.0.0.1:5173"}'
-
-# Run Vite + bench in parallel — see umbrella repo
-sh dev.sh
-```
-
----
 
 ## Configuration
 
