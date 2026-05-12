@@ -10,11 +10,7 @@
 
 <br/>
 
-<img src="https://img.shields.io/badge/ERPNext-15-success?style=flat-square" alt="ERPNext 15"/>
-&nbsp;<img src="https://img.shields.io/badge/Python-3.11+-blue?style=flat-square" alt="Python 3.11+"/>
-&nbsp;<img src="https://img.shields.io/badge/Tools-95-d97757?style=flat-square" alt="94 tools"/>
-&nbsp;<img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="MIT"/>
-&nbsp;<img src="https://img.shields.io/badge/release-cycle--12--m2-orange?style=flat-square" alt="release"/>
+![ERPNext 15](https://img.shields.io/badge/ERPNext-15-success?style=flat-square) ![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue?style=flat-square) ![Tools 95](https://img.shields.io/badge/Tools-95-d97757?style=flat-square) ![License MIT](https://img.shields.io/badge/License-MIT-green?style=flat-square) ![GitHub stars](https://img.shields.io/github/stars/soumyasethy/lazychat-erpnext?style=flat-square)
 
 </div>
 
