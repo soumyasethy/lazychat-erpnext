@@ -283,11 +283,21 @@
 			return () => listeners.get(type).delete(cb);
 		}
 
+		let originMismatchWarned = false;
 		function handle(ev) {
+			// `ev.source === our iframe's window` is the REAL gate — it uniquely
+			// identifies OUR iframe. The origin string is belt-and-braces; Safari
+			// can report a sandboxed same-origin iframe's origin as "null" or
+			// otherwise differently, which would silently drop closed /
+			// maximizeChanged / sessionCreated. Trust the source; warn on mismatch.
 			if (ev.source !== iframe.contentWindow) return;
-			if (ev.origin !== iframeOrigin) return;
+			if (ev.origin !== iframeOrigin && !originMismatchWarned) {
+				originMismatchWarned = true;
+				console.warn("[lazychat] iframe message origin '" + ev.origin + "' != expected '" + iframeOrigin + "' — accepting anyway (source matches our iframe)");
+			}
 			const env = ev.data;
 			if (!env || env.v !== 1 || env.src !== "iframe") return;
+			console.debug("[lazychat] host← iframe", env.type);
 			const set = listeners.get(env.type);
 			if (set) set.forEach((cb) => cb(env.payload, env));
 		}
@@ -568,16 +578,6 @@
 		const handle = document.createElement("div");
 		handle.id = "lazychat-resize-handle";
 
-		// Host-rendered close button — overlays the top-right of the panel, above
-		// the iframe. Calls close() directly (no postMessage), so closing works even
-		// if the chat-ui's own X or the iframe→host bridge ever misbehaves.
-		const closeBtn = document.createElement("button");
-		closeBtn.id = "lazychat-close-btn";
-		closeBtn.type = "button";
-		closeBtn.title = "Close assistant";
-		closeBtn.setAttribute("aria-label", "Close assistant");
-		closeBtn.textContent = "✕"; // ✕
-
 		const iframe = document.createElement("iframe");
 		iframe.id = "lazychat-iframe";
 		iframe.title = "Lazy Chat assistant";
@@ -597,15 +597,16 @@
 
 		panel.appendChild(handle);
 		panel.appendChild(iframe);
-		panel.appendChild(closeBtn);
 
 		root.appendChild(fab);
 		root.appendChild(panel);
 		document.body.appendChild(root);
 
-		/* Width drag — rAF-coalesced; iframe pointer-events disabled during drag so
-		 * mousemove keeps reaching the parent window once the cursor enters the iframe. */
-		let startX = 0, startW = 0, dragging = false, pendingW = 0, rafId = 0;
+		/* Width drag — rAF-coalesced. Uses Pointer Events + pointer capture so the
+		 * drag spans the iframe reliably; a watchdog force-ends a drag whose
+		 * pointerup was lost (Safari edge cases) so `lazychat-resizing` — which
+		 * makes the iframe pointer-events:none — can never get permanently stuck. */
+		let startX = 0, startW = 0, dragging = false, pendingW = 0, rafId = 0, dragPointerId = null, watchdogId = 0;
 		const savedW = parseInt(localStorage.getItem(STORAGE_WIDTH) || "0", 10);
 		if (savedW >= WIDTH_MIN) panel.style.width = savedW + "px";
 		else panel.style.width = WIDTH_DEFAULT + "px";
@@ -615,31 +616,59 @@
 			panel.style.width = pendingW + "px";
 		};
 
-		handle.addEventListener("mousedown", (e) => {
-			dragging = true;
-			startX = e.clientX;
-			startW = panel.getBoundingClientRect().width;
-			pendingW = startW;
-			document.body.classList.add("lazychat-resizing");
-			e.preventDefault();
-		});
-		window.addEventListener("mousemove", (e) => {
-			if (!dragging) return;
-			const max = Math.floor(window.innerWidth * WIDTH_MAX_RATIO);
-			pendingW = Math.max(WIDTH_MIN, Math.min(max, startW + (startX - e.clientX)));
-			if (!rafId) rafId = requestAnimationFrame(applyPending);
-		}, { passive: true });
 		const endDrag = () => {
 			if (!dragging) return;
 			dragging = false;
+			if (watchdogId) { clearTimeout(watchdogId); watchdogId = 0; }
 			if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
 			panel.style.width = pendingW + "px";
 			document.body.classList.remove("lazychat-resizing");
 			localStorage.setItem(STORAGE_WIDTH, String(pendingW));
+			if (dragPointerId != null) {
+				try { handle.releasePointerCapture(dragPointerId); } catch (_e) { /* already released */ }
+				dragPointerId = null;
+			}
 		};
-		window.addEventListener("mouseup", endDrag);
-		window.addEventListener("mouseleave", endDrag);
+
+		// Re-armed on every pointermove; if 3s pass with no movement while a drag
+		// is "active", the pointerup was lost — self-heal.
+		const armWatchdog = () => {
+			if (watchdogId) clearTimeout(watchdogId);
+			watchdogId = setTimeout(() => {
+				if (dragging) { console.warn("[lazychat] resize watchdog fired — force-ending drag"); endDrag(); }
+			}, 3000);
+		};
+
+		const onMove = (e) => {
+			if (!dragging) return;
+			const max = Math.floor(window.innerWidth * WIDTH_MAX_RATIO);
+			pendingW = Math.max(WIDTH_MIN, Math.min(max, startW + (startX - e.clientX)));
+			if (!rafId) rafId = requestAnimationFrame(applyPending);
+			armWatchdog();
+		};
+
+		handle.addEventListener("pointerdown", (e) => {
+			if (e.button !== 0) return;            // primary button only
+			dragging = true;
+			startX = e.clientX;
+			startW = panel.getBoundingClientRect().width;
+			pendingW = startW;
+			dragPointerId = e.pointerId;
+			try { handle.setPointerCapture(e.pointerId); } catch (_e) { /* unsupported — the window listeners below cover it */ }
+			document.body.classList.add("lazychat-resizing");
+			armWatchdog();
+			e.preventDefault();
+		});
+		// Capture routes moves to the handle; the window listeners are the
+		// fallback when capture isn't available (harmless when it is — `dragging` gates them).
+		handle.addEventListener("pointermove", onMove);
+		window.addEventListener("pointermove", onMove, { passive: true });
+		handle.addEventListener("pointerup", endDrag);
+		handle.addEventListener("pointercancel", endDrag);
+		window.addEventListener("pointerup", endDrag);
+		window.addEventListener("pointercancel", endDrag);
 		window.addEventListener("blur", endDrag);
+		document.addEventListener("visibilitychange", () => { if (document.hidden) endDrag(); });
 
 		/* Open/close */
 		const isOpen = () => root.classList.contains("lazychat-open");
@@ -652,7 +681,6 @@
 			localStorage.setItem(STORAGE_OPEN, "0");
 		};
 		fab.addEventListener("click", open);
-		closeBtn.addEventListener("click", close);
 		if (localStorage.getItem(STORAGE_OPEN) === "1") open();
 
 		return { root, panel, iframe, isOpen, open, close };

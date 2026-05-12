@@ -58,38 +58,6 @@
 	transform: translateX(0);
 }
 
-/* Host-rendered close (✕) — overlays the top-right of the panel, above the
- * iframe. Bound directly to close() in the shim, so it never depends on the
- * iframe's own X or the iframe→host postMessage bridge. */
-#lazychat-close-btn {
-	position: absolute;
-	top: 7px;
-	right: 6px;
-	width: 24px;
-	height: 24px;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	border: 0;
-	border-radius: 6px;
-	background: transparent;
-	color: var(--text-muted, #6b7280);
-	font-size: 15px;
-	line-height: 1;
-	cursor: pointer;
-	z-index: 10;
-	transition: background 120ms ease, color 120ms ease;
-}
-#lazychat-close-btn:hover {
-	background: var(--fill-hover, rgba(0, 0, 0, 0.07));
-	color: var(--text-color, #111827);
-}
-[data-theme="dark"] #lazychat-close-btn:hover,
-[data-theme-mode="dark"] #lazychat-close-btn:hover {
-	background: rgba(255, 255, 255, 0.1);
-	color: #f3f4f6;
-}
-
 #lazychat-resize-handle {
 	position: absolute;
 	left: -3px;
@@ -106,10 +74,14 @@
 }
 
 /* While dragging the resize handle:
- *  - iframe stops capturing mousemove (otherwise drag dies once cursor enters it)
+ *  - iframe goes pointer-events:none so pointermove falls through to the parent
+ *    doc (where the handle's pointer-capture redirects it) — without this the
+ *    drag stalls the moment the cursor crosses into the iframe
  *  - body gets a global ew-resize cursor (no flicker as pointer crosses elements)
  *  - text selection is suppressed everywhere
  *  - any incidental width transition is overridden so the panel tracks the cursor 1:1
+ * The shim arms a 3s watchdog that force-clears this class if a pointerup is
+ * ever lost, so the iframe can never get stuck unclickable.
  */
 body.lazychat-resizing,
 body.lazychat-resizing * {
@@ -117,9 +89,6 @@ body.lazychat-resizing * {
 	user-select: none !important;
 	-webkit-user-select: none !important;
 }
-/* Iframe stops capturing mousemove during drag — without this, the drag
- * stalls the moment the cursor crosses into the iframe. Content stays
- * visible (no overlay/flash), so resize feels live. */
 body.lazychat-resizing #lazychat-iframe {
 	pointer-events: none;
 }
