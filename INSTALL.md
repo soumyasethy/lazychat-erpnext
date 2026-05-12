@@ -11,22 +11,15 @@ bench --site <your-site> install-app lazychat_erpnext
 bench restart   # then open /app and look for the chat icon (right edge)
 ```
 
+The pre-built chat-ui SPA (`lazychat_erpnext/public/lazychat_dist/`) is committed in the repo, so the panel works immediately — no `pnpm` / `npm` build step.
+
 After install, the app seeds disabled-by-default LLM Provider rows (OpenAI, Anthropic, NVIDIA, OpenRouter, Vercel AI, LM Studio) — enable one and add your API key from `/app/llm-provider`. Or skip server-side config entirely and let users bring their own keys via the chat-ui's model picker (browser-LLM path).
 
-## Setup options
+## Build / dev options
 
-### Option A — release branch (zero local build)
+Only needed if you want to customize the chat-ui or run HMR — the standard install above already ships the pre-built panel.
 
-For the panel up in 60 seconds with no `pnpm` / `npm` / chat-ui build chain — the `release` branch ships the bundled `public/lazychat_dist/` directly:
-
-```bash
-cd /path/to/your/frappe-bench
-bench get-app https://github.com/soumyasethy/lazychat-erpnext --branch release
-bench --site <your-site> install-app lazychat_erpnext
-bench restart
-```
-
-### Option B — build from source
+### Option A — build from source
 
 If you want to customize the chat-ui, develop a new tool, or run HMR while editing React:
 
@@ -46,7 +39,7 @@ bench get-app file:///absolute/path/to/lazychat-erpnext
 bench --site erp.local install-app lazychat_erpnext
 ```
 
-### Option C — HMR dev (chat-ui + Frappe side-by-side)
+### Option B — HMR dev (chat-ui + Frappe side-by-side)
 
 Edit React `.tsx` files and watch the panel reload instantly:
 

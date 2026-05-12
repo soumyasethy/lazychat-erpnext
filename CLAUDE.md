@@ -46,7 +46,7 @@ ERPNext Desk @ <site>/app
 │   └── apps/chat-ui/dist/                        (built by `pnpm build`)
 └── lazychat-erpnext/                                  # THIS repo (Frappe app source)
     ├── lazychat_erpnext/
-    │   ├── public/lazychat_dist/                 # bundled chat-ui (gitignored, built locally)
+    │   ├── public/lazychat_dist/                 # bundled chat-ui SPA (COMMITTED; rebuild via scripts/build-lazychat-dist.sh)
     │   ├── public/js/lazychat_panel.bundle.js
     │   ├── public/css/lazychat_panel.css
     │   ├── public/js/lazychat_erpnext_desk.js    # legacy widget (gated off by default)
@@ -314,7 +314,7 @@ function path).
 
 - **Source-of-truth lives in this repo** at `lazychat_erpnext/`. The bench's `apps/lazychat_erpnext/` is a deploy target — `scripts/deploy-local.sh` rsyncs `--delete`. Edits made directly in the bench will be wiped on next deploy. Always edit source first, then `cp` (or deploy script) to bench.
 - Smoke test script `_smoke.py` is gitignored / NOT in source — it's a copy from `scripts/smoke-test-tools.py`. Run `cp scripts/smoke-test-tools.py <bench>/.../lazychat_erpnext/_smoke.py` before `bench execute`.
-- Bundled chat-ui dist (`public/lazychat_dist/`) is **gitignored**. Rebuild via `./scripts/build-lazychat-dist.sh` before deploying.
+- Bundled chat-ui dist (`public/lazychat_dist/`) is **committed** to the repo so `bench get-app --branch main` and Frappe Cloud marketplace installs ship a working panel out of the box. After changing the chat-ui, rebuild via `./scripts/build-lazychat-dist.sh` then `git add -A lazychat_erpnext/public/lazychat_dist/` (the `-A` picks up the renamed/removed content-hashed chunks).
 - Two-phase mutations: every state-changing tool MUST be `prepare_*` + a corresponding action handler in `commit_prepared`. Never expose direct mutation tools.
 - Permission scoping: every tool calls `frappe.has_permission(...)` BEFORE any DB access. Re-check at commit time.
 - Tool errors return `{"error": "human-readable message"}` not exceptions. The agent loop reads `error` and apologizes/retries.

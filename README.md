@@ -282,7 +282,7 @@ Tool calls don't return raw JSON dumps to the user. Lazychat's response renderer
 
 **Frappe Cloud:** install from the marketplace in one click.
 
-**Self-hosted bench:** see **[INSTALL.md](INSTALL.md)** — the standard `bench` install, the zero-build `release` branch, building from source, and HMR dev are all documented there.
+**Self-hosted bench:** see **[INSTALL.md](INSTALL.md)** — the standard `bench` install (the pre-built chat-ui ships with the app, so no build step needed), building from source, and HMR dev are all documented there.
 
 After install, the app seeds disabled-by-default LLM Provider rows (OpenAI, Anthropic, NVIDIA, OpenRouter, Vercel AI, LM Studio) — enable one and add your API key from `/app/llm-provider`, or skip server-side config entirely and let users bring their own keys via the chat-ui's model picker (browser-LLM path).
 

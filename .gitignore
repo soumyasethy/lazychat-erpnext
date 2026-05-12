@@ -1,9 +1,12 @@
 scripts/deploy.env
 scripts/bench-root.local
 
-# Built artifact: chat-ui dist gets bundled in via scripts/build-lazychat-dist.sh.
-# Run the build before deploying to a fresh bench; the deploy script rsyncs it in.
-lazychat_erpnext/public/lazychat_dist/
+# NOTE: lazychat_erpnext/public/lazychat_dist/ (the pre-built chat-ui SPA) is
+# COMMITTED so `bench get-app ... --branch main` and Frappe Cloud marketplace
+# installs ship a working panel out of the box. Regenerate it with
+# scripts/build-lazychat-dist.sh after changing the chat-ui, then
+# `git add -A lazychat_erpnext/public/lazychat_dist/` (the -A picks up the
+# content-hashed chunks that were renamed/removed).
 
 # Python build artifacts
 __pycache__/

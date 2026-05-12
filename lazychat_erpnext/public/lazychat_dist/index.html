@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="referrer" content="same-origin" />
+    <title>Lazy Chat</title>
+    <style>
+      /* Pre-paint shell: avoids a flash of blank iframe before React mounts.
+         Matches the dark theme background token in src/styles/theme.css so
+         there is no color flash when the SPA hydrates. */
+      html, body { margin: 0; padding: 0; height: 100%; background: #1a1a1a; color: #e5e5e5; }
+      html[data-theme='light'] body { background: #fafafa; color: #1a1a1a; }
+      #root { height: 100%; }
+      #lazychat-skeleton {
+        position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+        font: 13px/1.4 system-ui, -apple-system, sans-serif; color: rgba(255,255,255,0.45);
+        pointer-events: none; transition: opacity 200ms ease-out;
+      }
+      html[data-theme='light'] #lazychat-skeleton { color: rgba(0,0,0,0.45); }
+      #root:not(:empty) + #lazychat-skeleton { opacity: 0; }
+    </style>
+    <script type="module" crossorigin src="./assets/index-Cc7-bgyH.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/vendor-react-DN7zudRP.js">
+    <link rel="modulepreload" crossorigin href="./assets/vendor-radix-DkXno9i6.js">
+    <link rel="modulepreload" crossorigin href="./assets/vendor-icons-KSMa8anq.js">
+    <link rel="modulepreload" crossorigin href="./assets/vendor-markdown-Bs6ZOiEr.js">
+    <link rel="stylesheet" crossorigin href="./assets/index-CwYMoFyG.css">
+  </head>
+  <body>
+    <div id="root"></div>
+    <div id="lazychat-skeleton" aria-hidden="true">Lazy Chat…</div>
+  </body>
+</html>
