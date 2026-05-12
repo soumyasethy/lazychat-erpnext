@@ -1,6 +1,7 @@
 import os
 
 from . import __version__ as _v
+from .desk_assistant.realtime_subs import SUBSCRIBABLE_DOCTYPES as _RT_SUBSCRIBABLE_DOCTYPES
 
 _APP_ROOT = os.path.dirname(os.path.abspath(__file__))
 
@@ -96,18 +97,25 @@ after_migrate = "lazychat_erpnext.install.run_after_migrate"
 # filters internally to attached_to_doctype="Lazychat Knowledge Base" and
 # enqueues a background job (frappe.enqueue) so the request returns fast.
 # Re-saves of unchanged files are near-free thanks to content-hash dedupe.
+#
+# Tier D — realtime doc-change subscriptions. The on_update handler is registered
+# explicitly for the curated realtime_subs.SUBSCRIBABLE_DOCTYPES set (NOT Frappe's
+# "*" wildcard, which the Frappe Cloud marketplace audit flags as a shared-bench
+# perf risk). Even for those doctypes the handler's first line is an O(1) Redis GET
+# that returns immediately when nobody is subscribed, so the per-save cost is
+# negligible. subscribe_doc_changes refuses doctypes outside this set.
+_RT_DOC_UPDATE_HANDLER = "lazychat_erpnext.desk_assistant.realtime_subs.on_doc_update"
 doc_events = {
+	# File: run the KB-indexer first, then the realtime hook (Frappe supports a
+	# list of handlers per event).
 	"File": {
-		"on_update": "lazychat_erpnext.desk_assistant.embeddings.on_file_attach",
-	},
-	# Tier D — universal doc-update hook for realtime subscriptions. The handler's
-	# first line is a single O(1) Redis GET against `lazychat:subs:<doctype>` and
-	# returns immediately when no user has subscribed — so the per-save cost is
-	# negligible on a shared bench. It is intentionally a wildcard and cannot be
-	# narrowed to a fixed doctype list: the `subscribe_doc_changes` tool lets a
-	# user watch *any* doctype at runtime, so the set of watched doctypes is not
-	# known at module-import time.
-	"*": {
-		"on_update": "lazychat_erpnext.desk_assistant.realtime_subs.on_doc_update",
+		"on_update": [
+			"lazychat_erpnext.desk_assistant.embeddings.on_file_attach",
+			_RT_DOC_UPDATE_HANDLER,
+		],
 	},
 }
+for _rt_dt in _RT_SUBSCRIBABLE_DOCTYPES:
+	if _rt_dt == "File":
+		continue  # handled above with a two-element handler list
+	doc_events.setdefault(_rt_dt, {})["on_update"] = _RT_DOC_UPDATE_HANDLER
