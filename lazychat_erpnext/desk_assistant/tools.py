@@ -2281,8 +2281,8 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				where.append(f"doctype IN ({ph})")
 				for i, dt in enumerate(doctypes):
 					params[f"dt{i}"] = dt
-			rows = frappe.db.sql(
-				f"SELECT doctype, name, content FROM `__global_search` WHERE {' AND '.join(where)} LIMIT %(limit)s",  # nosemgrep: frappe-sql-format-injection -- WHERE is constant predicates with %(dtN)s/%(match)s placeholders; values in params; results re-checked with frappe.has_permission below
+			rows = frappe.db.sql(  # nosemgrep: frappe-sql-format-injection -- WHERE is built only from constant predicates joined with %(dtN)s placeholders; every value is bound via the params dict; results are re-checked with frappe.has_permission below
+				f"SELECT doctype, name, content FROM `__global_search` WHERE {' AND '.join(where)} LIMIT %(limit)s",
 				params,
 				as_dict=True,
 			)

@@ -41,7 +41,7 @@ def seed_lazychat_settings():
 			return  # doctype JSON not migrated yet (would happen on next bench migrate)
 		# get_single creates the row with default field values if absent
 		frappe.get_single("Lazychat Settings")
-		frappe.db.commit()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit -- seed_lazychat_settings (after_install/after_migrate hook): commit the seeded Single row so it's durable; install hooks don't get a clean request-end commit
 	except Exception:
 		frappe.log_error(frappe.get_traceback(), "lazychat_erpnext.seed_lazychat_settings")
 
@@ -139,7 +139,7 @@ def seed_llm_defaults():
 		else:
 			continue
 		frappe.get_doc(row).insert(ignore_permissions=True, ignore_links=True)
-	frappe.db.commit()
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit -- seed_llm_defaults (after_install/after_migrate hook): commit the seeded LLM Provider/Model/Skill rows so they're durable
 
 
 # Module-level constants — single source of truth for the lazychat URL
@@ -438,7 +438,7 @@ def seed_lazychat_form_helpers():
 				}).insert(ignore_permissions=True)
 		except Exception:
 			frappe.log_error(frappe.get_traceback(), f"lazychat_erpnext.seed_lazychat_form_helpers/{dt}")
-	frappe.db.commit()
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit -- seed_lazychat_form_helpers (after_install/after_migrate hook): commit the seeded Client Script helpers so they're durable
 
 
 def _map_agilitas_asset(url):
@@ -486,6 +486,6 @@ def patch_agilitas_branding():
 			if ns_updated:
 				ns.save(ignore_permissions=True)
 
-		frappe.db.commit()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit -- patch_agilitas_branding (after_migrate hook): commit the branding-path rewrites so they're durable
 	except Exception:
 		frappe.log_error(frappe.get_traceback(), "lazychat_erpnext.patch_agilitas_branding")

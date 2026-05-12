@@ -75,7 +75,7 @@ def configure_provider_model(
 			d.is_default = 0
 			d.save(ignore_permissions=True)
 
-	frappe.db.commit()
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit -- setup helper invoked from install/setup flows: commit the LLM Model is_default flips so they're durable for the next step
 
 	# Check whether the API key is set
 	from lazychat_erpnext.desk_assistant.password_utils import safe_provider_api_key
