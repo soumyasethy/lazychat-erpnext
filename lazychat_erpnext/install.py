@@ -3,15 +3,11 @@ import os
 
 import frappe
 
-_ASSET_LOGO = "/assets/lazychat_erpnext/images/agilitas-txt-logo.svg"
-_ASSET_ICON = "/assets/lazychat_erpnext/images/agilitas.icon.svg"
-
 
 def run_after_migrate():
 	seed_llm_defaults()
 	seed_lazychat_settings()
 	seed_lazychat_form_helpers()
-	patch_agilitas_branding()
 	lazychat_setup_check()
 
 
@@ -439,53 +435,3 @@ def seed_lazychat_form_helpers():
 		except Exception:
 			frappe.log_error(frappe.get_traceback(), f"lazychat_erpnext.seed_lazychat_form_helpers/{dt}")
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit -- seed_lazychat_form_helpers (after_install/after_migrate hook): commit the seeded Client Script helpers so they're durable
-
-
-def _map_agilitas_asset(url):
-	"""Map old /files/agilitas*.svg paths to bundled /assets/... URLs."""
-	if not url or not isinstance(url, str) or "/files/agilitas" not in url:
-		return None
-	u = url.lower()
-	if "txt-logo" in u or "txt_logo" in u:
-		return _ASSET_LOGO
-	if ".icon" in u or u.endswith("icon.svg"):
-		return _ASSET_ICON
-	return _ASSET_LOGO
-
-
-def patch_agilitas_branding():
-	"""Fix 404/500 on /files/agilitas*.svg by pointing Website Settings (and ERPNext navbar) at app assets."""
-	if getattr(frappe.flags, "in_install_app", False):
-		return
-	try:
-		if frappe.db.exists("Website Settings", "Website Settings"):
-			ws = frappe.get_single("Website Settings")
-			updated = False
-			for df in ws.meta.fields:
-				if df.fieldtype not in ("Attach", "Attach Image", "Data", "Small Text"):
-					continue
-				raw = ws.get(df.fieldname)
-				replacement = _map_agilitas_asset(raw)
-				if replacement:
-					ws.set(df.fieldname, replacement)
-					updated = True
-			if updated:
-				ws.save(ignore_permissions=True)
-
-		if frappe.db.exists("Navbar Settings", "Navbar Settings"):
-			ns = frappe.get_single("Navbar Settings")
-			ns_updated = False
-			for fname in ("logo", "app_logo"):
-				if not hasattr(ns, fname):
-					continue
-				raw = getattr(ns, fname)
-				replacement = _map_agilitas_asset(raw)
-				if replacement:
-					setattr(ns, fname, replacement)
-					ns_updated = True
-			if ns_updated:
-				ns.save(ignore_permissions=True)
-
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit -- patch_agilitas_branding (after_migrate hook): commit the branding-path rewrites so they're durable
-	except Exception:
-		frappe.log_error(frappe.get_traceback(), "lazychat_erpnext.patch_agilitas_branding")
