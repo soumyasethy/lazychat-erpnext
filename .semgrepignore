@@ -1,0 +1,15 @@
+# Paths excluded from Semgrep / Frappe-marketplace static analysis.
+# These are developer-only test harnesses and audit scripts — they never run
+# in a production install (the marketplace package excludes them, and the
+# in-bench smoke copy is gitignored). They use `frappe.db.commit()` between
+# fixture/sub-test phases and `frappe.db.set_value` on the single doctype on
+# purpose; flagging them as production correctness/security issues is noise.
+
+# 3000-line per-tool smoke harness — source for the gitignored bench-side _smoke.py.
+scripts/smoke-test-tools.py
+
+# Dev relationship-coverage audit script.
+scripts/audit-relationship-coverage.py
+
+# Test suite (HTTP-wire smoke, fixture provisioning, per-tool validators, bearer-auth probe).
+test/

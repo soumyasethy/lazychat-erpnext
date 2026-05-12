@@ -82,7 +82,7 @@ def send_message(
 	convo.total_input_tokens = (convo.total_input_tokens or 0) + usage["input_tokens"]
 	convo.total_output_tokens = (convo.total_output_tokens or 0) + usage["output_tokens"]
 	convo.save(ignore_permissions=True)
-	frappe.db.commit()
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit -- send_message: persist the conversation/usage row now; the request's work is complete and the data must survive even if the client disconnects before reading the response
 
 	return {
 		"conversation_id": convo.name,
@@ -168,7 +168,7 @@ def send_message_stream(
 			c.total_input_tokens = (c.total_input_tokens or 0) + usage["input_tokens"]
 			c.total_output_tokens = (c.total_output_tokens or 0) + usage["output_tokens"]
 			c.save(ignore_permissions=True)
-			frappe.db.commit()
+			frappe.db.commit()  # nosemgrep: frappe-manual-commit -- send_message_stream worker thread: commit the conversation/usage row before the worker exits; a threaded SSE producer doesn't get Frappe's request-end auto-commit
 			state["usage"] = usage
 		except Exception as e:
 			state["error"] = str(e)
@@ -427,7 +427,7 @@ def save_conversation(conversation_id=None, messages=None, title=None, model_lab
 		convo.total_input_tokens = (convo.total_input_tokens or 0) + int(usage.get("input_tokens", 0) or 0)
 		convo.total_output_tokens = (convo.total_output_tokens or 0) + int(usage.get("output_tokens", 0) or 0)
 	convo.save(ignore_permissions=True)
-	frappe.db.commit()
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit -- save_conversation: persist the browser-orchestrated turn immediately; the work is complete and must survive a client disconnect
 	return {"ok": True, "conversation_id": convo.name}
 
 
@@ -878,7 +878,7 @@ def update_lazychat_settings(field=None, value=None):
 
 	doc.set(f, value)
 	doc.save(ignore_permissions=False)
-	frappe.db.commit()
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit -- update_lazychat_settings (System-Manager-only POST): commit the settings change so it's durable and visible to the next request even if the client doesn't await the response body
 
 	conf = {}
 	try:
@@ -928,7 +928,7 @@ def upsert_llm_provider(name=None, fields=None):
 		doc.insert(ignore_permissions=False)
 	else:
 		doc.save(ignore_permissions=False)
-	frappe.db.commit()
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit -- upsert_llm_provider (System-Manager-only POST): commit the create/update so the admin write is durable before returning
 	return {"ok": True, "name": doc.name}
 
 
@@ -948,7 +948,7 @@ def delete_llm_provider(name=None):
 			"blocking_models": [r.name for r in refs],
 		}
 	frappe.delete_doc("LLM Provider", name, ignore_permissions=False)
-	frappe.db.commit()
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit -- delete_llm_provider (System-Manager-only POST): commit the delete so it's durable before returning
 	return {"ok": True, "name": name}
 
 
@@ -988,7 +988,7 @@ def upsert_llm_model(name=None, fields=None):
 			"UPDATE `tabLLM Model` SET is_default = 0 WHERE name != %s",
 			(doc.name,),
 		)
-	frappe.db.commit()
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit -- upsert_llm_model (System-Manager-only POST): commit the doc save and the single-default-invariant UPDATE together so they're durable before returning
 	return {"ok": True, "name": doc.name}
 
 
@@ -999,7 +999,7 @@ def delete_llm_model(name=None):
 	if not name or not frappe.db.exists("LLM Model", name):
 		return {"ok": False, "error": "Model not found"}
 	frappe.delete_doc("LLM Model", name, ignore_permissions=False)
-	frappe.db.commit()
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit -- delete_llm_model (System-Manager-only POST): commit the delete so it's durable before returning
 	return {"ok": True, "name": name}
 
 

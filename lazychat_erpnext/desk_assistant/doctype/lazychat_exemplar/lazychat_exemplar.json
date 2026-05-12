@@ -90,10 +90,6 @@
    "read": 1,
    "role": "System Manager",
    "write": 1
-  },
-  {
-   "read": 1,
-   "role": "All"
   }
  ],
  "search_fields": "intent_signature,action,target_doctype",

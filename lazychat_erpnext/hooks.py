@@ -100,9 +100,13 @@ doc_events = {
 	"File": {
 		"on_update": "lazychat_erpnext.desk_assistant.embeddings.on_file_attach",
 	},
-	# Tier D — universal doc-update hook for realtime subscriptions. Fires for
-	# every doctype save in the bench but the handler's first line is a single
-	# Redis flag GET — zero cost when no user has subscribed to anything.
+	# Tier D — universal doc-update hook for realtime subscriptions. The handler's
+	# first line is a single O(1) Redis GET against `lazychat:subs:<doctype>` and
+	# returns immediately when no user has subscribed — so the per-save cost is
+	# negligible on a shared bench. It is intentionally a wildcard and cannot be
+	# narrowed to a fixed doctype list: the `subscribe_doc_changes` tool lets a
+	# user watch *any* doctype at runtime, so the set of watched doctypes is not
+	# known at module-import time.
 	"*": {
 		"on_update": "lazychat_erpnext.desk_assistant.realtime_subs.on_doc_update",
 	},
