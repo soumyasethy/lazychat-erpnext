@@ -876,7 +876,7 @@ def run():
 	record(_ok(
 		"T75 get_list coerces stringified filters/fields/limit",
 		r.get("ok") is True and isinstance(r.get("rows"), list) and r.get("count", 0) >= 1,
-		f"count={r.get('count')} sample={r.get('rows', [{}])[0].get('name')}",
+		f"count={r.get('count')} sample={(r.get('rows') or [{}])[0].get('name')}",
 	))
 
 	# T76: same coercion on a different tool — aggregate with stringified filters.
