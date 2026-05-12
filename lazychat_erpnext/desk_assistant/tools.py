@@ -3950,7 +3950,9 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		except Exception:
 			pass
 		try:
-			info["python_version"] = __import__("sys").version.split()[0]
+			import sys
+
+			info["python_version"] = sys.version.split()[0]
 		except Exception:
 			pass
 		return {"ok": True, "info": info}
