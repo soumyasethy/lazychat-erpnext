@@ -68,6 +68,12 @@ def lazychat_setup_check():
 
 def _print_welcome_banner():
 	site = getattr(frappe.local, "site", "<site>")
+	try:
+		from lazychat_erpnext.desk_assistant.tool_schemas import TOOL_SCHEMAS
+
+		n_tools = len(TOOL_SCHEMAS)
+	except Exception:
+		n_tools = 0
 	banner = (
 		"\n"
 		"================================================================\n"
@@ -75,7 +81,7 @@ def _print_welcome_banner():
 		"================================================================\n"
 		f" Site:     {site}\n"
 		" Panel:    enabled by default (right-side slide-out via FAB)\n"
-		" Tools:    38 registered (reads, mutations, workflow, analytics,\n"
+		f" Tools:    {n_tools} registered (reads, mutations, workflow, analytics,\n"
 		"           reports, ERPNext domain, communications, power tools)\n"
 		"\n"
 		" PRIMARY admin surface:\n"
@@ -99,7 +105,7 @@ def _print_welcome_banner():
 		'     "lazychat_allow_dangerous_tools": true                          // enable prepare_run_sql / prepare_run_python\n'
 		"   }\n"
 		"\n"
-		" Smoke test (verifies all 38 tools + settings + MCP against real data):\n"
+		f" Smoke test (verifies all {n_tools} tools + settings + MCP against real data):\n"
 		f"   bench --site {site} execute lazychat_erpnext._smoke.run\n"
 		"================================================================\n"
 	)
