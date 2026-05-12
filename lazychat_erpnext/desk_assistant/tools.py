@@ -2969,11 +2969,18 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			ns["datetime"] = _dt
 		except Exception:
 			pass
-		for libname in ("pandas", "numpy"):
-			try:
-				ns[libname] = __import__(libname)
-			except Exception:
-				pass
+		# Optional heavy libs — plain imports (no dynamic __import__) so static
+		# analysers don't flag a non-literal import; lazy because they're heavy.
+		try:
+			import pandas
+			ns["pandas"] = pandas
+		except Exception:
+			pass
+		try:
+			import numpy
+			ns["numpy"] = numpy
+		except Exception:
+			pass
 
 		buf = io.StringIO()
 		import contextlib
@@ -5916,11 +5923,18 @@ def commit_prepared(token, **extras):
 				ns["datetime"] = _dt
 			except Exception:
 				pass
-			for libname in ("pandas", "numpy"):
-				try:
-					ns[libname] = __import__(libname)
-				except Exception:
-					pass
+			# Optional heavy libs — plain imports (no dynamic __import__) so static
+			# analysers don't flag a non-literal import; lazy because they're heavy.
+			try:
+				import pandas
+				ns["pandas"] = pandas
+			except Exception:
+				pass
+			try:
+				import numpy
+				ns["numpy"] = numpy
+			except Exception:
+				pass
 			# Capture stdout
 			buf = io.StringIO()
 			import contextlib
