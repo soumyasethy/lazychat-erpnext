@@ -519,11 +519,11 @@ def _probe_select_sql_execute(query, sample_size=5, timeout_sec=8):
 		# Wrap so the caller's ORDER BY / GROUP BY / LIMIT / aggregate behavior
 		# is preserved. Outer LIMIT ensures we never pull more than sample_size
 		# rows even if the inner query is unbounded.
-		wrapped = f"SELECT * FROM ({executable}) AS _lz_probe LIMIT {int(sample_size)}"
+		wrapped = f"SELECT * FROM ({executable}) AS _lz_probe LIMIT {int(sample_size)}"  # nosemgrep: frappe-sql-format-injection -- executable is an LLM SELECT already vetted by _validate_select_sql (SELECT-only, no DML/DDL, no multi-statement); LIMIT is int()-cast; gated by allow_dangerous_tools + System Manager
 		# MariaDB session-level statement timeout. SET STATEMENT applies to
 		# the SINGLE following statement only (auto-resets), so this doesn't
 		# leak into other Frappe queries on the same connection.
-		timed = f"SET STATEMENT MAX_STATEMENT_TIME={int(timeout_sec)} FOR {wrapped}"
+		timed = f"SET STATEMENT MAX_STATEMENT_TIME={int(timeout_sec)} FOR {wrapped}"  # nosemgrep: frappe-sql-format-injection -- timeout int()-cast; wrapped is the vetted SELECT from the line above
 		rows = frappe.db.sql(timed, as_dict=True)
 		columns = list(rows[0].keys()) if rows else []
 		return {
@@ -2282,7 +2282,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				for i, dt in enumerate(doctypes):
 					params[f"dt{i}"] = dt
 			rows = frappe.db.sql(
-				f"SELECT doctype, name, content FROM `__global_search` WHERE {' AND '.join(where)} LIMIT %(limit)s",
+				f"SELECT doctype, name, content FROM `__global_search` WHERE {' AND '.join(where)} LIMIT %(limit)s",  # nosemgrep: frappe-sql-format-injection -- WHERE is constant predicates with %(dtN)s/%(match)s placeholders; values in params; results re-checked with frappe.has_permission below
 				params,
 				as_dict=True,
 			)
@@ -2985,10 +2985,10 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		try:
 			with contextlib.redirect_stdout(buf):
 				try:
-					value = eval(compile(code, "<lazychat_readonly>", "eval"), ns, ns)
+					value = eval(compile(code, "<lazychat_readonly>", "eval"), ns, ns)  # nosemgrep: frappe-codeinjection-eval -- run_python_readonly: code is AST-validated (rejects dangerous imports/builtins/frappe-write calls) then run inside a savepoint that ALWAYS rolls back; tool gated by allow_dangerous_tools + System Manager
 					ns["_result"] = value
 				except SyntaxError:
-					exec(compile(code, "<lazychat_readonly>", "exec"), ns, ns)
+					exec(compile(code, "<lazychat_readonly>", "exec"), ns, ns)  # nosemgrep: frappe-codeinjection-eval -- run_python_readonly: AST-validated + savepoint rollback; gated by allow_dangerous_tools + System Manager
 		except Exception as e:
 			# Always rollback first so any partial mutation is undone
 			try: frappe.db.rollback(save_point=sp)
@@ -4736,7 +4736,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		# Jinja dry-render to catch template syntax errors at preview time.
 		if print_format_type == "Jinja":
 			try:
-				frappe.render_template(html, {"doc": frappe._dict()})
+				frappe.render_template(html, {"doc": frappe._dict()})  # nosemgrep: frappe-ssti -- dry-render against an EMPTY context to surface Jinja syntax errors at preview time; the actual print render goes through Frappe.s own print-format pipeline
 			except Exception as e:
 				return {"error": f"Jinja template did not render: {type(e).__name__}: {e}"}
 		# M1.7 — universal validator on typed create.
@@ -4828,11 +4828,11 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		# Jinja dry-render against an empty context — catches the bulk of
 		# template typos at preview time so the LLM doesn't have to roundtrip.
 		try:
-			frappe.render_template(subject, {"doc": frappe._dict()})
+			frappe.render_template(subject, {"doc": frappe._dict()})  # nosemgrep: frappe-ssti -- dry-render vs empty context (preview-time syntax check); real render via Frappe.s notification pipeline
 		except Exception as e:
 			return {"error": f"subject Jinja did not render: {type(e).__name__}: {e}"}
 		try:
-			frappe.render_template(response, {"doc": frappe._dict()})
+			frappe.render_template(response, {"doc": frappe._dict()})  # nosemgrep: frappe-ssti -- dry-render vs empty context (preview-time syntax check); real render via Frappe.s notification pipeline
 		except Exception as e:
 			return {"error": f"response (body) Jinja did not render: {type(e).__name__}: {e}"}
 		# M1.7 — universal validator on typed create.
@@ -5928,11 +5928,11 @@ def commit_prepared(token, **extras):
 				with contextlib.redirect_stdout(buf):
 					try:
 						# Try as expression first (so "1+1" returns 2)
-						value = eval(compile(code, "<lazychat>", "eval"), ns, ns)
+						value = eval(compile(code, "<lazychat>", "eval"), ns, ns)  # nosemgrep: frappe-codeinjection-eval -- prepare_run_python (Apply-gated): AST-validated; runs as the calling user with timeout; gated by allow_dangerous_tools + System Manager + /commit
 						ns["_result"] = value
 					except SyntaxError:
 						# Fallback: execute as statements; user code can set _result
-						exec(compile(code, "<lazychat>", "exec"), ns, ns)
+						exec(compile(code, "<lazychat>", "exec"), ns, ns)  # nosemgrep: frappe-codeinjection-eval -- prepare_run_python (Apply-gated): AST-validated; gated by allow_dangerous_tools + System Manager + /commit
 			except Exception as e:
 				# Detect DB errors (pymysql.OperationalError + frappe wrappers
 				# typically include the numeric MySQL code in the message). For
