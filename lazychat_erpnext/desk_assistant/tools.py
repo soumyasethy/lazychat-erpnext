@@ -486,7 +486,7 @@ def _probe_select_sql_explain(query):
 		if not stripped:
 			return None
 		explain_query = _SQL_PLACEHOLDER_RE.sub("NULL", stripped)
-		frappe.db.sql("EXPLAIN " + explain_query)
+		frappe.db.sql("EXPLAIN " + explain_query)  # nosemgrep: frappe-sql-format-injection -- EXPLAIN probe of a SELECT already vetted by _validate_select_sql (SELECT-only, no DML/DDL, no multi-statement); %(...)s placeholders substituted to NULL; preview-time only, modifies nothing
 		return None
 	except Exception as e:
 		wrapped = _wrap_db_error(e, query, "explain_probe")
@@ -524,7 +524,7 @@ def _probe_select_sql_execute(query, sample_size=5, timeout_sec=8):
 		# the SINGLE following statement only (auto-resets), so this doesn't
 		# leak into other Frappe queries on the same connection.
 		timed = f"SET STATEMENT MAX_STATEMENT_TIME={int(timeout_sec)} FOR {wrapped}"  # nosemgrep: frappe-sql-format-injection -- timeout int()-cast; wrapped is the vetted SELECT from the line above
-		rows = frappe.db.sql(timed, as_dict=True)
+		rows = frappe.db.sql(timed, as_dict=True)  # nosemgrep: frappe-sql-format-injection -- 'timed' wraps the vetted SELECT built on the two lines above (executable = _validate_select_sql-checked query with placeholders nulled); bounded by an outer LIMIT + server statement timeout; preview-time execute-probe
 		columns = list(rows[0].keys()) if rows else []
 		return {
 			"ok": True,
@@ -2925,7 +2925,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			return {"error": validation_error}
 		limit = min(int(args.get("limit") or 200), 1000)
 		try:
-			rows = frappe.db.sql(query, as_dict=True)
+			rows = frappe.db.sql(query, as_dict=True)  # nosemgrep: frappe-sql-format-injection -- 'query' is vetted by _validate_select_sql (SELECT-only, no DML/DDL, no multi-statement, leading comments stripped); run_sql_select is gated by allow_dangerous_tools (site_config) + System Manager role
 		except Exception as e:
 			return _wrap_db_error(e, query, action="run_sql_select")
 		truncated = False
@@ -5884,7 +5884,7 @@ def commit_prepared(token, **extras):
 			# a structured response with a self-correction hint, so the agent
 			# loop can recover on the next turn instead of dead-ending.
 			try:
-				rows = frappe.db.sql(query, as_dict=True)
+				rows = frappe.db.sql(query, as_dict=True)  # nosemgrep: frappe-sql-format-injection -- 'query' is re-validated by _validate_select_sql at commit time; prepare_run_sql commit path, gated by allow_dangerous_tools (site_config) + System Manager role + /commit token
 			except Exception as e:
 				return _wrap_db_error(e, query, action="run_sql")
 			if isinstance(rows, list) and len(rows) > limit:

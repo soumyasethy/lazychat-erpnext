@@ -38,6 +38,35 @@ SUBS_KEY_PREFIX = "lazychat:subs:"  # + <doctype>:<name>
 USER_SUBS_KEY_PREFIX = "lazychat:subs:user:"  # + <user>
 SUBS_TTL_SEC = 7 * 24 * 3600
 
+# Doctypes the realtime doc-change hook is registered for (see hooks.py).
+# A curated set of common business doctypes — this keeps the on_update hook off
+# Frappe's universal "*" wildcard (which the Frappe Cloud marketplace audit flags
+# as a shared-bench perf risk) while still covering essentially every doc a user
+# would realistically ask the assistant to "watch". `subscribe()` refuses
+# doctypes outside this set; if you need one added, extend this tuple AND it will
+# be picked up by hooks.py on the next bench restart.
+SUBSCRIBABLE_DOCTYPES = (
+	# Selling
+	"Quotation", "Sales Order", "Sales Invoice", "Delivery Note", "POS Invoice",
+	# Buying
+	"Supplier Quotation", "Purchase Order", "Purchase Invoice", "Purchase Receipt",
+	# Stock / manufacturing
+	"Material Request", "Stock Entry", "Stock Reconciliation", "Work Order", "Job Card",
+	"Item", "Batch", "Serial No", "Pick List",
+	# Accounts
+	"Payment Entry", "Journal Entry", "Payment Request", "Expense Claim", "Bank Transaction",
+	# CRM
+	"Lead", "Opportunity",
+	# Parties / masters
+	"Customer", "Supplier", "Contact", "Address",
+	# Projects
+	"Project", "Task", "Timesheet",
+	# HR
+	"Employee", "Leave Application", "Attendance",
+	# Support / generic
+	"Issue", "ToDo", "Note", "File", "Communication", "Contract",
+)
+
 
 # ============================================================================
 # Cache helpers
@@ -101,6 +130,13 @@ def subscribe(doctype, name, user=None):
 	user = user or frappe.session.user
 	if not doctype or not name:
 		return {"error": "doctype and name required"}
+	if doctype not in SUBSCRIBABLE_DOCTYPES:
+		return {
+			"error": (
+				f"Realtime change subscriptions aren't available for '{doctype}'. "
+				f"Supported doctypes: {', '.join(sorted(SUBSCRIBABLE_DOCTYPES))}."
+			)
+		}
 	if not frappe.db.exists(doctype, name):
 		return {"error": f"doc not found: {doctype}/{name}"}
 	if not frappe.has_permission(doctype, "read", doc=name):
