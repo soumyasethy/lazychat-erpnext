@@ -5,6 +5,15 @@ Mirrors tools.py:_validate_script_report_body but adapted for API endpoints:
   a top-level `return` (not enforced by Frappe but useful for clarity).
 - Reads/computations only — writes are explicitly rejected (they belong in
   prepare_create_doc / prepare_update_doc, not in API endpoints).
+
+Scope: this validator catches `frappe.db.<write>` calls (FORBIDDEN_FRAPPE_DB_WRITES)
+plus dangerous imports / builtins. It does NOT cover non-DB side-effect calls like
+`frappe.sendmail` / `frappe.enqueue` / `frappe.publish_realtime` / `frappe.delete_doc`
+/ `frappe.rename_doc` — those are handled at a different tier (role-based permissions
++ explicit Apply gating + the `allow_dangerous_tools` site flag). If a future cycle
+needs to block them at AST-scan time, add a FORBIDDEN_FRAPPE_SIDE_EFFECTS constant
+mirroring tools.py:_PY_RO_BLOCKED_FRAPPE and a corresponding validate_no_frappe_side_effects
+function. Out of scope for Cycle 13.
 """
 from __future__ import annotations
 from typing import Optional
