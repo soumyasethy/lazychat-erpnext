@@ -60,6 +60,126 @@ For analytics, prefer run_sql_select / run_python_readonly / get_list — those
 auto-execute and don't need confirmation.
 """.strip()
 
+# Cycle 13 — "Building Desk Pages" playbook. Teaches the LLM the end-to-end
+# workflow for composing custom Desk Pages + dashboards: plan sections,
+# pick discovery tools, stage Server Scripts for aggregations, stage the
+# Page itself, apply in dependency order. Visual quality rules + anti-
+# patterns + iteration loop. Long form on purpose — short prompts produce
+# "AI-aesthetic" output (hardcoded colors, broken dark mode, table-for-
+# layout); the rules below are the difference between best-of-best and
+# meh. Concatenated into the shared guidance below in `_system_prompt`,
+# BEFORE the mode-specific blocks (PLAN_MODE_BLOCK / ASK_MODE_BLOCK)
+# which always come last.
+_DESK_PAGE_PLAYBOOK = """
+
+## BUILDING DESK PAGES & DASHBOARDS
+
+Use `prepare_create_page` for any custom internal dashboard, full-page report,
+or executive overview. Lives at /app/<page-name>. Inside the Desk shell —
+`frappe.call`, `frappe.db.get_list`, `frappe.boot`, `frappe.session.user` are
+all available out of the box.
+
+### Workflow
+
+1. **Plan the sections.** Read the user's request (often an HTML mockup or text
+   description). Identify each distinct section (header, KPI grid, charts,
+   tables, lists). Note which sections need REAL data vs which are static.
+
+2. **For each data section, identify the source.** Single doctype read →
+   `frappe.db.get_list/get_value` from the Page's JS (no server-side wrapper
+   needed). Complex aggregation (sum / group-by / multi-doctype JOIN) → stage
+   a `prepare_create_server_script` (script_type=API) and have the Page's JS
+   call it via `frappe.call({method: 'api_method'})`.
+
+3. **Use the discovery tools FIRST.** Before staging a new aggregation:
+   - `list_whitelisted_methods({prefix:'erpnext.'})` — ERPNext ships many
+     dashboard data methods; reuse before reinventing.
+   - `list_number_cards()` — if you're building a Workspace, reuse existing
+     Number Cards rather than duplicating ('Revenue MTD' shouldn't exist 4 times).
+   - `describe_doctype` / `find_join_path` / `get_doctype_relationships` for
+     unfamiliar data shapes.
+
+4. **For each Server Script: stage one `prepare_create_server_script`.** Keep
+   each focused — one endpoint per logical data unit. Use
+   `frappe.response.message = result_dict` as the output. Re-check perms
+   inside the script (`frappe.has_permission`) — defense-in-depth matters
+   even though the script runs as the caller.
+
+5. **Compose the Page: stage `prepare_create_page`** with HTML in `content`,
+   CSS in `style`, JS in `script`. The JS calls each Server Script via
+   `frappe.call({method: '<api_method>'})`. Render-preview will hard-block
+   references to non-existent doctypes / methods — but methods you also
+   stage THIS turn are valid (the validator tracks staged methods on
+   frappe.local.flags).
+
+6. **Apply order.** Server Scripts FIRST (so the Page's frappe.call references
+   resolve), then the Page. At Effort=max, both can auto-Apply for the LOW_RISK
+   wrappers (create_page); create_server_script always requires explicit Apply.
+
+### Visual quality rules (CRITICAL — output has to actually look good)
+
+1. **Use Frappe theme tokens** in CSS — `var(--bg-color)`, `var(--text-color)`,
+   `var(--primary-color)`, `var(--text-muted)`, `var(--border-color)`,
+   `var(--bg-gray)`, `var(--accent)`. NEVER hardcode brand colors. Hardcoded
+   colors = broken in dark mode = the #1 thing that signals 'AI-generated'.
+
+2. **Match the reference's typography exactly** if a mockup was provided:
+   load the same font families (via `<link rel="stylesheet" href="fonts.googleapis.com/...">`),
+   same weights, same letter-spacing.
+
+3. **Match the reference's layout structure exactly.** If the mockup has a
+   topbar + sidebar + sections grid, build `<header>` + `<nav>` + `<main>`
+   with the SAME grid template. Don't substitute 'good enough' alternatives.
+
+4. **Use semantic HTML.** `<header>`, `<nav>`, `<main>`, `<section>`,
+   `<article>`, `<aside>`, `<footer>`. KPI labels-and-values via
+   `<dl><dt>label</dt><dd>value</dd></dl>`. Tables only for actual tabular
+   data, never for layout.
+
+5. **Wire data REAL — never placeholder.** If a section's data isn't reachable
+   yet, render `<em>(no data wired)</em>` explicitly rather than fake numbers.
+
+6. **Loading / empty / error states** for every `frappe.call`. Pattern:
+   ```js
+   const el = document.querySelector('#section-x');
+   el.textContent = 'Loading...';
+   frappe.call({method: 'x'}).then(r => {
+     if (!r.message?.rows?.length) { el.textContent = 'No data.'; return; }
+     const table = document.createElement('table');
+     for (const row of r.message.rows) {
+       const tr = document.createElement('tr');
+       for (const cell of row) {
+         const td = document.createElement('td');
+         td.textContent = String(cell ?? '-');
+         tr.appendChild(td);
+       }
+       table.appendChild(tr);
+     }
+     el.replaceChildren(table);
+   }).catch(e => { el.textContent = `Failed: ${e.message}`; });
+   ```
+
+7. **At the END of your `script`,** after all initial `frappe.call`s resolve
+   (`Promise.all(...).then(...)`), set `document.body.dataset.lazychatReady = '1'`.
+   This signals the screenshot preview tool that the page is fully rendered.
+
+### Anti-patterns (do NOT)
+
+- DON'T use `prepare_create_doc({doctype:'Page'})` — use `prepare_create_page`.
+- DON'T inline secrets / API keys in JS (Desk-readable).
+- DON'T poll `frappe.call` more than once per minute without a refresh button.
+- DON'T use `<table>` for layout.
+- DON'T assemble HTML strings via property setters — use textContent +
+  document.createElement + appendChild.
+
+### Iteration loop ('fix the X')
+
+User says 'the topbar font is too thin' -> use `prepare_update_doc({doctype:'Page',
+name:'<page_name>', patch:{style: '<refined CSS>'}})`. Patch ONLY the changed
+field — never re-stage the full Page on a small fix.
+
+"""
+
 MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024
 MAX_ATTACHMENTS = 8
 MAX_TEXT_FROM_FILE = 100_000
@@ -502,6 +622,11 @@ INLINE CHARTS — when the user asks for a visualization (plot, chart, bar/line/
 Desk context JSON: """
 	ctx = json.dumps(context or {}, default=str)[:8000]
 	s = base + ctx
+	# Cycle 13 — append the "Building Desk Pages" playbook BEFORE the toolless
+	# fallback / skills hook / mode-specific blocks. Sits at the end of the
+	# main body so the LLM weighs the 7-rule visual-quality playbook + 5-step
+	# workflow without competing with the (always-last) mode block.
+	s += _DESK_PAGE_PLAYBOOK
 	if not supports_tools:
 		s += TOOLLESS_PROMPT_SUFFIX
 	# Tier E — append active skill snippets (per-user, Redis-backed). No-op when
