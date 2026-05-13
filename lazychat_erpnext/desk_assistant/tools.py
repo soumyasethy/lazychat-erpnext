@@ -13,6 +13,21 @@ from frappe.utils import get_url as _frappe_get_url
 PREP_TTL_SEC = 300
 PREP_KEY = "lazychat:prep:"
 
+# Cycle 13 M1.6 — prepare_attach_assets: per-file size cap + mime allowlist.
+# Files are base64-decoded at preview time; we reject anything above 5 MB to
+# keep Redis staging payloads bounded. Mime prefixes cover the typical Page
+# asset cases: web fonts (woff/woff2), images (png/jpg/svg/webp), text
+# assets (css/js), and arbitrary octet-stream fallbacks.
+_ATTACH_MIME_ALLOWLIST = (
+	"image/",
+	"font/",
+	"text/",
+	"application/octet-stream",
+	"application/font-woff",
+	"application/font-woff2",
+)
+_ATTACH_MAX_SIZE = 5 * 1024 * 1024
+
 # DANGEROUS-TOOL GUARD
 # These tools (prepare_run_sql, prepare_run_python) require:
 #   1. site_config.json: "lazychat_allow_dangerous_tools": true
@@ -5819,6 +5834,56 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"confirm_with": f"/commit {token}",
 		}
 
+	if name == "prepare_attach_assets":
+		# Cycle 13 M1.6 — stage file uploads attached to a target doctype
+		# record. Typical use case: a prepare_create_page references a custom
+		# font / hero image; stage those files via this wrapper so they're
+		# served at /files/<filename> and @import-able from the Page's <style>.
+		# Mirrors M1.3's inlined-dispatcher pattern. Per-file 5 MB cap + mime
+		# allowlist defined at module scope. Always explicit Apply (file
+		# uploads have permanent side-effects — public URLs may be linked
+		# from emails / docs / etc.).
+		import base64
+		target_dt = (args.get("target_doctype") or "").strip()
+		target_name = (args.get("target_name") or "").strip()
+		files = args.get("files") or []
+		if not target_dt or not target_name:
+			return {"ok": False, "error": "target_doctype and target_name are required."}
+		if not frappe.db.exists(target_dt, target_name):
+			return {
+				"ok": False,
+				"error": f"{target_dt} '{target_name}' doesn't exist.",
+				"hint": "Stage the parent doc first (e.g. prepare_create_page), commit it, then stage attach_assets.",
+			}
+		if not frappe.has_permission(target_dt, doc=target_name, ptype="write"):
+			return {"ok": False, "error": f"No 'write' permission on {target_dt} '{target_name}'."}
+		if not files:
+			return {"ok": False, "error": "files list is empty."}
+		for f in files:
+			fn = (f.get("filename") or "").strip()
+			cb64 = f.get("content_base64") or ""
+			mime = (f.get("mime") or "application/octet-stream").lower()
+			if not fn or not cb64:
+				return {"ok": False, "error": "every file must have filename + content_base64."}
+			if not any(mime.startswith(p) for p in _ATTACH_MIME_ALLOWLIST):
+				return {"ok": False, "error": f"mime '{mime}' not in allowlist {_ATTACH_MIME_ALLOWLIST}."}
+			try:
+				decoded = base64.b64decode(cb64)
+			except Exception as e:
+				return {"ok": False, "error": f"file '{fn}' base64 decode failed: {e}"}
+			if len(decoded) > _ATTACH_MAX_SIZE:
+				return {"ok": False, "error": f"file '{fn}' is {len(decoded)} bytes; per-file cap is 5 MB."}
+		payload = {"target_doctype": target_dt, "target_name": target_name, "files": files}
+		token = _stage_action("attach_assets", payload)
+		return {
+			"ok": True,
+			"action": "attach_assets",
+			"preview_token": token,
+			"summary": f"Attach {len(files)} file(s) to {target_dt} '{target_name}'",
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
 	if name == "prepare_create_workspace":
 		# Cycle 13 M1.5 — stage a Frappe Workspace (card-grid dashboard at
 		# /app/<scrubbed_title>). Composes Number Cards + Dashboard Charts +
@@ -6446,6 +6511,38 @@ def commit_prepared(token, **extras):
 				"icon": payload["icon"],
 			})
 			doc.insert(ignore_permissions=False)
+		elif action == "attach_assets":
+			# Cycle 13 M1.6 — commit a staged attachment batch. Re-checks
+			# write-permission on the target at commit time (defense-in-depth:
+			# user's perms may have been revoked between stage and commit).
+			import base64
+			target_dt = payload["target_doctype"]
+			target_name = payload["target_name"]
+			if not frappe.has_permission(target_dt, doc=target_name, ptype="write"):
+				return {"ok": False, "error": f"no write permission on {target_dt} '{target_name}' at commit time"}
+			file_urls = []
+			for f in payload["files"]:
+				decoded = base64.b64decode(f["content_base64"])
+				file_doc = frappe.get_doc({
+					"doctype": "File",
+					"file_name": f["filename"],
+					"attached_to_doctype": target_dt,
+					"attached_to_name": target_name,
+					"content": decoded,
+					"is_private": 0,
+				})
+				file_doc.save(ignore_permissions=False)
+				file_urls.append(file_doc.file_url)
+			# Use the target doc as the "primary" doc so the centralized link
+			# builder produces a sensible link back to the parent record
+			# (e.g. /app/page/<name> for a Page). Stash file_urls in extras
+			# so the response carries the full list.
+			class _R:
+				pass
+			doc = _R()
+			doc.doctype = target_dt
+			doc.name = target_name
+			frappe.local.flags.lazychat_commit_extras = {"file_urls": file_urls}
 		elif action == "create_workspace":
 			# Cycle 13 M1.5 — commit a staged Workspace. Re-checks System Manager
 			# at commit time (defense-in-depth: site role may have changed

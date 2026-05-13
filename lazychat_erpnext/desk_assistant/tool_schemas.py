@@ -1759,6 +1759,31 @@ TOOL_SCHEMAS = [
 		},
 	},
 	{
+		"name": "prepare_attach_assets",
+		"description": (
+			"Stage file uploads attached to a target doctype record. Use case: a "
+			"prepare_create_page references a custom font or hero image; stage those "
+			"files via this wrapper so they're served at /files/<filename> and "
+			"@import-able from the Page's <style>.\n\n"
+			"Each file capped at 5 MB; mime must start with image/ font/ text/ or "
+			"application/octet-stream / application/font-woff(2). Caller must have "
+			"'write' permission on target."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"target_doctype": {"type": "string", "description": "e.g. 'Page'"},
+				"target_name": {"type": "string"},
+				"files": {"type": "array", "items": {"type": "object", "properties": {
+					"filename": {"type": "string"},
+					"content_base64": {"type": "string", "description": "Base64-encoded file bytes."},
+					"mime": {"type": "string", "description": "Defaults to application/octet-stream."}
+				}, "required": ["filename", "content_base64"]}},
+			},
+			"required": ["target_doctype", "target_name", "files"],
+		},
+	},
+	{
 		"name": "prepare_create_workspace",
 		"description": (
 			"Stage a Workspace — Frappe's standard card-grid dashboard surface at /app/<workspace>. "

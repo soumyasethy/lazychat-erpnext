@@ -3406,6 +3406,31 @@ def run():
 			  not r_bad.get("ok") and "not_a_real_card" in r_bad.get("error", "").lower().replace(" ", "_"),
 			  str(r_bad)[:200]))
 
+	# T100l — prepare_attach_assets uploads a small file and links it to a Page
+	if frappe.db.exists("Page", "_lz_smoke_page_e"):
+		import base64 as _b64a
+		tiny = _b64a.b64encode(b"/* placeholder asset */").decode("ascii")
+		r = execute_tool("prepare_attach_assets", {
+			"target_doctype": "Page", "target_name": "_lz_smoke_page_e",
+			"files": [{"filename": "smoke.css", "content_base64": tiny, "mime": "text/css"}],
+		})
+		record(_ok("T100l attach stage", r.get("ok"), str(r)[:200]))
+		if r.get("ok"):
+			rc = commit_prepared(r["preview_token"])
+			record(_ok("T100l' attach commit",
+					  rc.get("ok") and len(rc.get("file_urls") or []) == 1, str(rc)[:200]))
+
+	# T100l'' — rejects > 5 MB file
+	import base64 as _b64b
+	big = "A" * (6 * 1024 * 1024)
+	r_big = execute_tool("prepare_attach_assets", {
+		"target_doctype": "Page", "target_name": "_lz_smoke_page_e",
+		"files": [{"filename": "huge.txt", "content_base64": _b64b.b64encode(big.encode()).decode(), "mime": "text/plain"}],
+	})
+	record(_ok("T100l'' attach rejects oversize",
+			  not r_big.get("ok") and "5 MB" in r_big.get("error", ""),
+			  str(r_big)[:200]))
+
 	# Cleanup pages created during T100e/g (T100f never staged) + Server Script from T100h.
 	for pn in (page_name_e, "_lz_smoke_page_g"):
 		try:
