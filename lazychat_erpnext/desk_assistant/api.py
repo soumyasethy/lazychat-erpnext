@@ -1176,3 +1176,22 @@ def fetch_form_prefill(token):
 		"parent_fields": obj.get("parent_fields") or {},
 		"items": obj.get("items") or [],
 	}
+
+
+@frappe.whitelist()
+def lazychat_visual_judge_compare(candidate_b64: str, reference_b64: str, intent_text: str = "", page_source: str = "", effort: str = "medium") -> dict:
+	"""Proxy to visual_judge.compare. System Manager only."""
+	if "System Manager" not in (frappe.get_roles(frappe.session.user) or []):
+		return {"skipped": True, "reason": "System Manager required."}
+	from lazychat_erpnext.desk_assistant.visual_judge import compare
+	return compare(candidate_b64=candidate_b64, reference_b64=reference_b64,
+					intent_text=intent_text, page_source=page_source, effort=effort)
+
+
+@frappe.whitelist()
+def lazychat_visual_judge_generate_fixes(diff_json: dict, page_doc: dict, intent_text: str = "", effort: str = "medium") -> dict:
+	"""Proxy to visual_judge.generate_fixes. System Manager only."""
+	if "System Manager" not in (frappe.get_roles(frappe.session.user) or []):
+		return {"skipped": True, "reason": "System Manager required."}
+	from lazychat_erpnext.desk_assistant.visual_judge import generate_fixes
+	return generate_fixes(diff_json=diff_json, page_doc=page_doc, intent_text=intent_text, effort=effort)
