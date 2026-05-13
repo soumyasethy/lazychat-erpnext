@@ -858,11 +858,82 @@
 			return out;
 		}
 
+		/* M2.4 (Cycle 13) — screenshot mode: bench-side capture endpoint
+		 * shipped by the chat-ui. Routes to handleScreenshotCapture when
+		 * captureSpec.mode === "screenshot"; default ("dom") path below is
+		 * unchanged. */
+		function handleScreenshotCapture(payload) {
+			var requestId = payload && payload.requestId;
+			var route = payload && payload.route;
+			var spec = (payload && payload.captureSpec) || {};
+			var ready_signal = spec.ready_signal || "lazychatReady";
+			var timeout_ms = Math.min(Math.max(spec.timeout_ms || 5000, 500), 20000);
+			var viewport = spec.viewport || { width: 1440, height: 900 };
+
+			if (!route || !requestId) {
+				bridge.send("inspectRouteResponse", {
+					requestId: requestId, ok: false,
+					error: "missing route or requestId",
+				});
+				return;
+			}
+
+			fetch("/api/method/lazychat_erpnext.desk_assistant.screenshot.capture", {
+				method: "POST",
+				credentials: "include",
+				headers: {
+					"Content-Type": "application/json",
+					"X-Frappe-CSRF-Token": csrf(),
+				},
+				body: JSON.stringify({
+					route: route,
+					viewport: viewport,
+					wait_for_dataset: ready_signal,
+					timeout_ms: timeout_ms,
+				}),
+			})
+				.then(function (r) { return r.json(); })
+				.then(function (j) {
+					var m = (j && j.message) || {};
+					if (m.ok) {
+						bridge.send("inspectRouteResponse", {
+							requestId: requestId, ok: true,
+							captured: {
+								screenshot_b64: m.screenshot_b64,
+								width: m.width,
+								height: m.height,
+								capture_method: m.capture_method,
+								ready_signal_seen: m.ready_signal_seen,
+								captured_at: m.captured_at,
+								url: route,
+							},
+						});
+					} else {
+						bridge.send("inspectRouteResponse", {
+							requestId: requestId, ok: false,
+							error: m.error || "screenshot capture failed",
+						});
+					}
+				})
+				.catch(function (err) {
+					bridge.send("inspectRouteResponse", {
+						requestId: requestId, ok: false,
+						error: "screenshot fetch failed: " + String((err && err.message) || err),
+					});
+				});
+		}
+
 		function handleInspectRoute(payload) {
 			const spec = (payload && payload.captureSpec) || {};
 			const requestId = payload && payload.requestId;
 			const route = payload && payload.route;
 			const timeout = spec.timeout_ms || 5000;
+
+			// M2.4 (Cycle 13) — screenshot branch shipped first; original
+			// DOM-state path below stays unchanged.
+			if (spec.mode === "screenshot") {
+				return handleScreenshotCapture(payload);
+			}
 
 			if (!route || !requestId) {
 				bridge.send("inspectRouteResponse", { requestId: requestId, ok: false, captured: null, error: "missing route or requestId" });
