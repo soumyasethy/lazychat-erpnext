@@ -1195,3 +1195,27 @@ def lazychat_visual_judge_generate_fixes(diff_json: dict, page_doc: dict, intent
 		return {"skipped": True, "reason": "System Manager required."}
 	from lazychat_erpnext.desk_assistant.visual_judge import generate_fixes
 	return generate_fixes(diff_json=diff_json, page_doc=page_doc, intent_text=intent_text, effort=effort)
+
+
+@frappe.whitelist()
+def lazychat_get_page_doc(name: str) -> dict:
+	"""Return the source fields of a Page doc — used by the chat-ui's visual
+	iteration loop (M3.7) to feed the current Page state into
+	visual_judge.generate_fixes so the patch is computed against what's
+	actually live, not what the LLM thinks it staged.
+
+	Read-only; permission-scoped to Page.read. Returns {} for missing or
+	unreadable docs so the caller can gracefully short-circuit the loop.
+	"""
+	if not frappe.has_permission("Page", doc=name, ptype="read"):
+		return {}
+	if not frappe.db.exists("Page", name):
+		return {}
+	doc = frappe.get_doc("Page", name)
+	return {
+		"name": doc.name,
+		"title": doc.title,
+		"content": doc.content or "",
+		"style": doc.style or "",
+		"script": doc.script or "",
+	}
