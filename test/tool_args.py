@@ -341,6 +341,37 @@ TOOL_ARGS: dict[str, dict[str, Any]] = {
         "rule": "Round Robin",
         "users": ["Administrator"],
     },
+
+    # --- Cycle 13 / M1 — Desk Page / Server Script / Workspace / attach_assets +
+    #     2 discovery tools.
+    # prepare_create_page + prepare_create_workspace MAY hit an "already exists"
+    # graceful error on second runs (token-staging is at preview, so commit was
+    # never reached; the doc itself isn't persisted, but a previous /commit on
+    # the same bench may have). Both are listed in EXPECT_ERROR_OK below so that
+    # path counts as OK_ERROR rather than TOOL_ERROR.
+    # prepare_create_server_script is gated by site_config
+    # `lazychat_allow_dangerous_tools=true` — when off, the wrapper returns a
+    # graceful gate error which we accept as OK_ERROR.
+    "prepare_create_page": {
+        "page_name": "_lz_wire_page",
+        "title": "Wire-Smoke Page",
+        "content": "<main><h1>Hi</h1></main>",
+        "style": "main { padding: 8px; }",
+        "script": "document.body.dataset.lazychatReady = '1';",
+    },
+    "prepare_create_server_script": {
+        "name": "_lz_wire_ss",
+        "api_method": "lazychat_erpnext.wire_smoke_ss",
+        "script": "frappe.response.message = {'pong': True}",
+    },
+    "prepare_create_workspace": {"title": "_lz Wire WS"},
+    "prepare_attach_assets": {
+        "target_doctype": "User",
+        "target_name": "Administrator",
+        "files": [{"filename": "wire.txt", "content_base64": "aGk=", "mime": "text/plain"}],
+    },
+    "list_number_cards": {"limit": 5},
+    "list_whitelisted_methods": {"prefix": "frappe.client", "limit": 10},
 }
 
 # ---------------------------------------------------------------------------
@@ -376,6 +407,14 @@ EXPECT_ERROR_OK: set[str] = {
     "prepare_create_newsletter",         # nonexistent group on purpose
     # Commit 3 additions:
     "prepare_create_email_account",      # gated by lazychat_allow_email_setup
+    # Cycle 13 / M1 additions:
+    # — prepare_create_page / prepare_create_workspace: a previous wire-smoke run
+    #   may have committed `_lz_wire_page` / `_lz Wire WS`; the wrapper then
+    #   returns a graceful "already exists" error which we treat as OK_ERROR.
+    # — prepare_create_server_script: gated by lazychat_allow_dangerous_tools.
+    "prepare_create_page",
+    "prepare_create_workspace",
+    "prepare_create_server_script",
 }
 
 # Empty now — every tool has args. Kept for shape compat / future fixtures.
@@ -670,6 +709,47 @@ def _v_list_skills(b: dict) -> tuple[bool, str]:
             f"count={len(b.get('skills', []))}")
 
 
+def _v_create_page(b: dict) -> tuple[bool, str]:
+    return (
+        b.get("ok") is True and b.get("action") == "create_page" and bool(b.get("preview_token")),
+        f"token={(b.get('preview_token') or '')[:8]}… route={b.get('route')}",
+    )
+
+
+def _v_create_server_script(b: dict) -> tuple[bool, str]:
+    return (
+        b.get("ok") is True and b.get("action") == "create_server_script" and bool(b.get("preview_token")),
+        f"token={(b.get('preview_token') or '')[:8]}…",
+    )
+
+
+def _v_create_workspace(b: dict) -> tuple[bool, str]:
+    return (
+        b.get("ok") is True and b.get("action") == "create_workspace" and bool(b.get("preview_token")),
+        f"token={(b.get('preview_token') or '')[:8]}… route={b.get('route')}",
+    )
+
+
+def _v_attach_assets(b: dict) -> tuple[bool, str]:
+    return (
+        b.get("ok") is True and b.get("action") == "attach_assets" and bool(b.get("preview_token")),
+        f"token={(b.get('preview_token') or '')[:8]}…",
+    )
+
+
+def _v_list_number_cards(b: dict) -> tuple[bool, str]:
+    cards = b.get("cards")
+    return (isinstance(cards, list), f"cards={len(cards) if isinstance(cards, list) else '?'}")
+
+
+def _v_list_whitelisted_methods(b: dict) -> tuple[bool, str]:
+    methods = b.get("methods")
+    return (
+        isinstance(methods, list) and len(methods) > 0,
+        f"methods={len(methods) if isinstance(methods, list) else '?'} prefix={b.get('filtered_by_prefix')}",
+    )
+
+
 def _v_current_context(b: dict) -> tuple[bool, str]:
     # No desk context is passed from a curl invocation, so empty/null
     # context is the *correct* response and counts as success.
@@ -762,4 +842,14 @@ VALIDATORS: dict[str, Callable[[dict], tuple[bool, str]]] = {
     "search_kb": _v_search_kb,
     "reindex_kb": _v_reindex_kb,
     "list_skills": _v_list_skills,
+    # Cycle 13 / M1 — Desk Page + Server Script + Workspace + attach_assets +
+    # 2 discovery tools. The 3 prepare_* validators are only exercised when the
+    # wrapper actually stages (i.e. fixture doesn't pre-exist and gate isn't off);
+    # the EXPECT_ERROR_OK fallback handles the graceful-error path.
+    "prepare_create_page": _v_create_page,
+    "prepare_create_server_script": _v_create_server_script,
+    "prepare_create_workspace": _v_create_workspace,
+    "prepare_attach_assets": _v_attach_assets,
+    "list_number_cards": _v_list_number_cards,
+    "list_whitelisted_methods": _v_list_whitelisted_methods,
 }
