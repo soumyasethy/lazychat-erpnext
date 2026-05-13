@@ -21,6 +21,7 @@
   "allow_dangerous_tools",
   "cycle9_section",
   "cycle9_enabled",
+  "enable_screenshot_preview",
   "section_help",
   "help_html"
  ],
@@ -136,6 +137,13 @@
    "fieldtype": "Check",
    "label": "Allow prepare_create_email_account Tool",
    "description": "When checked AND caller has System Manager role, the prepare_create_email_account tool can stage SMTP/IMAP credentials. Configuring an Email Account is meaningfully more dangerous than sending email — it can exfil mail or DOS upstream servers — so it has its own gate separate from 'Allow prepare_send_email'. site_config 'lazychat_allow_email_setup' takes precedence if set. Cycle 10: default ON (allow-all) — defense-in-depth via System Manager role + /commit."
+  },
+  {
+   "fieldname": "enable_screenshot_preview",
+   "fieldtype": "Check",
+   "label": "Enable Screenshot Preview (Playwright)",
+   "default": "0",
+   "description": "When enabled, the chat-ui auto-captures a screenshot of new Desk Pages after Apply. Requires Playwright + Chromium installed on the bench: `./env/bin/pip install playwright && ./env/bin/playwright install chromium`."
   },
   {
    "fieldname": "section_help",

@@ -3466,6 +3466,37 @@ def run():
 	except Exception as e:
 		record(_ok("T101a screenshot module import", False, str(e)[:200]))
 
+	from lazychat_erpnext.desk_assistant.screenshot import capture, is_available
+	if not is_available():
+		print("⚠ T101b/c/d skipped: Playwright/Chromium not installed on this bench")
+		record(_ok("T101b skipped (Playwright not installed)", True, "OK_ERROR"))
+		record(_ok("T101c skipped (Playwright not installed)", True, "OK_ERROR"))
+		record(_ok("T101d skipped (Playwright not installed)", True, "OK_ERROR"))
+	else:
+		r = capture(route="/app/user/Administrator", viewport={"width": 800, "height": 600}, timeout_ms=8000)
+		ok = r.get("ok") and r.get("screenshot_b64", "").startswith("data:image/png;base64,") and r.get("width") == 800
+		record(_ok("T101b capture returns base64 PNG", ok,
+				  f"ok={r.get('ok')} method={r.get('capture_method')} sig_seen={r.get('ready_signal_seen')}"))
+
+		import contextlib
+		@contextlib.contextmanager
+		def _as_guest():
+			prev = frappe.session.user
+			try:
+				frappe.set_user("Guest")
+				yield
+			finally:
+				frappe.set_user(prev)
+		with _as_guest():
+			r = capture(route="/app/user/Administrator")
+		record(_ok("T101c refuses Guest",
+				  not r.get("ok") and "Guest" in r.get("error", ""), str(r)[:200]))
+
+		r = capture(route="/app/user/Administrator", wait_for_dataset="thisWillNeverBeSet", timeout_ms=2000)
+		record(_ok("T101d timeout fallback",
+				  r.get("ok") and r.get("ready_signal_seen") is False,
+				  f"ok={r.get('ok')}, sig_seen={r.get('ready_signal_seen')}"))
+
 	# Cleanup pages created during T100e/g (T100f never staged) + Server Script from T100h.
 	for pn in (page_name_e, "_lz_smoke_page_g"):
 		try:

@@ -32,6 +32,10 @@ _SETTINGS_DEFAULTS = {
 	"allow_dangerous_tools": True,
 	"allow_email_setup": True,
 	"cycle9_enabled": True,
+	# Cycle 13 M2: screenshot preview is OFF by default — requires
+	# Playwright + Chromium on the bench (200 MB+). Flip on after
+	# `./env/bin/pip install playwright && ./env/bin/playwright install chromium`.
+	"enable_screenshot_preview": False,
 	"llm_proxy_allowed_hosts": list(_DEFAULT_LLM_PROXY_HOSTS),
 }
 
