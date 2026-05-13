@@ -603,20 +603,25 @@ T101b/c/d cleanly skip via `is_available()` probe; T102b/c/d cleanly skip via `r
 
 ### How to enable on a bench
 
+**Cycle 13 ships with allow-all defaults.** Fresh installs get `enable_screenshot_preview = 1`, `vision_judge_models` populated, `allow_dangerous_tools = 1` out of the box (graceful-degrade everywhere — missing deps return clean `{ok:false, error:...}` envelopes rather than breaking flows). Existing installs keep their stored values; flip in `/app/lazychat-settings` if needed.
+
+The only operator step is installing the optional Playwright + Chromium binaries for the screenshot service to actually render anything (otherwise `screenshot.capture` returns `{ok:false, error:"playwright not installed — ..."}`):
+
 ```bash
-# Screenshot preview (M2)
 cd $BENCH_ROOT
 ./env/bin/pip install playwright
 ./env/bin/playwright install chromium
-bench --site <site> set-value 'Lazychat Settings' 'Lazychat Settings' enable_screenshot_preview 1
-
-# Server Scripts (M1 high-risk wrapper)
-# Edit sites/<site>/site_config.json: add "lazychat_allow_dangerous_tools": true
-
-# Vision-judge (M3) — admin must add LLM Model rows for the configured model IDs
-# Lazychat Settings.vision_judge_models defaults: {"high": "claude-sonnet-4-6", "max": "claude-opus-4-7"}
-# Configure those models in the LLM Model doctype with valid LLM Provider credentials.
 ```
+
+For the M3 visual-judge to issue real vision calls, admin must add an `LLM Model` row with `model_id` matching one of `vision_judge_models` (defaults `claude-sonnet-4-6` for high, `claude-opus-4-7` for max) bound to a `LLM Provider` with a valid API key. Missing this just makes `visual_judge.compare` skip with `{skipped:true, reason:"no provider configured for ..."}` — the loop is invisible when off.
+
+### Screenshot service — bench-local URL
+
+The Playwright capture runs ON the bench worker, so it talks to gunicorn directly via `http://127.0.0.1:<webserver_port>` (default 8000). Using `frappe.utils.get_url()` would produce hostnames like `erp.local` that headless Chromium can't resolve via DNS (`ERR_NAME_NOT_RESOLVED`). 127.0.0.1 always works for same-machine bench-side capture, both in dev (`bench serve`) and prod (gunicorn behind nginx — still listens on 127.0.0.1). The session cookie domain is set to `127.0.0.1` to match.
+
+### `is_available()` is import-only
+
+`screenshot.is_available()` checks ONLY `import playwright.sync_api` — NOT `sync_playwright().start()`. The probe would conflict with the persistent browser pool from `_get_browser()` (a second `sync_playwright()` call after the first capture hangs or fails). Chromium presence is verified at capture time via the actual browser launch; a missing binary surfaces as `{ok:false, error:"capture failed: Error: ..."}`.
 
 ### Validation walkthrough (Proman MD Dashboard)
 

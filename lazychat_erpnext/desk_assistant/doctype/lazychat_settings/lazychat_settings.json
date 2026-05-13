@@ -143,8 +143,8 @@
    "fieldname": "enable_screenshot_preview",
    "fieldtype": "Check",
    "label": "Enable Screenshot Preview (Playwright)",
-   "default": "0",
-   "description": "When enabled, the chat-ui auto-captures a screenshot of new Desk Pages after Apply. Requires Playwright + Chromium installed on the bench: `./env/bin/pip install playwright && ./env/bin/playwright install chromium`."
+   "default": "1",
+   "description": "When enabled, the chat-ui auto-captures a screenshot of new Desk Pages after Apply. Requires Playwright + Chromium installed on the bench: `./env/bin/pip install playwright && ./env/bin/playwright install chromium`. Cycle 13: default ON (allow-all) — graceful-degrades with `{ok:false, error:'playwright not installed...'}` if the dep is missing; install on the bench to actually enable rendering."
   },
   {
    "fieldname": "vision_judge_models",

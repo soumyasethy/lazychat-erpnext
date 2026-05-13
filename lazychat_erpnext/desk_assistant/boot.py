@@ -32,10 +32,11 @@ _SETTINGS_DEFAULTS = {
 	"allow_dangerous_tools": True,
 	"allow_email_setup": True,
 	"cycle9_enabled": True,
-	# Cycle 13 M2: screenshot preview is OFF by default — requires
-	# Playwright + Chromium on the bench (200 MB+). Flip on after
-	# `./env/bin/pip install playwright && ./env/bin/playwright install chromium`.
-	"enable_screenshot_preview": False,
+	# Cycle 13 M2: screenshot preview ON by default — graceful-degrades to
+	# `{ok: False, error: "playwright not installed ..."}` if Playwright/Chromium
+	# isn't on the bench. Install with `./env/bin/pip install playwright &&
+	# ./env/bin/playwright install chromium` to actually enable rendering.
+	"enable_screenshot_preview": True,
 	"llm_proxy_allowed_hosts": list(_DEFAULT_LLM_PROXY_HOSTS),
 	# Cycle 13 M3: vision-judge models per Effort tier. JSON dict mapping
 	# 'high'/'max' to a vision-capable model_label configured in LLM Model.
