@@ -22,6 +22,7 @@
   "cycle9_section",
   "cycle9_enabled",
   "enable_screenshot_preview",
+  "vision_judge_models",
   "section_help",
   "help_html"
  ],
@@ -144,6 +145,14 @@
    "label": "Enable Screenshot Preview (Playwright)",
    "default": "0",
    "description": "When enabled, the chat-ui auto-captures a screenshot of new Desk Pages after Apply. Requires Playwright + Chromium installed on the bench: `./env/bin/pip install playwright && ./env/bin/playwright install chromium`."
+  },
+  {
+   "fieldname": "vision_judge_models",
+   "fieldtype": "Code",
+   "options": "JSON",
+   "label": "Vision-Judge Models (per Effort tier)",
+   "default": "{\"high\": \"claude-sonnet-4-6\", \"max\": \"claude-opus-4-7\"}",
+   "description": "JSON mapping Effort tier to vision-capable model ID for the M3 visual-judge auto-iterate loop. Defaults: high=sonnet-4-6, max=opus-4-7. The model must be configured in LLM Provider/LLM Model doctypes and support image inputs."
   },
   {
    "fieldname": "section_help",

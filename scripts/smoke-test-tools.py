@@ -3497,6 +3497,21 @@ def run():
 				  r.get("ok") and r.get("ready_signal_seen") is False,
 				  f"ok={r.get('ok')}, sig_seen={r.get('ready_signal_seen')}"))
 
+	# ──────────────────────────────────────────────────────────────────────
+	# CYCLE 13 — M3: visual-judge auto-iterate
+	# ──────────────────────────────────────────────────────────────────────
+	print("\n=== Cycle 13 M3 — visual-judge auto-iterate ===")
+
+	try:
+		from lazychat_erpnext.desk_assistant import visual_judge
+		r = visual_judge.compare(candidate_b64="data:image/png;base64,iVBORw0KGgo=",
+								  reference_b64="data:image/png;base64,iVBORw0KGgo=",
+								  intent_text="test", page_source="", effort="low")
+		record(_ok("T102a low-effort skip",
+				  isinstance(r, dict) and r.get("skipped") is True, str(r)[:200]))
+	except Exception as e:
+		record(_ok("T102a visual_judge import", False, str(e)[:200]))
+
 	# Cleanup pages created during T100e/g (T100f never staged) + Server Script from T100h.
 	for pn in (page_name_e, "_lz_smoke_page_g"):
 		try:
