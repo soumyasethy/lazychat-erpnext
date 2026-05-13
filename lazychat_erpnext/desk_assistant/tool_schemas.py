@@ -1784,6 +1784,22 @@ TOOL_SCHEMAS = [
 		},
 	},
 	{
+		"name": "list_number_cards",
+		"description": (
+			"List existing Number Cards in the bench. Always call this before "
+			"staging a new Number Card or a Workspace that needs cards — the "
+			"agent should reuse existing aggregations rather than duplicate "
+			"them ('Revenue MTD' shouldn't exist 4 times)."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"filter": {"type": "object", "description": "Frappe filter dict, e.g. {\"document_type\": \"Sales Invoice\"}."},
+				"limit": {"type": "integer", "description": "Default 50, max 500."},
+			},
+		},
+	},
+	{
 		"name": "prepare_create_workspace",
 		"description": (
 			"Stage a Workspace — Frappe's standard card-grid dashboard surface at /app/<workspace>. "
