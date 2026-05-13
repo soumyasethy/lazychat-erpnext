@@ -9,6 +9,7 @@ def run_after_migrate():
 	seed_lazychat_settings()
 	seed_lazychat_form_helpers()
 	lazychat_setup_check()
+	_check_playwright_available()
 
 
 def after_install():
@@ -23,7 +24,31 @@ def after_install():
 	seed_lazychat_settings()
 	seed_lazychat_form_helpers()
 	lazychat_setup_check()
+	_check_playwright_available()
 	_print_welcome_banner()
+
+
+def _check_playwright_available():
+	"""Cycle 13 M2: probe whether Playwright + Chromium are installed on this bench.
+
+	The screenshot preview service (`desk_assistant.screenshot.capture`) is an
+	OPTIONAL extra — most Frappe Cloud installs don't need it. We log a clear
+	actionable warning when it's missing so admins know how to enable it, but
+	we never fail the install hook on its absence.
+	"""
+	try:
+		from lazychat_erpnext.desk_assistant.screenshot import is_available
+	except Exception:
+		return
+	if is_available():
+		frappe.logger().info("[lazychat] screenshot preview ready (Playwright + Chromium detected)")
+	else:
+		frappe.logger().warning(
+			"[lazychat] screenshot preview is DISABLED. To enable, run:\n"
+			"    ./env/bin/pip install playwright\n"
+			"    ./env/bin/playwright install chromium\n"
+			"Then set Lazychat Settings.enable_screenshot_preview = true."
+		)
 
 
 def seed_lazychat_settings():
