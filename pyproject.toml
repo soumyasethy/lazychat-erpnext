@@ -19,6 +19,11 @@ dependencies = [
     "pyjsparser>=2.7",    # JS AST for static walks (frappe.call method refs, frappe.db doctype refs)
 ]
 
+[project.optional-dependencies]
+screenshot = [
+    "playwright>=1.40",   # Cycle 13 M2: screenshot preview service (bench-side Chromium for Apply-time PNG capture)
+]
+
 [project.urls]
 Homepage = "https://github.com/soumyasethy/lazychat-erpnext"
 Issues = "https://github.com/soumyasethy/lazychat-erpnext/issues"

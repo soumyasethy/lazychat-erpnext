@@ -3453,6 +3453,19 @@ def run():
 				  all(k in m0 for k in ("path", "docstring")),
 				  str(m0)[:200]))
 
+	# ──────────────────────────────────────────────────────────────────────
+	# CYCLE 13 — M2: screenshot preview
+	# ──────────────────────────────────────────────────────────────────────
+	print("\n=== Cycle 13 M2 — screenshot preview ===")
+
+	try:
+		from lazychat_erpnext.desk_assistant import screenshot
+		record(_ok("T101a screenshot module exports capture(...)",
+				  hasattr(screenshot, "capture"),
+				  "module loaded"))
+	except Exception as e:
+		record(_ok("T101a screenshot module import", False, str(e)[:200]))
+
 	# Cleanup pages created during T100e/g (T100f never staged) + Server Script from T100h.
 	for pn in (page_name_e, "_lz_smoke_page_g"):
 		try:
