@@ -3269,5 +3269,40 @@ def run():
 	except Exception as e:
 		record(_ok("T100a' server_script_validators module imports", False, f"{e}"))
 
+	# T100b — page_validators.validate_html rejects unclosed tag
+	try:
+		from lazychat_erpnext.desk_assistant.page_validators import (
+			validate_html, validate_css, validate_js,
+			validate_js_doctype_refs, collect_quality_warnings,
+		)
+		r = validate_html("<div><span>unclosed</div>")
+		record(_ok("T100b html validator rejects unclosed tag", r is not None and "html" in r.get("phase", ""), f"{r}"))
+
+		r = validate_html("<div><span>balanced</span></div>")
+		record(_ok("T100b' html validator accepts well-formed", r is None, f"{r}"))
+
+		# T100c — validate_css rejects unbalanced braces
+		r = validate_css(".foo { color: red ")
+		record(_ok("T100c css validator rejects unbalanced braces", r is not None, f"{r}"))
+
+		r = validate_css(".foo { color: red; }")
+		record(_ok("T100c' css validator accepts well-formed", r is None, f"{r}"))
+
+		# T100d — validate_js_doctype_refs catches unknown doctype
+		js_bad = "frappe.db.get_list('NotARealDoctypeXYZ', {fields: ['name']});"
+		r = validate_js_doctype_refs(js_bad)
+		record(_ok("T100d js doctype-ref validator catches unknown", r is not None and "NotARealDoctypeXYZ" in r.get("error", ""), f"{r}"))
+
+		js_good = "frappe.db.get_list('User', {fields: ['name']});"
+		r = validate_js_doctype_refs(js_good)
+		record(_ok("T100d' js doctype-ref validator passes known", r is None, f"{r}"))
+
+		# T100d2 — collect_quality_warnings surfaces hardcoded-color warning
+		css_hardcoded = ".a{color:#fff}.b{color:#000}.c{color:#aabbcc}.d{color:#abc}.e{color:#fa0}.f{color:rgb(1,2,3)}"
+		warnings = collect_quality_warnings("<main><section><h1>x</h1></section></main>", css_hardcoded, "document.body.dataset.lazychatReady='1';")
+		record(_ok("T100d2 hardcoded-color warning surfaces", any(w["category"] == "theme_tokens" for w in warnings), f"{warnings}"))
+	except Exception as e:
+		record(_ok("T100b-d2 page_validators exception", False, f"{type(e).__name__}: {e}"))
+
 	print(f"\n=== {results['pass']} pass, {results['fail']} fail, {results['skip']} skip ===")
 	return results
