@@ -5819,6 +5819,88 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"confirm_with": f"/commit {token}",
 		}
 
+	if name == "prepare_create_server_script":
+		# Cycle 13 M1.4 — stage a Server Script of type API. Mirrors
+		# prepare_create_page's inlined-dispatcher pattern: hard gates →
+		# args validation → AST validators (server_script_validators.run_all)
+		# → method-path clash check → stash api_method on local.flags so a
+		# sibling prepare_create_page in the same turn can validate
+		# frappe.call references against it → stage to Redis.
+		# READ-ONLY by construction: AST validator rejects forbidden imports,
+		# dangerous builtins, frappe.db writes. Gated: requires site flag
+		# `lazychat_allow_dangerous_tools=true` AND System Manager role.
+		from lazychat_erpnext.desk_assistant.server_script_validators import run_all as _ss_run_all
+		# Hard gates.
+		if not frappe.conf.get("lazychat_allow_dangerous_tools"):
+			return {"ok": False, "error": "Server Script creation requires site_config `lazychat_allow_dangerous_tools=true`."}
+		if "System Manager" not in (frappe.get_roles(frappe.session.user) or []):
+			return {"ok": False, "error": "Only System Manager can stage a Server Script."}
+		ss_name = (args.get("name") or "").strip()
+		script = args.get("script") or ""
+		api_method = (args.get("api_method") or "").strip()
+		if not ss_name:
+			return {"ok": False, "error": "name is required.", "hint": "e.g. 'get_revenue_mtd'"}
+		if not script:
+			return {"ok": False, "error": "script is required."}
+		if frappe.db.exists("Server Script", ss_name):
+			return {
+				"ok": False,
+				"error": f"Server Script '{ss_name}' already exists.",
+				"hint": f"Use prepare_update_doc(doctype='Server Script', name='{ss_name}', patch={{script: '...'}}) to modify it.",
+			}
+		# Auto-derive api_method when omitted: lazychat_erpnext.dashboards.<scrubbed_name>.
+		if not api_method:
+			api_method = f"lazychat_erpnext.dashboards.{frappe.scrub(ss_name)}"
+		# Render-preview: AST validators (parse + forbidden imports + forbidden
+		# builtins + frappe.db write rejection + output_present).
+		err = _ss_run_all(script)
+		if err:
+			return {"ok": False, **err}
+		# Method-path clash check: if the api_method already resolves to a
+		# whitelisted Python function on this bench, the new Server Script
+		# would shadow it at /api/method/<api_method>. Reject early with a
+		# pointer to a fresh path. Wrapped in try/except because frappe.handler
+		# raises on unresolved methods (which is what we WANT for a fresh
+		# api_method).
+		try:
+			from frappe.handler import get_attr
+			existing = get_attr(api_method)
+			if existing:
+				return {
+					"ok": False,
+					"error": f"Method '{api_method}' already resolves to {existing.__module__}.{existing.__name__}.",
+					"hint": "Pick a different api_method.",
+				}
+		except Exception:
+			# Unresolved method = no clash = good.
+			pass
+		# Same-turn staging hook so a sibling prepare_create_page in the SAME
+		# turn can reference this method via frappe.call without
+		# validate_js_method_refs failing on a method that doesn't yet exist
+		# in the DB.
+		staged = frappe.local.flags.setdefault("lazychat_staging_methods", [])
+		if api_method not in staged:
+			staged.append(api_method)
+		payload = {
+			"name": ss_name,
+			"script_type": "API",
+			"api_method": api_method,
+			"script": script,
+			"allow_guest": bool(args.get("allow_guest") or False),
+			"disabled": bool(args.get("disabled") or False),
+		}
+		token = _stage_action("create_server_script", payload)
+		return {
+			"ok": True,
+			"action": "create_server_script",
+			"preview_token": token,
+			"api_method": api_method,
+			"endpoint_url": f"/api/method/{api_method}",
+			"summary": f"Create Server Script '{ss_name}' (API endpoint at {api_method})",
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
 	if name == "restore_deleted_doc":
 		# Direct (no /commit) — restoring is single-doc, fully reversible.
 		dd_name = args.get("deleted_document_name")
@@ -6308,6 +6390,26 @@ def commit_prepared(token, **extras):
 				"style": payload["style"],
 				"script": payload["script"],
 				"icon": payload["icon"],
+			})
+			doc.insert(ignore_permissions=False)
+		elif action == "create_server_script":
+			# Cycle 13 M1.4 — commit a staged Server Script (API type).
+			# Re-checks the site flag AND System Manager role at commit time
+			# (defense-in-depth: site flag may have been flipped off between
+			# stage and commit; a stale token from another user's session
+			# must not be applicable in a System-Manager-less context).
+			if not frappe.conf.get("lazychat_allow_dangerous_tools"):
+				return {"ok": False, "error": "lazychat_allow_dangerous_tools is now false; refusing to commit."}
+			if "System Manager" not in (frappe.get_roles(frappe.session.user) or []):
+				return {"ok": False, "error": "System Manager required."}
+			doc = frappe.get_doc({
+				"doctype": "Server Script",
+				"name": payload["name"],
+				"script_type": payload["script_type"],
+				"api_method": payload["api_method"],
+				"script": payload["script"],
+				"allow_guest": payload["allow_guest"],
+				"disabled": payload["disabled"],
 			})
 			doc.insert(ignore_permissions=False)
 		elif action == "create_scheduled_job":
