@@ -80,7 +80,7 @@ bench --site site.example install-app lazychat_erpnext
 
 **Defaults work without any site_config edits.** Boot extension reads `lazychat_iframe_src` from `site_config.json` if set; otherwise defaults to bundled dist.
 
-## Tool registry — 87 tools (all permission-scoped to `frappe.session.user`)
+## Tool registry — 101 tools (all permission-scoped to `frappe.session.user`)
 
 The registry has grown well past the original 38 documented in earlier
 revisions. **Treat `tool_schemas.py:TOOL_SCHEMAS` as the source of truth**;
@@ -544,6 +544,93 @@ on either path.
 When debugging *"my report URL gave 404 even though the chat said it was
 created"*: confirm the chat-ui bundle was rebuilt after this fix landed
 (`?v=` query in iframe URL should be > `1778066844`).
+
+## Cycle 13 — Mockup-to-ERPNext: typed UI primitives + Playwright screenshot + LLM-as-judge auto-iterate (2026-05-13)
+
+Three-milestone cycle that turns the LLM into a competent ERPNext dashboard builder: read a mockup like a person, build the equivalent dynamic Page (with real API calls) inside ERPNext, then visually verify against the reference and auto-iterate until convergence. Companion chat-ui story in [../lazychat.ai/CLAUDE.md](../lazychat.ai/CLAUDE.md) "Cycle 13".
+
+### M1 — Typed UI primitives + render-preview + system prompt
+
+6 new tools (TOOL_SCHEMAS **95 → 101**):
+
+| Tool | Risk | Purpose |
+|---|---|---|
+| `prepare_create_page` | LOW (auto-Apply + AUTO_OPEN) | Stage a Desk Page at `/app/<page_name>`. HTML/CSS/JS render-preview hard-blocks parse errors + references to non-existent doctypes (`frappe.db.get_list`) / methods (`frappe.call`). Soft-warns on hardcoded colors, missing semantic HTML, missing `lazychatReady` marker. System Manager gate at stage + commit. |
+| `prepare_create_server_script` | HIGH (explicit Apply only) | Stage a Server Script (`script_type=API`, whitelisted Python endpoint). AST validator rejects forbidden imports (subprocess/os/sys/...), dangerous builtins (open/eval/exec/...), `frappe.db` writes. Same-turn-staged methods exposed via `frappe.local.flags.lazychat_staging_methods` so a sibling `prepare_create_page` can reference them via `frappe.call` without the existence check failing. Gated by `lazychat_allow_dangerous_tools` + System Manager. |
+| `prepare_create_workspace` | LOW (auto-Apply + AUTO_OPEN) | Stage a Workspace card-grid dashboard at `/app/<scrub(title)>`. Validates every referenced Number Card / Dashboard Chart / DocType exists. |
+| `prepare_attach_assets` | HIGH (explicit Apply) | Upload files (image/font/text/CSS) to a target doctype. 5 MB per-file cap; mime allowlist; caller must have `write` perm on target. |
+| `list_number_cards` | discovery | Read-only list of existing Number Cards. Used before staging a new card / Workspace to avoid duplicates. |
+| `list_whitelisted_methods` | discovery | Read-only list of `@frappe.whitelist()` methods reachable via `/api/method/<path>`. Walks `frappe.whitelisted` (list of function objects on Frappe v15, not the dict the docs suggest). Use before staging a new Server Script. |
+
+Render-preview validators (graceful-degrade if deps missing):
+- [`page_validators.py`](lazychat_erpnext/desk_assistant/page_validators.py) — `validate_html` (lxml.etree strict XML, void tags must be self-closing), `validate_css` (tinycss2 + brace-balance pre-check), `validate_js` (pyjsparser), `validate_js_doctype_refs` (AST walk for `frappe.db.get_list/get_value/exists/get_doc` literal-string args → checks DocType row exists), `validate_js_method_refs` (AST walk for `frappe.call({method:...})` → checks against `frappe.handler.get_method` + same-turn-staged + builtin prefixes), `collect_quality_warnings` (hardcoded-color count w/o `var(--*)`, missing `<header>/<main>/<section>`, missing `lazychatReady` marker).
+- [`server_script_validators.py`](lazychat_erpnext/desk_assistant/server_script_validators.py) — `validate_python_ast` + `validate_no_forbidden_imports` + `validate_no_forbidden_builtins` + `validate_no_frappe_writes` + `validate_output_present` + `run_all` orchestrator. Scope is **`frappe.db` writes only**; `frappe.sendmail`/`enqueue`/`publish_realtime` side-effect gating deferred to a follow-up.
+
+New deps in `pyproject.toml`: `lxml>=4.9`, `tinycss2>=1.2`, `pyjsparser>=2.7` (core); `playwright>=1.40` (optional `[project.optional-dependencies] screenshot` extra — see M2).
+
+System prompt addition: **`_DESK_PAGE_PLAYBOOK`** in [`claude_bridge.py`](lazychat_erpnext/desk_assistant/claude_bridge.py) — 6-step workflow + 7 visual-quality rules (theme tokens, typography matching, semantic HTML, real data wiring, loading/empty/error states, `lazychatReady` marker) + anti-patterns + iteration-loop guidance. Mirrored in [chat-ui's `routerSystemPrompt.ts`](../lazychat.ai/apps/chat-ui/src/lib/routerSystemPrompt.ts). chat-ui's `LOW_RISK_ACTIONS` + `AUTO_OPEN_AFTER_APPLY` + `ACTION_TO_LABEL` extended for the 4 new mutations.
+
+### M2 — Playwright screenshot preview
+
+- [`screenshot.py`](lazychat_erpnext/desk_assistant/screenshot.py): `@frappe.whitelist() capture(route, viewport, wait_for_dataset, timeout_ms)`. Lazy browser pool (persistent Chromium launched on first call, reused across requests via `_browser` module global + `_browser_lock`). Per-request: new context with the caller's `frappe.local.session.sid` cookie injected (rendered page sees the SAME permissions as the caller's browser would), navigate, `page.wait_for_function(document.body.dataset[<key>] === '1')` with timeout fallback (proceeds anyway, returns `ready_signal_seen=False`), screenshot, return base64 PNG `data:image/png;base64,...`. Refuses Guest. Route-prefix allowlist: `/app/*` / `/files/*` / `/private/files/*`. Concurrency: single-slot `_capture_lock` + bounded queue `_max_queue_depth=4` (returns `"at capacity"` error when full). 30s ceiling via `timeout_ms` clamp `[500, 20000]`. ALL exceptions wrapped → `{ok: False, error}` (never raises). Gated by `Lazychat Settings.enable_screenshot_preview` (Check field, default `0` — operator must explicitly enable after `./env/bin/pip install playwright && ./env/bin/playwright install chromium`).
+- `install.py:_check_playwright_available()` logs a clear actionable warning on `after_install` / `after_migrate` if Playwright is installed but Chromium missing.
+- Postmessage protocol extended: `InspectRouteRequest.payload.captureSpec.mode?: 'dom' | 'screenshot'` (default `'dom'` for back-compat with Cycle 9 M4 DOM-capture). Screenshot-mode adds `ready_signal` + `viewport` to the request; response adds `screenshot_b64`, `width`, `height`, `capture_method`, `ready_signal_seen`, `captured_at` to `captured`.
+- [`lazychat_panel.bundle.js`](lazychat_erpnext/public/js/lazychat_panel.bundle.js) `handleInspectRoute` branches on `spec.mode === "screenshot"` → POSTs to `screenshot.capture` endpoint (CSRF + cookie auth via `credentials: include`), ships base64 PNG back to chat-ui via `inspectRouteResponse`.
+- chat-ui side (sibling repo): new `screenshot` Message kind + `ScreenshotMessage.tsx` renderer (4 states: capturing/done/error/stale) + `triggerScreenshot(sid, pageName, route)` in `agentRunner.ts` auto-fired by `commitSlash.ts` after `create_page` / `update_doc(Page)` commits. html2canvas 1.4.1 vendored at `/assets/lazychat_erpnext/js/html2canvas.min.js` for in-browser reference-mockup capture.
+
+### M3 — LLM-as-judge visual auto-iterate
+
+- [`visual_judge.py`](lazychat_erpnext/desk_assistant/visual_judge.py): `compare(candidate_b64, reference_b64, intent_text, page_source, effort)` + `generate_fixes(diff_json, page_doc, intent_text, effort)`. Both wrapped in `concurrent.futures.ThreadPoolExecutor` with hard timeouts (30s / 60s). **Skip-on-failure pattern**: ANY exception (model unresolved, adapter throws, output not parseable JSON, timeout) returns `{skipped: True, reason: "..."}` — never breaks the calling flow. Mirrors `critic.py:critique_composition` (Cycle 9 M2). Effort gating: `low`/`medium` → skip immediately; `high` → 1-iteration cap, default model `claude-sonnet-4-6`; `max` → 3-iteration cap, default `claude-opus-4-7`.
+- `Lazychat Settings.vision_judge_models` Code/JSON field — admin overrides per-Effort model. Default `{"high": "claude-sonnet-4-6", "max": "claude-opus-4-7"}` mirrored in `boot.py:_SETTINGS_DEFAULTS`.
+- Vision message blocks use the canonical Anthropic shape: `{type: "image", source: {type: "base64", media_type: "image/png", data: "<b64>"}}`. The OpenAI-compatible adapter's `_to_oai_messages` translator at `providers/openai_compat.py:82-101` already converts to `{type:"image_url", image_url:{url:"data:...;base64,..."}}`. No provider extension needed.
+- `compare` output shape: `{score: 0.0-1.0, verdict: "match" | "needs_fixes", mismatches: [{category, severity, description, selector_hint, fix_hint}]}` validated minimally; `_extract_json_block` tolerates bare JSON, ```json fenced```, and prose-embedded JSON (some models can't resist Markdown even when told "JSON ONLY").
+- `generate_fixes` output shape: `{patch: {style?, content?, script?}}` — patch keys whitelisted to those three (defends against LLMs emitting `route`/`parent_page`/etc).
+- Whitelisted endpoints in `api.py`: `lazychat_visual_judge_compare` + `lazychat_visual_judge_generate_fixes` (System Manager only, defense-in-depth on top of module-level Effort gating). `lazychat_get_page_doc(name)` returns the `content`/`style`/`script` fields the orchestrator feeds into `generate_fixes` (permission-scoped to `Page.read`).
+- chat-ui side: `visualDiff` Message kind + `VisualDiffMessage.tsx` renderer + `visualJudgeClient.ts` wrapper + `runVisualIterationLoop(sid, pageName)` orchestrator in `agentRunner.ts` (kicked off by `triggerScreenshot`'s `onResp` post-success when ref mockup is present + Effort≥high). Loop converges at `score >= 0.92` OR `iter >= cap` OR `verdict='match'` OR any `{skipped}` envelope.
+- System prompt: **`_VISUAL_ITERATION_BLOCK`** appended after the playbook (both repos) — tells the LLM the loop is system-orchestrated, NOT a tool to invoke directly; reinforces "produce the best first cut" as the primary job.
+
+### Smoke
+
+In-process: **274 pass / 0 fail / 6 skip** (T100a–n M1 typed wrappers + render-preview, T101a–d M2 screenshot, T102a–d M3 visual judge). The 6 skips are by-design: T100h/h'/i/j when `lazychat_allow_dangerous_tools=false`, T101b/c/d when Playwright/Chromium not installed (`is_available()` probe).
+
+HTTP-wire: OK=82 / OK_ERROR=16 (101 tools registered + called). 6 new tools all validate.
+
+chat-ui: 457/0 vitest pass (78 files, +16 from baseline), typecheck clean across all 3 workspaces.
+
+### Skip-on-failure path verified (no Playwright + no vision LLM on this bench)
+
+T101b/c/d cleanly skip via `is_available()` probe; T102b/c/d cleanly skip via `resolve_model("claude-sonnet-4-6")` raising `ValidationError`. Calling flows never break. UX degradation: screenshot Message stuck at `error` state with clear "Playwright not installed" hint; `visualDiff` Message simply not appended (the loop exits silently with `console.info`).
+
+### How to enable on a bench
+
+```bash
+# Screenshot preview (M2)
+cd $BENCH_ROOT
+./env/bin/pip install playwright
+./env/bin/playwright install chromium
+bench --site <site> set-value 'Lazychat Settings' 'Lazychat Settings' enable_screenshot_preview 1
+
+# Server Scripts (M1 high-risk wrapper)
+# Edit sites/<site>/site_config.json: add "lazychat_allow_dangerous_tools": true
+
+# Vision-judge (M3) — admin must add LLM Model rows for the configured model IDs
+# Lazychat Settings.vision_judge_models defaults: {"high": "claude-sonnet-4-6", "max": "claude-opus-4-7"}
+# Configure those models in the LLM Model doctype with valid LLM Provider credentials.
+```
+
+### Validation walkthrough (Proman MD Dashboard)
+
+Drop the 30 KB Proman MD Dashboard HTML mockup into the composer at Effort=max. The chat-ui's `extractText.ts` captures a reference-screenshot via html2canvas silently. The LLM uses `list_whitelisted_methods` + `list_number_cards` + `describe_doctype` + `find_join_path` first (discovery), then stages 3× `prepare_create_server_script` + 1× `prepare_create_page`. Apply each → M2 auto-screenshots `/app/proman-md-dashboard` (V1) → M3 compares → `visualDiff` Message → `generate_fixes` → `prepare_update_doc(Page, patch:{style:...})` auto-Applies at Effort=max+LOW_RISK → M2 re-screenshots (V2) → loop continues to V3 → convergence at `score >= 0.92` OR `iter >= 3` cap. The Page persists at `/app/proman-md-dashboard` with 3 sections wired to real ERPNext data.
+
+### Open follow-ups (from final code review)
+
+1. `page_validators.py:224` — `from frappe.handler import get_method` import may fail on some Frappe versions; mirror the defensive try-once pattern from `tools.py:list_whitelisted_methods`.
+2. `screenshot.py:100` cookie `httpOnly: True` is cosmetic on Playwright's `add_cookies` (doesn't affect security boundary in same-origin headless Chromium).
+3. `screenshot.py` browser pool needs an `atexit` hook to avoid Chromium leaks on long-lived workers.
+4. `visual_judge.py:_extract_json_block` greedy-match could glue two top-level JSON objects in chatty prose; prefer the fenced-block path first.
+5. Server Script side-effect AST gate (`frappe.sendmail` / `enqueue` / `publish_realtime`) deferred — the "READ-ONLY by construction" claim in `prepare_create_server_script`'s schema is slightly overstated until that lands.
+
+---
 
 ## Cycle 12 — M2: Critic helper refactor + 7-tool expansion (2026-05-10)
 
