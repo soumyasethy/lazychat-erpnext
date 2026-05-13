@@ -3525,6 +3525,25 @@ def run():
 							  intent_text="x", page_source="", effort="medium")
 	record(_ok("T102c medium-effort always skips", r.get("skipped") is True, str(r)[:200]))
 
+	diff = {
+		"score": 0.74, "verdict": "needs_fixes",
+		"mismatches": [
+			{"category": "typography", "severity": "major",
+			 "description": "KPI numbers should be IBM Plex Mono 500",
+			 "selector_hint": ".kpi-value",
+			 "fix_hint": "font-family: 'IBM Plex Mono', monospace; font-weight: 500;"},
+		],
+	}
+	page_doc = {"doctype": "Page", "name": "_lz_smoke_page_e",
+				"style": ".kpi-value { font-family: system-ui; }",
+				"content": "<main></main>", "script": ""}
+	r = visual_judge.generate_fixes(diff_json=diff, page_doc=page_doc, intent_text="test", effort="high")
+	ok_shape = (
+		(isinstance(r.get("patch"), dict) and len(r["patch"]) > 0)
+		or (r.get("skipped") is True and r.get("reason"))
+	)
+	record(_ok("T102d generate_fixes shape", ok_shape, str(r)[:200]))
+
 	# Cleanup pages created during T100e/g (T100f never staged) + Server Script from T100h.
 	for pn in (page_name_e, "_lz_smoke_page_g"):
 		try:
