@@ -6577,16 +6577,57 @@ def commit_prepared(token, **extras):
 				return {"ok": False, "error": "System Manager required."}
 			if frappe.db.exists("Page", payload["page_name"]):
 				return {"ok": False, "error": f"Page '{payload['page_name']}' already exists at commit time."}
+
+			# Frappe v15's Page doctype has ZERO DB fields for HTML/CSS/JS content
+			# (`page_html` is just a Section Break label, not a Text field). All
+			# content must live on disk at <app>/<module>/page/<scrubbed>/<scrubbed>.{js,css,html}.
+			# So at commit time we write the three files (idempotently overwriting),
+			# create the Page row with `standard: "Yes"` so the standard loader
+			# picks them up, and let Frappe's Page.load_assets() do its normal job.
+			import os
+			from frappe.modules import get_module_path, scrub
+			scrubbed = scrub(payload["page_name"])
+			module_path = get_module_path(payload["module"])
+			page_dir = os.path.join(module_path, "page", scrubbed)
+			os.makedirs(page_dir, exist_ok=True)
+			# Standard Frappe page JS wrapper. The frappe.pages map is keyed by
+			# the page's `name` (the dashed page_name as stored in the Page row),
+			# NOT the underscore-scrubbed module-path form. e.g. for page_name
+			# 'cycle13-e2e-v3', the key is 'cycle13-e2e-v3' (dashed) even though
+			# the on-disk directory + filename use the scrubbed 'cycle13_e2e_v3'.
+			js_wrapper = (
+				f"frappe.pages[{payload['page_name']!r}].on_page_load = function(wrapper) {{\n"
+				f"  const page = frappe.ui.make_app_page({{ parent: wrapper, title: {payload['title']!r}, single_column: true }});\n"
+				f"  page.main.html({(payload.get('content') or '')!r});\n"
+				f"  try {{\n"
+				f"{(payload.get('script') or '').rstrip()}\n"
+				f"  }} catch (e) {{ console.error('[lazychat page]', e); }}\n"
+				f"}};\n"
+			)
+			with open(os.path.join(page_dir, f"{scrubbed}.js"), "w") as fh:
+				fh.write(js_wrapper)
+			with open(os.path.join(page_dir, f"{scrubbed}.css"), "w") as fh:
+				fh.write(payload.get("style") or "")
+			# An empty .html is fine — the JS wrapper does the actual mounting.
+			# But we DO need the file present so load_assets()'s listdir doesn't
+			# misbehave AND the standard loader has something to find.
+			with open(os.path.join(page_dir, f"{scrubbed}.html"), "w") as fh:
+				fh.write(payload.get("content") or "")
+			# An __init__.py in the page dir is what Frappe's module discovery
+			# requires for the page to be importable by the Desk loader.
+			init_path = os.path.join(page_dir, "__init__.py")
+			if not os.path.exists(init_path):
+				open(init_path, "w").close()
+
 			doc = frappe.get_doc({
 				"doctype": "Page",
 				"page_name": payload["page_name"],
 				"title": payload["title"],
 				"module": payload["module"],
-				"standard": payload["standard"],
+				# standard: "Yes" tells Frappe to load page assets from disk —
+				# matches the files we just wrote.
+				"standard": "Yes",
 				"roles": [{"role": r} for r in payload["roles"]],
-				"content": payload["content"],
-				"style": payload["style"],
-				"script": payload["script"],
 				"icon": payload["icon"],
 			})
 			doc.insert(ignore_permissions=False)
