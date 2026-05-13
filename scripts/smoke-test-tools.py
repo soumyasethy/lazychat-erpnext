@@ -3512,6 +3512,19 @@ def run():
 	except Exception as e:
 		record(_ok("T102a visual_judge import", False, str(e)[:200]))
 
+	tiny_png_b64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+	r = visual_judge.compare(candidate_b64=tiny_png_b64, reference_b64=tiny_png_b64,
+							  intent_text="test dashboard", page_source="<main/>", effort="high")
+	ok_shape = (
+		(isinstance(r.get("score"), (int, float)) and r.get("verdict") in ("match", "needs_fixes") and isinstance(r.get("mismatches"), list))
+		or (r.get("skipped") is True and r.get("reason"))
+	)
+	record(_ok("T102b compare shape at high", ok_shape, str(r)[:200]))
+
+	r = visual_judge.compare(candidate_b64=tiny_png_b64, reference_b64=tiny_png_b64,
+							  intent_text="x", page_source="", effort="medium")
+	record(_ok("T102c medium-effort always skips", r.get("skipped") is True, str(r)[:200]))
+
 	# Cleanup pages created during T100e/g (T100f never staged) + Server Script from T100h.
 	for pn in (page_name_e, "_lz_smoke_page_g"):
 		try:
