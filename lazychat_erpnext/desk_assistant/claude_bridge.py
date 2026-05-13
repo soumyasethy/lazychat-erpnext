@@ -180,6 +180,32 @@ field — never re-stage the full Page on a small fix.
 
 """
 
+# Cycle 13 M3.8 — visual-iteration awareness block. Concatenated AFTER
+# _DESK_PAGE_PLAYBOOK so the LLM knows the M3 system-orchestrated visual
+# compare + auto-fix loop exists, BUT is not a tool it should call.
+# Reinforces "produce the best first cut" because every fix iteration
+# costs an LLM call.
+_VISUAL_ITERATION_BLOCK = """
+
+## VISUAL ITERATION (M3 — auto-orchestrated, not LLM-driven)
+
+When the user uploads a reference mockup (HTML or image) AND Effort is set to
+high/max, the chat-ui automatically:
+1. After your `prepare_create_page` is applied, screenshots /app/<page_name>
+2. Compares it against the reference via a vision-judge LLM
+3. If mismatched, generates a Page patch and stages `prepare_update_doc(Page, ...)`
+4. Loops 1-3 times (Effort-dependent) until convergence (score >= 0.92)
+
+You don't drive this loop — it's system-orchestrated. Your job is to produce
+the BEST FIRST CUT possible (follow the BUILDING DESK PAGES playbook above),
+because every fix iteration costs an LLM call and the user's patience.
+
+If the visual judge surfaces mismatches via `prepare_update_doc` Apply cards,
+treat them as system feedback: apply the patches, don't re-derive them. If
+the user says 'stop iterating' or rejects a patch, halt and ask what they
+want next.
+"""
+
 MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024
 MAX_ATTACHMENTS = 8
 MAX_TEXT_FROM_FILE = 100_000
@@ -627,6 +653,10 @@ Desk context JSON: """
 	# main body so the LLM weighs the 7-rule visual-quality playbook + 5-step
 	# workflow without competing with the (always-last) mode block.
 	s += _DESK_PAGE_PLAYBOOK
+	# Cycle 13 M3.8 — visual-iteration awareness sits right after the
+	# playbook so the LLM reads "build the page well" → "and don't try to
+	# drive the auto-iterate loop yourself" as one continuous lesson.
+	s += _VISUAL_ITERATION_BLOCK
 	if not supports_tools:
 		s += TOOLLESS_PROMPT_SUFFIX
 	# Tier E — append active skill snippets (per-user, Redis-backed). No-op when
