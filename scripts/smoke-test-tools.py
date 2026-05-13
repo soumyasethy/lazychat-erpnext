@@ -3384,6 +3384,28 @@ def run():
 		})
 		record(_ok("T100j frappe.db.set_value rejection", (not r.get("ok")) and "frappe.db" in (r.get("error") or ""), f"{r}"))
 
+	# T100k — prepare_create_workspace resolves card/chart refs; rejects unknown
+	ws_name = "_lz Smoke WS"
+	if frappe.db.exists("Workspace", ws_name):
+		frappe.delete_doc("Workspace", ws_name, ignore_permissions=True, force=True)
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit -- smoke test cleanup
+	nc = frappe.db.get_value("Number Card", {}, "name") or "_lz_no_card"
+	r = execute_tool("prepare_create_workspace", {
+		"title": ws_name,
+		"icon": "octicon octicon-graph",
+		"cards": [{"number_card_name": nc}] if nc != "_lz_no_card" else [],
+		"shortcuts": [{"type": "DocType", "link_to": "User", "label": "Users"}],
+	})
+	record(_ok("T100k workspace stage with valid refs", r.get("ok"), str(r)[:200]))
+
+	r_bad = execute_tool("prepare_create_workspace", {
+		"title": "_lz Smoke WS Bad",
+		"cards": [{"number_card_name": "_lz_definitely_not_a_real_card"}],
+	})
+	record(_ok("T100k' workspace rejects unknown card",
+			  not r_bad.get("ok") and "not_a_real_card" in r_bad.get("error", "").lower().replace(" ", "_"),
+			  str(r_bad)[:200]))
+
 	# Cleanup pages created during T100e/g (T100f never staged) + Server Script from T100h.
 	for pn in (page_name_e, "_lz_smoke_page_g"):
 		try:
@@ -3396,6 +3418,12 @@ def run():
 			frappe.delete_doc("Server Script", ss_name_h, force=True, ignore_permissions=True)
 	except Exception:
 		pass
+	for wn in ("_lz Smoke WS", "_lz Smoke WS Bad"):
+		try:
+			if frappe.db.exists("Workspace", wn):
+				frappe.delete_doc("Workspace", wn, force=True, ignore_permissions=True)
+		except Exception:
+			pass
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit -- smoke test cleanup; final cleanup must commit so subsequent runs see a clean slate
 
 	print(f"\n=== {results['pass']} pass, {results['fail']} fail, {results['skip']} skip ===")
