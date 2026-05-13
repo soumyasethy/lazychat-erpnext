@@ -89,20 +89,26 @@ def capture(route, viewport=None, wait_for_dataset="lazychatReady", timeout_ms=5
 	height = int((viewport or {}).get("height") or 900)
 	timeout_ms = min(max(int(timeout_ms or 5000), 500), 20000)
 
+	# Bench-side capture talks to the local gunicorn directly via 127.0.0.1.
+	# Using frappe.utils.get_url() can produce hostnames like `erp.local` that
+	# headless Chromium can't resolve (ERR_NAME_NOT_RESOLVED). 127.0.0.1 is
+	# always reachable from the same machine and works for both dev (bench serve)
+	# and prod (gunicorn listens on 127.0.0.1 behind nginx).
+	port = int(frappe.conf.get("webserver_port") or 8000)
+	base_url = f"http://127.0.0.1:{port}"
 	try:
 		with _capture_lock:
 			browser = _get_browser()
 			context = browser.new_context(viewport={"width": width, "height": height})
 			try:
-				sid = frappe.local.session.sid if frappe.local.session else None
-				host = (frappe.utils.get_url() or "http://localhost:8000").replace("https://", "").replace("http://", "").split("/")[0]
+				sid = getattr(frappe.local.session, "sid", None) if frappe.local.session else None
 				if sid:
 					context.add_cookies([{
-						"name": "sid", "value": sid, "domain": host.split(":")[0],
-						"path": "/", "httpOnly": True, "sameSite": "Lax",
+						"name": "sid", "value": sid, "domain": "127.0.0.1",
+						"path": "/", "sameSite": "Lax",
 					}])
 				page = context.new_page()
-				full_url = (frappe.utils.get_url() or "http://localhost:8000") + route
+				full_url = base_url + route
 				page.goto(full_url, wait_until="networkidle", timeout=timeout_ms + 2000)
 				ready_seen = False
 				try:
@@ -136,14 +142,17 @@ def capture(route, viewport=None, wait_for_dataset="lazychatReady", timeout_ms=5
 
 
 def is_available() -> bool:
+	"""Return True if Playwright is importable.
+
+	Chromium presence is verified at capture time (browser launch). We do NOT
+	probe with `sync_playwright()` here because that starts a new playwright
+	instance, which cannot coexist with the persistent browser pool from
+	`_get_browser()` — the second call would fail or hang after the first
+	capture has launched the long-lived browser. Keep this check cheap +
+	idempotent: just the import.
+	"""
 	try:
 		import playwright.sync_api  # noqa: F401
-	except ImportError:
-		return False
-	try:
-		from playwright.sync_api import sync_playwright
-		with sync_playwright() as p:
-			_ = p.chromium.executable_path
 		return True
-	except Exception:
+	except ImportError:
 		return False
