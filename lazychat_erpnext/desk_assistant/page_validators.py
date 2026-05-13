@@ -43,7 +43,7 @@ def validate_js_method_refs(script: str, staged_methods: Optional[list] = None) 
     raise NotImplementedError  # Task M1.2
 
 
-def collect_quality_warnings(content: str, style: str, script: str) -> list:
+def collect_quality_warnings(content: str, style: str, script: str) -> list[dict]:
     """Non-blocking — soft warnings: hardcoded colors w/o theme tokens, missing
     structural HTML, placeholder-looking data, missing lazychatReady marker."""
     return []  # Task M1.2

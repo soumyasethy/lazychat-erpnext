@@ -3255,13 +3255,19 @@ def run():
 
 	print("\n=== Cycle 13 M1 — typed UI primitives ===")
 
-	# T100a — page_validators module imports cleanly
+	# T100a — page_validators module imports
 	try:
-		from lazychat_erpnext.desk_assistant import page_validators
-		from lazychat_erpnext.desk_assistant import server_script_validators
-		record(_ok("T100a page/server_script validator modules import", True))
+		from lazychat_erpnext.desk_assistant import page_validators  # noqa: F401
+		record(_ok("T100a page_validators module imports", True))
 	except Exception as e:
-		record(_ok("T100a page/server_script validator modules import", False, f"{e}"))
+		record(_ok("T100a page_validators module imports", False, f"{e}"))
+
+	# T100a' — server_script_validators module imports
+	try:
+		from lazychat_erpnext.desk_assistant import server_script_validators  # noqa: F401
+		record(_ok("T100a' server_script_validators module imports", True))
+	except Exception as e:
+		record(_ok("T100a' server_script_validators module imports", False, f"{e}"))
 
 	print(f"\n=== {results['pass']} pass, {results['fail']} fail, {results['skip']} skip ===")
 	return results
