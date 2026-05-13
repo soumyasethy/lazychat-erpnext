@@ -1758,4 +1758,28 @@ TOOL_SCHEMAS = [
 			"required": ["name", "script"],
 		},
 	},
+	{
+		"name": "prepare_create_workspace",
+		"description": (
+			"Stage a Workspace — Frappe's standard card-grid dashboard surface at /app/<workspace>. "
+			"Composes Number Cards + Dashboard Charts + Shortcuts.\n\n"
+			"Use this for SIMPLE dashboard needs (KPI cards in a grid). For sophisticated "
+			"custom layouts (topbar + sidebar + custom sections), use `prepare_create_page` "
+			"instead — Workspace's layout is fixed-grid.\n\n"
+			"Render-preview rejects: unknown Number Card / Dashboard Chart / DocType references."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"title": {"type": "string"},
+				"icon": {"type": "string", "description": "Frappe icon class (e.g. 'octicon octicon-graph')."},
+				"parent_page": {"type": "string", "description": "Optional parent Workspace name."},
+				"cards": {"type": "array", "items": {"type": "object", "properties": {"number_card_name": {"type": "string"}}}, "description": "Number Card references. Use `list_number_cards` to find existing cards before creating duplicates."},
+				"charts": {"type": "array", "items": {"type": "object", "properties": {"chart_name": {"type": "string"}}}, "description": "Dashboard Chart references."},
+				"shortcuts": {"type": "array", "items": {"type": "object", "properties": {"type": {"type": "string"}, "link_to": {"type": "string"}, "label": {"type": "string"}}}, "description": "Quick links — type=DocType / Report / Page / URL."},
+				"roles": {"type": "array", "items": {"type": "string"}},
+			},
+			"required": ["title"],
+		},
+	},
 ]

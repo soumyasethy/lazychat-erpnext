@@ -5819,6 +5819,60 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"confirm_with": f"/commit {token}",
 		}
 
+	if name == "prepare_create_workspace":
+		# Cycle 13 M1.5 — stage a Frappe Workspace (card-grid dashboard at
+		# /app/<scrubbed_title>). Composes Number Cards + Dashboard Charts +
+		# Shortcuts. Mirrors M1.3's inlined-dispatcher pattern.
+		# Render-preview rejects unknown Number Card / Dashboard Chart / DocType
+		# references — the LLM gets an actionable error pointing at the
+		# discovery tool to find existing assets.
+		if "System Manager" not in (frappe.get_roles(frappe.session.user) or []):
+			return {"ok": False, "error": "Only System Manager can stage a Workspace."}
+		title = (args.get("title") or "").strip()
+		if not title:
+			return {"ok": False, "error": "title is required."}
+		cards = args.get("cards") or []
+		charts = args.get("charts") or []
+		shortcuts = args.get("shortcuts") or []
+		for c in cards:
+			nc = c.get("number_card_name")
+			if not nc or not frappe.db.exists("Number Card", nc):
+				return {
+					"ok": False,
+					"error": f"Workspace references Number Card '{nc}' which doesn't exist.",
+					"hint": "Run `list_number_cards` to find existing cards, or stage a `prepare_create_number_card` first.",
+				}
+		for ch in charts:
+			cn = ch.get("chart_name")
+			if not cn or not frappe.db.exists("Dashboard Chart", cn):
+				return {"ok": False, "error": f"Workspace references Dashboard Chart '{cn}' which doesn't exist."}
+		for sc in shortcuts:
+			lt = sc.get("link_to")
+			if sc.get("type") == "DocType" and lt and not frappe.db.exists("DocType", lt):
+				return {"ok": False, "error": f"Workspace shortcut references doctype '{lt}' which doesn't exist."}
+		payload = {
+			"title": title,
+			"label": title,
+			"icon": args.get("icon") or "",
+			"parent_page": args.get("parent_page") or "",
+			# Default to the app's real Module name (matches M1.3 deviation).
+			"module": args.get("module") or "Desk Assistant",
+			"cards": cards,
+			"charts": charts,
+			"shortcuts": shortcuts,
+			"roles": args.get("roles") or ["System Manager"],
+		}
+		token = _stage_action("create_workspace", payload)
+		return {
+			"ok": True,
+			"action": "create_workspace",
+			"preview_token": token,
+			"route": f"/app/{frappe.scrub(title).replace('_', '-')}",
+			"summary": f"Create Workspace '{title}' with {len(cards)} cards, {len(charts)} charts, {len(shortcuts)} shortcuts",
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
 	if name == "prepare_create_server_script":
 		# Cycle 13 M1.4 — stage a Server Script of type API. Mirrors
 		# prepare_create_page's inlined-dispatcher pattern: hard gates →
@@ -6392,6 +6446,28 @@ def commit_prepared(token, **extras):
 				"icon": payload["icon"],
 			})
 			doc.insert(ignore_permissions=False)
+		elif action == "create_workspace":
+			# Cycle 13 M1.5 — commit a staged Workspace. Re-checks System Manager
+			# at commit time (defense-in-depth: site role may have changed
+			# between stage and commit).
+			if "System Manager" not in (frappe.get_roles(frappe.session.user) or []):
+				return {"ok": False, "error": "System Manager required."}
+			doc = frappe.get_doc({
+				"doctype": "Workspace",
+				"name": payload["title"],
+				"label": payload["label"],
+				"title": payload["title"],
+				"icon": payload["icon"],
+				"module": payload["module"],
+				"parent_page": payload["parent_page"],
+				"public": 1,
+				"for_user": "",
+				"number_cards": [{"number_card_name": c["number_card_name"]} for c in payload["cards"]],
+				"charts": [{"chart_name": c["chart_name"]} for c in payload["charts"]],
+				"shortcuts": [{"type": s.get("type", "DocType"), "link_to": s["link_to"], "label": s.get("label", s["link_to"])} for s in payload["shortcuts"]],
+				"roles": [{"role": r} for r in payload["roles"]],
+			})
+			doc.insert(ignore_permissions=False)
 		elif action == "create_server_script":
 			# Cycle 13 M1.4 — commit a staged Server Script (API type).
 			# Re-checks the site flag AND System Manager role at commit time
@@ -6874,10 +6950,15 @@ def commit_prepared(token, **extras):
 		# Cycle 13 M1 — Page doctype: Desk Pages live at /app/<page_name>
 		# (NOT /app/page/<name>); the panel renders the Page's own HTML/JS
 		# at the route matching its page_name.
+		# Cycle 13 M1.5 — Workspace lives at /app/<scrub(name).replace('_','-')>
+		# (NOT /app/workspace/<name>); Frappe routes Workspaces by their
+		# scrubbed-and-dashed name.
 		if doc.doctype == "Report" and getattr(doc, "report_type", "") in ("Query Report", "Script Report"):
 			link = f"/app/query-report/{doc.name}"
 		elif doc.doctype == "Page":
 			link = f"/app/{doc.name}"
+		elif doc.doctype == "Workspace":
+			link = f"/app/{frappe.scrub(doc.name).replace('_', '-')}"
 		else:
 			link = f"/app/{frappe.scrub(doc.doctype)}/{doc.name}"
 		response = {
