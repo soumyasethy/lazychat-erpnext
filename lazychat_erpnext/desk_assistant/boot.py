@@ -37,6 +37,9 @@ _SETTINGS_DEFAULTS = {
 	# `./env/bin/pip install playwright && ./env/bin/playwright install chromium`.
 	"enable_screenshot_preview": False,
 	"llm_proxy_allowed_hosts": list(_DEFAULT_LLM_PROXY_HOSTS),
+	# Cycle 13 M3: vision-judge models per Effort tier. JSON dict mapping
+	# 'high'/'max' to a vision-capable model_label configured in LLM Model.
+	"vision_judge_models": '{"high": "claude-sonnet-4-6", "max": "claude-opus-4-7"}',
 }
 
 
