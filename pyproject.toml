@@ -12,7 +12,12 @@ license = { text = "MIT" }
 authors = [
     { name = "Soumya Sethy", email = "sethy.soumyaranjan@gmail.com" },
 ]
-dependencies = ["requests>=2.28"]
+dependencies = [
+    "requests>=2.28",
+    "lxml>=4.9",          # HTML well-formedness check for prepare_create_page render-preview
+    "tinycss2>=1.2",      # CSS syntax check (brace balance + token validity)
+    "pyjsparser>=2.7",    # JS AST for static walks (frappe.call method refs, frappe.db doctype refs)
+]
 
 [project.urls]
 Homepage = "https://github.com/soumyasethy/lazychat-erpnext"

@@ -3249,5 +3249,19 @@ def run():
 	frappe.db.commit()
 	print(f"\n[CLEANUP] removed: {cleaned or 'nothing'}")
 
+	# ──────────────────────────────────────────────────────────────────────
+	# CYCLE 13 — M1: typed UI primitive tools
+	# ──────────────────────────────────────────────────────────────────────
+
+	print("\n=== Cycle 13 M1 — typed UI primitives ===")
+
+	# T100a — page_validators module imports cleanly
+	try:
+		from lazychat_erpnext.desk_assistant import page_validators
+		from lazychat_erpnext.desk_assistant import server_script_validators
+		record(_ok("T100a page/server_script validator modules import", True))
+	except Exception as e:
+		record(_ok("T100a page/server_script validator modules import", False, f"{e}"))
+
 	print(f"\n=== {results['pass']} pass, {results['fail']} fail, {results['skip']} skip ===")
 	return results
