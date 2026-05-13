@@ -6085,6 +6085,73 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		)
 		return {"cards": cards, "count": len(cards)}
 
+	if name == "list_whitelisted_methods":
+		prefix = (args.get("prefix") or "").strip()
+		limit = int(args.get("limit") or 100)
+
+		# Find the right registry. On Frappe v15 deployed here,
+		# `frappe.handler.whitelist_methods` does NOT exist (only
+		# `is_whitelisted`); `frappe.whitelisted` is a list of function
+		# objects (not a dict of paths). Be defensive across versions.
+		registry = None
+		try:
+			from frappe.handler import whitelist_methods as _wm
+			registry = _wm  # dict[path -> fn] if available
+		except Exception:
+			pass
+
+		methods = []
+		if isinstance(registry, dict):
+			for path in sorted(registry.keys()):
+				if prefix and not path.startswith(prefix):
+					continue
+				try:
+					fn = registry.get(path)
+					doc = ((getattr(fn, "__doc__", None) or "").strip().splitlines() or [""])[0] if fn else ""
+					module = getattr(fn, "__module__", "") if fn else ""
+				except Exception:
+					doc, module = "", ""
+				methods.append({"path": path, "module": module, "docstring": doc[:200]})
+				if len(methods) >= limit:
+					break
+		else:
+			# Fallback for Frappe v15+ where the whitelist is a
+			# list/set of function objects (or paths, depending on version).
+			raw = getattr(frappe, "whitelisted", None) or []
+			# Build (path, fn) tuples, then sort by path for stable output.
+			tuples = []
+			for entry in raw:
+				if isinstance(entry, str):
+					tuples.append((entry, None))
+				else:
+					try:
+						mod = getattr(entry, "__module__", "") or ""
+						nm = getattr(entry, "__name__", "") or ""
+						path_str = f"{mod}.{nm}" if mod else nm
+					except Exception:
+						continue
+					if not path_str:
+						continue
+					tuples.append((path_str, entry))
+			tuples.sort(key=lambda t: t[0])
+			for path_str, fn in tuples:
+				if prefix and not path_str.startswith(prefix):
+					continue
+				if fn is not None:
+					try:
+						doc = ((getattr(fn, "__doc__", None) or "").strip().splitlines() or [""])[0]
+						module = getattr(fn, "__module__", "") or ""
+					except Exception:
+						doc, module = "", ""
+				else:
+					doc = ""
+					module = path_str.rsplit(".", 1)[0] if "." in path_str else ""
+				methods.append({"path": path_str, "module": module, "docstring": doc[:200]})
+				if len(methods) >= limit:
+					break
+
+		return {"methods": methods, "count": len(methods), "filtered_by_prefix": prefix or None}
+
 	return {"error": f"unknown tool {name}"}
 
 

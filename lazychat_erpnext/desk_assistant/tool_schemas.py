@@ -1784,6 +1784,24 @@ TOOL_SCHEMAS = [
 		},
 	},
 	{
+		"name": "list_whitelisted_methods",
+		"description": (
+			"List @frappe.whitelist() methods reachable via /api/method/<path>. "
+			"Use this BEFORE staging a new Server Script — ERPNext ships dozens of "
+			"data/aggregation methods (e.g. `erpnext.accounts.utils.*`, "
+			"`erpnext.controllers.*`) and lazychat shouldn't reinvent the wheel.\n\n"
+			"Use the `prefix` arg to scope: `frappe.client` for built-in CRUD, "
+			"`erpnext.` for ERPNext domain methods, `lazychat_erpnext.` for our own."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"prefix": {"type": "string", "description": "e.g. 'frappe.client', 'erpnext.accounts'. Omit for all."},
+				"limit": {"type": "integer", "description": "Default 100."},
+			},
+		},
+	},
+	{
 		"name": "list_number_cards",
 		"description": (
 			"List existing Number Cards in the bench. Always call this before "

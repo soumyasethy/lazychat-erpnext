@@ -3442,6 +3442,17 @@ def run():
 				  all(k in c0 for k in ("name", "document_type", "function", "label")),
 				  str(c0)[:200]))
 
+	# T100n — list_whitelisted_methods returns built-in frappe.client.* at minimum
+	r = execute_tool("list_whitelisted_methods", {"prefix": "frappe.client"})
+	record(_ok("T100n list_whitelisted_methods returns frappe.client.*",
+			  isinstance(r, dict) and isinstance(r.get("methods"), list) and len(r["methods"]) > 0,
+			  f"count={len(r.get('methods', []))}"))
+	if r.get("methods"):
+		m0 = r["methods"][0]
+		record(_ok("T100n' method row shape",
+				  all(k in m0 for k in ("path", "docstring")),
+				  str(m0)[:200]))
+
 	# Cleanup pages created during T100e/g (T100f never staged) + Server Script from T100h.
 	for pn in (page_name_e, "_lz_smoke_page_g"):
 		try:
