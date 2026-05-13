@@ -1697,4 +1697,37 @@ TOOL_SCHEMAS = [
 			"required": ["dt", "script"],
 		},
 	},
+	{
+		"name": "prepare_create_page",
+		"description": (
+			"Stage a Desk Page (custom HTML/CSS/JS dashboard at /app/<page_name>). "
+			"Internal-only (requires login, role-gated). Use this for any custom "
+			"dashboard, full-page report, or executive overview. The page lives "
+			"inside the Desk shell — frappe.call / frappe.db / frappe.boot are "
+			"available out of the box.\n\n"
+			"Render-preview HARD-blocks: HTML parse errors, CSS syntax errors, "
+			"JS syntax errors, references to non-existent doctypes (frappe.db.get_list/etc.) "
+			"or non-existent methods (frappe.call({method: ...})).\n\n"
+			"Render-preview QUALITY_WARNINGS (non-blocking, render in Apply card): "
+			"hardcoded colors without theme tokens (breaks dark mode), missing "
+			"structural HTML (<header>, <main>, <section>), missing "
+			"`document.body.dataset.lazychatReady = '1'` marker at end of JS "
+			"(disables precise screenshot timing).\n\n"
+			"Two-phase: returns preview_token; user clicks Apply to commit."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"page_name": {"type": "string", "description": "URL slug (auto-derived from title if omitted). Page will live at /app/<page_name>."},
+				"title": {"type": "string", "description": "Display title."},
+				"module": {"type": "string", "description": "Frappe module (default: Desk Assistant — the lazychat_erpnext app's own module). Must exist in tabModule Def on the bench; otherwise the commit will fail."},
+				"roles": {"type": "array", "items": {"type": "string"}, "description": "Roles permitted to view (default: System Manager)."},
+				"content": {"type": "string", "description": "Page body HTML. Use <header>/<main>/<section> for semantic structure."},
+				"style": {"type": "string", "description": "Inline CSS. PREFER var(--bg-color)/var(--text-color)/var(--primary-color) etc. over hardcoded colors — hardcoded colors break dark mode."},
+				"script": {"type": "string", "description": "Inline JS (the page controller). Use frappe.call / frappe.db.get_list for data. END with `document.body.dataset.lazychatReady = '1';` after final data fetches resolve — required for the screenshot preview tool to know when the page is fully rendered."},
+				"icon": {"type": "string", "description": "Frappe icon class (e.g. 'octicon octicon-graph')."},
+			},
+			"required": ["title", "content"],
+		},
+	},
 ]
