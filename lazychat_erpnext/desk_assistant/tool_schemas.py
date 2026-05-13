@@ -1730,4 +1730,32 @@ TOOL_SCHEMAS = [
 			"required": ["title", "content"],
 		},
 	},
+	{
+		"name": "prepare_create_server_script",
+		"description": (
+			"Stage a Server Script of type API — a whitelisted Python endpoint reachable "
+			"at /api/method/<api_method>. Use this to back complex Page dashboards: when a "
+			"Page section needs an aggregation (sum/group-by/multi-doctype JOIN) that's "
+			"too messy for one frappe.db.get_list call from JS, stage a Server Script and "
+			"have the Page call it via frappe.call.\n\n"
+			"READ-ONLY by construction: render-preview HARD-rejects subprocess/os/sys/etc. "
+			"imports, the open/eval/exec/compile/__import__/input/breakpoint builtins, and "
+			"frappe.db writes (set_value/delete/sql_ddl/commit/etc.). For writes use "
+			"prepare_create_doc / prepare_update_doc.\n\n"
+			"Output: end with `frappe.response.message = <dict>` — the API returns null otherwise.\n\n"
+			"Gated: requires site_config lazychat_allow_dangerous_tools=true + System Manager role. "
+			"Always explicit Apply (never auto-Apply)."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"name": {"type": "string", "description": "Unique Server Script name."},
+				"api_method": {"type": "string", "description": "Optional. Becomes /api/method/<api_method>. Auto-derived from name if omitted (lazychat_erpnext.dashboards.<scrubbed_name>)."},
+				"script": {"type": "string", "description": "Python body. Reads only (frappe.db.get_list, frappe.db.get_value, frappe.qb, etc.). End with `frappe.response.message = <result_dict>`."},
+				"allow_guest": {"type": "boolean", "description": "Default false. Setting to true exposes the endpoint without auth — only set true for genuinely public data."},
+				"disabled": {"type": "boolean", "description": "Default false."},
+			},
+			"required": ["name", "script"],
+		},
+	},
 ]

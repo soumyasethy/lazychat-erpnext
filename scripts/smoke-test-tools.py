@@ -3341,13 +3341,61 @@ def run():
 	qw = r.get("quality_warnings", []) or []
 	record(_ok("T100g quality_warnings surface", bool(r.get("ok") and any(w.get("category") == "ready_signal" for w in qw)), f"qw={qw}"))
 
-	# Cleanup pages created during T100e/g (T100f never staged).
+	# T100h — prepare_create_server_script happy path + commit creates the row.
+	# T100i/T100j — render-preview validator rejections. All gated on the site
+	# flag — when off, the wrapper short-circuits at the site-flag gate before
+	# the validator runs, so the validator-specific assertions become
+	# unverifiable. Skip the whole batch.
+	ss_name_h = "_lz_smoke_ss_h"
+	if not frappe.conf.get("lazychat_allow_dangerous_tools"):
+		_skip("T100h prepare_create_server_script stage", "lazychat_allow_dangerous_tools=False in site_config")
+		_skip("T100h' prepare_create_server_script commit", "lazychat_allow_dangerous_tools=False in site_config")
+		_skip("T100i import-os rejection", "lazychat_allow_dangerous_tools=False in site_config")
+		_skip("T100j frappe.db.set_value rejection", "lazychat_allow_dangerous_tools=False in site_config")
+		results["skip"] += 4
+	else:
+		if frappe.db.exists("Server Script", ss_name_h):
+			frappe.delete_doc("Server Script", ss_name_h, force=True, ignore_permissions=True)
+			frappe.db.commit()  # nosemgrep: frappe-manual-commit -- smoke test cleanup; pre-test isolation requires commit so the next bench --site execute sees a clean slate
+		r = execute_tool("prepare_create_server_script", {
+			"name": ss_name_h,
+			"api_method": "lazychat_erpnext.test_smoke_ss_h",
+			"script": "frappe.response.message = {'pong': True, 'user': frappe.session.user}",
+		})
+		record(_ok("T100h prepare_create_server_script stage", bool(r.get("ok") and r.get("preview_token")), f"{r}"))
+		token_h = r.get("preview_token")
+		if token_h:
+			rc = commit_prepared(token_h)
+			record(_ok("T100h' prepare_create_server_script commit", bool(rc.get("ok") and frappe.db.exists("Server Script", ss_name_h)), f"{rc}"))
+		else:
+			record(_ok("T100h' prepare_create_server_script commit", False, "no preview_token from stage"))
+
+		# T100i — rejects `import os` (forbidden_imports phase).
+		r = execute_tool("prepare_create_server_script", {
+			"name": "_lz_smoke_ss_i", "api_method": "lazychat_erpnext.smoke_i",
+			"script": "import os\nfrappe.response.message = {'cwd': os.getcwd()}",
+		})
+		record(_ok("T100i import-os rejection", (not r.get("ok")) and "import os" in (r.get("error") or ""), f"{r}"))
+
+		# T100j — rejects `frappe.db.set_value` (forbidden_frappe_writes phase).
+		r = execute_tool("prepare_create_server_script", {
+			"name": "_lz_smoke_ss_j", "api_method": "lazychat_erpnext.smoke_j",
+			"script": "frappe.db.set_value('User', 'Administrator', 'first_name', 'Pwned')\nfrappe.response.message = {}",
+		})
+		record(_ok("T100j frappe.db.set_value rejection", (not r.get("ok")) and "frappe.db" in (r.get("error") or ""), f"{r}"))
+
+	# Cleanup pages created during T100e/g (T100f never staged) + Server Script from T100h.
 	for pn in (page_name_e, "_lz_smoke_page_g"):
 		try:
 			if frappe.db.exists("Page", pn):
 				frappe.delete_doc("Page", pn, force=1, ignore_missing=True, ignore_permissions=True)
 		except Exception:
 			pass
+	try:
+		if frappe.db.exists("Server Script", ss_name_h):
+			frappe.delete_doc("Server Script", ss_name_h, force=True, ignore_permissions=True)
+	except Exception:
+		pass
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit -- smoke test cleanup; final cleanup must commit so subsequent runs see a clean slate
 
 	print(f"\n=== {results['pass']} pass, {results['fail']} fail, {results['skip']} skip ===")
