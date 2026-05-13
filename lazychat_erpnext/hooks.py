@@ -47,6 +47,9 @@ extend_bootinfo = "lazychat_erpnext.desk_assistant.boot.boot_session"
 # If this fires in production, chat-ui is on a stale bundle OR didn't get llmProxyUrl
 # from the init postMessage. The Error Log entry tells us which.
 before_request = [
+	# Cycle 13: install Page.load_assets patch so API-created Pages
+	# (prepare_create_page) render without FileNotFoundError on missing disk dir.
+	"lazychat_erpnext.desk_assistant.page_patches.before_request_hook",
 	"lazychat_erpnext.desk_assistant.llm_proxy.trace_legacy_proxy_hit",
 	# Strips invalid Bearer headers for handle_bearer so Frappe's validate_auth
 	# doesn't reject them with an HTML/traceback 401. Pairs with bearer_auth_hook below.
