@@ -6073,6 +6073,18 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				return {"error": "skill_name required"}
 			return skills.deactivate_skill(skill_name)
 
+	if name == "list_number_cards":
+		filt = args.get("filter") or {}
+		limit = int(args.get("limit") or 50)
+		cards = frappe.get_all(
+			"Number Card",
+			filters=filt,
+			fields=["name", "label", "document_type", "function", "aggregate_function_based_on", "filters_json"],
+			limit_page_length=max(1, min(limit, 500)),
+			order_by="modified desc",
+		)
+		return {"cards": cards, "count": len(cards)}
+
 	return {"error": f"unknown tool {name}"}
 
 

@@ -3431,6 +3431,17 @@ def run():
 			  not r_big.get("ok") and "5 MB" in r_big.get("error", ""),
 			  str(r_big)[:200]))
 
+	# T100m — list_number_cards returns expected shape
+	r = execute_tool("list_number_cards", {"limit": 5})
+	record(_ok("T100m list_number_cards shape",
+			  isinstance(r, dict) and isinstance(r.get("cards"), list),
+			  f"keys={list(r.keys()) if isinstance(r, dict) else type(r)}"))
+	if r.get("cards"):
+		c0 = r["cards"][0]
+		record(_ok("T100m' card row shape",
+				  all(k in c0 for k in ("name", "document_type", "function", "label")),
+				  str(c0)[:200]))
+
 	# Cleanup pages created during T100e/g (T100f never staged) + Server Script from T100h.
 	for pn in (page_name_e, "_lz_smoke_page_g"):
 		try:
