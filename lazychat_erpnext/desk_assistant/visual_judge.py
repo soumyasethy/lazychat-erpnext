@@ -204,10 +204,136 @@ def compare(candidate_b64: str, reference_b64: str, intent_text: str, page_sourc
 	}
 
 
+_GENERATE_FIXES_SYSTEM_PROMPT = (
+	"You are a frontend code-fix generator. Given a visual-diff JSON (from a "
+	"visual-judge that compared a candidate Desk Page to a reference design) "
+	"and the current Page's source fields (style, content, script), produce a "
+	"PATCH that — when merged into the Page doc — resolves the mismatches "
+	"flagged in the diff.\n"
+	"Return ONLY a JSON object — no prose, no markdown fences — with this shape:\n"
+	"{\n"
+	'  "patch": {\n'
+	'    "style"?: "<replacement CSS for the Page.style field>",\n'
+	'    "content"?: "<replacement HTML for the Page.content field>",\n'
+	'    "script"?: "<replacement JS for the Page.script field>"\n'
+	"  }\n"
+	"}\n"
+	"Include ONLY the keys you actually want to change. Each value is the full "
+	"replacement contents for that Page field. Do NOT emit selectors or partial "
+	"snippets — emit complete fields ready to overwrite. Stay within "
+	"Frappe Desk Page conventions (the script body wraps `frappe.pages[...]`)."
+)
+
+# Patch keys must be drawn from this whitelist — feeds directly into
+# prepare_update_doc on the Page record.
+_ALLOWED_PATCH_KEYS = {"style", "content", "script"}
+
+
 def generate_fixes(diff_json: dict, page_doc: dict, intent_text: str, effort: str = "medium") -> dict:
+	"""Text-only LLM call producing a patch_dict for prepare_update_doc.
+
+	Reads the diff JSON from compare() + the current Page doc fields,
+	asks the LLM for a {style?, content?, script?} replacement patch.
+	Whitelisted patch keys (defense against the LLM emitting other doc keys).
+	Wrapped in a 60s timeout — longer than compare's 30s because large page
+	bodies need more output tokens.
+
+	Returns either:
+	  {patch: {style?, content?, script?}, model: str}
+	OR
+	  {skipped: True, reason: str}
+	"""
 	if effort not in ("high", "max"):
 		return {"skipped": True, "reason": f"effort={effort} skips fix generation"}
-	return {"skipped": True, "reason": "generate_fixes not yet implemented (M3.3 placeholder)"}
+
+	model_label = _resolve_model_for_effort(effort)
+	if not model_label:
+		return {"skipped": True, "reason": f"no model configured for effort={effort}"}
+
+	if not isinstance(diff_json, dict) or not diff_json.get("mismatches"):
+		return {"skipped": True, "reason": "diff_json missing or has no mismatches to fix"}
+
+	page_doc = page_doc or {}
+
+	try:
+		from lazychat_erpnext.desk_assistant.providers import resolve_model
+
+		try:
+			model_doc, provider_doc, adapter = resolve_model(model_label)
+		except Exception as e:
+			return {"skipped": True, "reason": f"no provider configured for {model_label}: {type(e).__name__}: {str(e)[:80]}"}
+
+		# Compact diff JSON for the prompt — trim mismatch lists if very large
+		mismatches = diff_json.get("mismatches") or []
+		if isinstance(mismatches, list) and len(mismatches) > 20:
+			mismatches = mismatches[:20]
+		diff_compact = {
+			"score": diff_json.get("score"),
+			"verdict": diff_json.get("verdict"),
+			"mismatches": mismatches,
+		}
+
+		current_style = (page_doc.get("style") or "")[:6000]
+		current_content = (page_doc.get("content") or "")[:6000]
+		current_script = (page_doc.get("script") or "")[:6000]
+		page_name = page_doc.get("name") or "<unnamed>"
+
+		user_text = (
+			f"USER INTENT:\n{(intent_text or '').strip()[:2000]}\n\n"
+			f"PAGE: {page_name}\n\n"
+			f"VISUAL DIFF (from visual_judge.compare):\n{json.dumps(diff_compact, indent=2, default=str)[:4000]}\n\n"
+			f"CURRENT Page.style:\n{current_style}\n\n"
+			f"CURRENT Page.content:\n{current_content}\n\n"
+			f"CURRENT Page.script:\n{current_script}\n\n"
+			"Produce the JSON patch that resolves these mismatches."
+		)
+		messages = [{"role": "user", "content": user_text}]
+
+		def _fixes_call():
+			return adapter.chat(
+				provider=provider_doc,
+				model=model_doc,
+				messages=messages,
+				system=_GENERATE_FIXES_SYSTEM_PROMPT,
+				tools=None,
+				max_tokens=4096,
+			)
+
+		# 60s — longer than compare's 30s. Patch generation produces large
+		# output (full replacement page fields) so output token volume drives
+		# wall-clock latency.
+		with concurrent.futures.ThreadPoolExecutor(max_workers=1) as _pool:
+			fut = _pool.submit(_fixes_call)
+			try:
+				resp = fut.result(timeout=60)
+			except concurrent.futures.TimeoutError:
+				return {"skipped": True, "reason": "fix-generation LLM call timed out after 60s"}
+
+		text_blocks = [b.get("text", "") for b in resp.content if b.get("type") == "text"]
+		response_text = "\n".join(text_blocks).strip()
+
+	except Exception as e:
+		return {"skipped": True, "reason": f"fix-generation LLM call failed: {type(e).__name__}: {str(e)[:80]}"}
+
+	parsed = _extract_json_block(response_text)
+	if not isinstance(parsed, dict):
+		return {"skipped": True, "reason": f"fix-gen response unparseable: {response_text[:120]!r}"}
+
+	patch_raw = parsed.get("patch")
+	if not isinstance(patch_raw, dict) or not patch_raw:
+		return {"skipped": True, "reason": "fix-gen response missing non-empty 'patch' object"}
+
+	# Whitelist patch keys — defense against the LLM trying to overwrite arbitrary
+	# Page doc fields (route, parent_page, etc.). Anything outside style/content/
+	# script gets stripped silently.
+	patch_clean = {k: v for k, v in patch_raw.items() if k in _ALLOWED_PATCH_KEYS and isinstance(v, str)}
+	if not patch_clean:
+		return {"skipped": True, "reason": "fix-gen patch had no whitelisted keys (style/content/script)"}
+
+	return {
+		"patch": patch_clean,
+		"model": model_label,
+	}
 
 
 def iter_cap_for_effort(effort: str) -> int:
