@@ -3304,5 +3304,51 @@ def run():
 	except Exception as e:
 		record(_ok("T100b-d2 page_validators exception", False, f"{type(e).__name__}: {e}"))
 
+	# T100e — prepare_create_page happy path: stage → token → commit → /app/<name> exists
+	page_name_e = "_lz_smoke_page_e"
+	if frappe.db.exists("Page", page_name_e):
+		frappe.delete_doc("Page", page_name_e, ignore_permissions=True, force=True)
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit -- smoke test cleanup; pre-test isolation requires commit so the next bench --site execute sees a clean slate
+	r = execute_tool("prepare_create_page", {
+		"page_name": page_name_e, "title": "Smoke E",
+		"content": "<main><section><h1>Hi</h1></section></main>",
+		"style": "main { padding: 12px; color: var(--text-color); }",
+		"script": "document.body.dataset.lazychatReady = '1';",
+	})
+	record(_ok("T100e prepare_create_page stage", bool(r.get("ok") and r.get("preview_token")), f"{r}"))
+	token_e = r.get("preview_token")
+	if token_e:
+		r = commit_prepared(token_e)
+		record(_ok("T100e' prepare_create_page commit", bool(r.get("ok") and frappe.db.exists("Page", page_name_e)), f"{r}"))
+	else:
+		record(_ok("T100e' prepare_create_page commit", False, "no preview_token from stage"))
+
+	# T100f — prepare_create_page render-preview rejects unknown doctype in JS
+	r = execute_tool("prepare_create_page", {
+		"page_name": "_lz_smoke_page_f", "title": "Smoke F",
+		"content": "<main></main>", "style": "",
+		"script": "frappe.db.get_list('NotARealDoctypeXYZ', {});",
+	})
+	record(_ok("T100f unknown-doctype rejection", (not r.get("ok")) and "NotARealDoctypeXYZ" in (r.get("error") or ""), f"{r}"))
+
+	# T100g — prepare_create_page surfaces quality_warnings for missing lazychatReady
+	r = execute_tool("prepare_create_page", {
+		"page_name": "_lz_smoke_page_g", "title": "Smoke G",
+		"content": "<div>no semantic elements</div>",
+		"style": ".a{color:#fff}.b{color:#000}.c{color:#111}.d{color:#222}.e{color:#333}.f{color:#444}",
+		"script": "console.log('no marker');",
+	})
+	qw = r.get("quality_warnings", []) or []
+	record(_ok("T100g quality_warnings surface", bool(r.get("ok") and any(w.get("category") == "ready_signal" for w in qw)), f"qw={qw}"))
+
+	# Cleanup pages created during T100e/g (T100f never staged).
+	for pn in (page_name_e, "_lz_smoke_page_g"):
+		try:
+			if frappe.db.exists("Page", pn):
+				frappe.delete_doc("Page", pn, force=1, ignore_missing=True, ignore_permissions=True)
+		except Exception:
+			pass
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit -- smoke test cleanup; final cleanup must commit so subsequent runs see a clean slate
+
 	print(f"\n=== {results['pass']} pass, {results['fail']} fail, {results['skip']} skip ===")
 	return results

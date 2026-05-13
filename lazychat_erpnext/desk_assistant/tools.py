@@ -5742,6 +5742,83 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"confirm_with": "click the inline Apply button to confirm",
 		}
 
+	if name == "prepare_create_page":
+		# Cycle 13 M1 — stage a Desk Page (Frappe Page doctype, non-standard).
+		# Pattern mirrors prepare_create_report: validate args → render-preview
+		# (HTML/CSS/JS parse + doctype/method refs) → stage to Redis → return
+		# {ok, preview_token, summary, quality_warnings, …}. HARD-rejects parse
+		# errors and references to non-existent doctypes/methods; surfaces non-
+		# blocking quality_warnings (theme tokens, semantic HTML, lazychatReady
+		# marker) so the chat-ui Apply card can show them without blocking.
+		from lazychat_erpnext.desk_assistant.page_validators import (
+			validate_html, validate_css, validate_js,
+			validate_js_doctype_refs, validate_js_method_refs,
+			collect_quality_warnings,
+		)
+		if "System Manager" not in (frappe.get_roles(frappe.session.user) or []):
+			return {"ok": False, "error": "Only System Manager can stage a Desk Page."}
+		title = (args.get("title") or "").strip()
+		if not title:
+			return {"ok": False, "error": "title is required.", "hint": "e.g. 'MD Dashboard'"}
+		page_name = args.get("page_name") or frappe.scrub(title).replace("_", "-")
+		if frappe.db.exists("Page", page_name):
+			return {
+				"ok": False,
+				"error": f"Page '{page_name}' already exists.",
+				"hint": (
+					f"Use `prepare_update_doc({{doctype: 'Page', name: '{page_name}', patch: {{...}}}})` "
+					f"to modify it, or pick a different page_name."
+				),
+			}
+		content = args.get("content") or ""
+		style = args.get("style") or ""
+		script = args.get("script") or ""
+		# Hard validation gates: HTML/CSS/JS parse + JS doctype existence.
+		for check in (
+			validate_html(content),
+			validate_css(style),
+			validate_js(script),
+			validate_js_doctype_refs(script),
+		):
+			if check:
+				return {"ok": False, **check}
+		# Method-ref validator considers same-turn-staged methods as valid so
+		# the LLM can stage a Server Script + the Page that calls its api_method
+		# in the same turn.
+		staged_methods = (frappe.local.flags.get("lazychat_staging_methods") or [])
+		err = validate_js_method_refs(script, staged_methods=staged_methods)
+		if err:
+			return {"ok": False, **err}
+		quality_warnings = collect_quality_warnings(content, style, script)
+		payload = {
+			"page_name": page_name,
+			"title": title,
+			# Default to the app's actual Module name ("Desk Assistant" — see
+			# lazychat_erpnext/modules.txt). The LLM-facing schema doc still
+			# says "Lazychat Erpnext" historically; the resolver below normalizes
+			# either form by falling back to the app's module if the named one
+			# doesn't exist on this bench.
+			"module": args.get("module") or "Desk Assistant",
+			"roles": args.get("roles") or ["System Manager"],
+			"content": content,
+			"style": style,
+			"script": script,
+			"icon": args.get("icon") or "",
+			"standard": "No",
+		}
+		token = _stage_action("create_page", payload)
+		return {
+			"ok": True,
+			"action": "create_page",
+			"preview_token": token,
+			"page_name": page_name,
+			"route": f"/app/{page_name}",
+			"summary": f"Create Desk Page '{title}' at /app/{page_name}",
+			"quality_warnings": quality_warnings,
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": f"/commit {token}",
+		}
+
 	if name == "restore_deleted_doc":
 		# Direct (no /commit) — restoring is single-doc, fully reversible.
 		dd_name = args.get("deleted_document_name")
@@ -6212,6 +6289,27 @@ def commit_prepared(token, **extras):
 					"filters": payload.get("filters") or {},
 				})
 				doc.save(ignore_permissions=False)
+		elif action == "create_page":
+			# Cycle 13 M1 — commit a staged Desk Page. Re-checks System Manager
+			# role + existence at commit time (defense-in-depth against payload
+			# tampering or race with another session creating the same name).
+			if "System Manager" not in (frappe.get_roles(frappe.session.user) or []):
+				return {"ok": False, "error": "System Manager required."}
+			if frappe.db.exists("Page", payload["page_name"]):
+				return {"ok": False, "error": f"Page '{payload['page_name']}' already exists at commit time."}
+			doc = frappe.get_doc({
+				"doctype": "Page",
+				"page_name": payload["page_name"],
+				"title": payload["title"],
+				"module": payload["module"],
+				"standard": payload["standard"],
+				"roles": [{"role": r} for r in payload["roles"]],
+				"content": payload["content"],
+				"style": payload["style"],
+				"script": payload["script"],
+				"icon": payload["icon"],
+			})
+			doc.insert(ignore_permissions=False)
 		elif action == "create_scheduled_job":
 			if "System Manager" not in frappe.get_roles(frappe.session.user):
 				return {"ok": False, "error": "System Manager role required to schedule jobs"}
@@ -6671,8 +6769,13 @@ def commit_prepared(token, **extras):
 		# {Query Report, Script Report} opens at /app/query-report/<name>,
 		# NOT /app/report/<name> (which is Report-Builder-only). The generic
 		# scrub-doctype pattern produces the wrong URL for these.
+		# Cycle 13 M1 — Page doctype: Desk Pages live at /app/<page_name>
+		# (NOT /app/page/<name>); the panel renders the Page's own HTML/JS
+		# at the route matching its page_name.
 		if doc.doctype == "Report" and getattr(doc, "report_type", "") in ("Query Report", "Script Report"):
 			link = f"/app/query-report/{doc.name}"
+		elif doc.doctype == "Page":
+			link = f"/app/{doc.name}"
 		else:
 			link = f"/app/{frappe.scrub(doc.doctype)}/{doc.name}"
 		response = {
