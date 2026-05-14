@@ -5805,6 +5805,33 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		if err:
 			return {"ok": False, **err}
 		quality_warnings = collect_quality_warnings(content, style, script)
+
+		# Validate role names — Frappe is strict here ("User" isn't a role;
+		# "All" is the closest equivalent). Hint the LLM toward valid choices
+		# instead of failing at commit time with an opaque "Could not find
+		# Row #1: Role: X".
+		requested_roles = args.get("roles") or ["System Manager"]
+		if not isinstance(requested_roles, list):
+			requested_roles = ["System Manager"]
+		role_substitutions = {"User": "All", "Users": "All", "Everyone": "All", "Anonymous": "Guest"}
+		resolved_roles = []
+		for r in requested_roles:
+			if not isinstance(r, str):
+				continue
+			r = r.strip()
+			if role_substitutions.get(r):
+				r = role_substitutions[r]
+			if not frappe.db.exists("Role", r):
+				valid = sorted(frappe.get_all("Role", filters={"disabled": 0}, pluck="name", limit_page_length=0))
+				return {
+					"ok": False,
+					"error": f"Role '{r}' does not exist. Frappe's built-in roles are 'All' (any logged-in user), 'Guest' (unauthenticated), 'System Manager' (admin), 'Administrator'. ERPNext adds more (e.g. 'Sales User', 'Purchase User', 'Accounts User').",
+					"hint": "Use 'All' for any logged-in user, or 'System Manager' for admin-only. Did you mean one of: " + ", ".join(valid[:20]) + ("..." if len(valid) > 20 else ""),
+				}
+			resolved_roles.append(r)
+		if not resolved_roles:
+			resolved_roles = ["System Manager"]
+
 		payload = {
 			"page_name": page_name,
 			"title": title,
@@ -5814,7 +5841,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			# either form by falling back to the app's module if the named one
 			# doesn't exist on this bench.
 			"module": args.get("module") or "Desk Assistant",
-			"roles": args.get("roles") or ["System Manager"],
+			"roles": resolved_roles,
 			"content": content,
 			"style": style,
 			"script": script,
@@ -6581,24 +6608,53 @@ def commit_prepared(token, **extras):
 			# Frappe v15's Page doctype has ZERO DB fields for HTML/CSS/JS content
 			# (`page_html` is just a Section Break label, not a Text field). All
 			# content must live on disk at <app>/<module>/page/<scrubbed>/<scrubbed>.{js,css,html}.
-			# So at commit time we write the three files (idempotently overwriting),
-			# create the Page row with `standard: "Yes"` so the standard loader
-			# picks them up, and let Frappe's Page.load_assets() do its normal job.
+			#
+			# IMPORTANT ordering: `doc.insert()` triggers Frappe's `make_boilerplate`
+			# which writes a DEFAULT scaffold (empty .js wrapper + boilerplate .json)
+			# to the on-disk page dir. If we write our content BEFORE insert, Frappe
+			# overwrites it. So: insert first → let Frappe write its scaffold →
+			# then overwrite the 3 files with our real content.
 			import os
 			from frappe.modules import get_module_path, scrub
-			scrubbed = scrub(payload["page_name"])
 			module_path = get_module_path(payload["module"])
+
+			doc = frappe.get_doc({
+				"doctype": "Page",
+				"page_name": payload["page_name"],
+				"title": payload["title"],
+				"module": payload["module"],
+				# standard: "Yes" tells Frappe to load page assets from disk —
+				# matches the files we'll write below.
+				"standard": "Yes",
+				"roles": [{"role": r} for r in payload["roles"]],
+				"icon": payload["icon"],
+			})
+			doc.insert(ignore_permissions=False)
+
+			# IMPORTANT: Frappe may truncate `page_name` (e.g. >20 chars) when
+			# saving — the canonical row name lives on `doc.name` after insert.
+			# Use that for the disk path so we OVERWRITE the scaffold Frappe
+			# just wrote (vs writing to a separate truncated-name directory).
+			# Also use doc.title (not payload['title']) since Frappe may have
+			# normalized it during insert.
+			actual_name = doc.name
+			actual_title = doc.title or payload["title"]
+			scrubbed = scrub(actual_name)
 			page_dir = os.path.join(module_path, "page", scrubbed)
 			os.makedirs(page_dir, exist_ok=True)
-			# Standard Frappe page JS wrapper. The frappe.pages map is keyed by
-			# the page's `name` (the dashed page_name as stored in the Page row),
-			# NOT the underscore-scrubbed module-path form. e.g. for page_name
-			# 'cycle13-e2e-v3', the key is 'cycle13-e2e-v3' (dashed) even though
-			# the on-disk directory + filename use the scrubbed 'cycle13_e2e_v3'.
+
+			# The `frappe.pages` map is keyed by the page's `name` (the dashed
+			# row name), NOT the underscore-scrubbed module-path form. Use
+			# json.dumps for the string literals: Python's `!r` repr uses escape
+			# sequences (\') that LOOK valid in JS but Frappe's page loader does
+			# its own escape decoding before eval, which corrupts \' into a bare
+			# '. JSON string format is a strict subset of JS string format so
+			# json.dumps output is safe through any eval pipeline.
+			import json as _json
 			js_wrapper = (
-				f"frappe.pages[{payload['page_name']!r}].on_page_load = function(wrapper) {{\n"
-				f"  const page = frappe.ui.make_app_page({{ parent: wrapper, title: {payload['title']!r}, single_column: true }});\n"
-				f"  page.main.html({(payload.get('content') or '')!r});\n"
+				f"frappe.pages[{_json.dumps(actual_name)}].on_page_load = function(wrapper) {{\n"
+				f"  const page = frappe.ui.make_app_page({{ parent: wrapper, title: {_json.dumps(actual_title)}, single_column: true }});\n"
+				f"  page.main.html({_json.dumps(payload.get('content') or '')});\n"
 				f"  try {{\n"
 				f"{(payload.get('script') or '').rstrip()}\n"
 				f"  }} catch (e) {{ console.error('[lazychat page]', e); }}\n"
@@ -6609,28 +6665,14 @@ def commit_prepared(token, **extras):
 			with open(os.path.join(page_dir, f"{scrubbed}.css"), "w") as fh:
 				fh.write(payload.get("style") or "")
 			# An empty .html is fine — the JS wrapper does the actual mounting.
-			# But we DO need the file present so load_assets()'s listdir doesn't
-			# misbehave AND the standard loader has something to find.
+			# But we keep the file present so load_assets()'s listdir doesn't trip.
 			with open(os.path.join(page_dir, f"{scrubbed}.html"), "w") as fh:
 				fh.write(payload.get("content") or "")
-			# An __init__.py in the page dir is what Frappe's module discovery
-			# requires for the page to be importable by the Desk loader.
+			# __init__.py is what Frappe's module discovery needs for the
+			# page module to be importable by the Desk loader.
 			init_path = os.path.join(page_dir, "__init__.py")
 			if not os.path.exists(init_path):
 				open(init_path, "w").close()
-
-			doc = frappe.get_doc({
-				"doctype": "Page",
-				"page_name": payload["page_name"],
-				"title": payload["title"],
-				"module": payload["module"],
-				# standard: "Yes" tells Frappe to load page assets from disk —
-				# matches the files we just wrote.
-				"standard": "Yes",
-				"roles": [{"role": r} for r in payload["roles"]],
-				"icon": payload["icon"],
-			})
-			doc.insert(ignore_permissions=False)
 		elif action == "attach_assets":
 			# Cycle 13 M1.6 — commit a staged attachment batch. Re-checks
 			# write-permission on the target at commit time (defense-in-depth:
