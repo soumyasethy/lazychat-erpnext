@@ -79,104 +79,215 @@ or executive overview. Lives at /app/<page-name>. Inside the Desk shell —
 `frappe.call`, `frappe.db.get_list`, `frappe.boot`, `frappe.session.user` are
 all available out of the box.
 
-### Workflow
+### THE FIVE NON-NEGOTIABLE RULES (read these first, every time)
 
-1. **Plan the sections.** Read the user's request (often an HTML mockup or text
-   description). Identify each distinct section (header, KPI grid, charts,
-   tables, lists). Note which sections need REAL data vs which are static.
+1. **ES5 JS ONLY.** The render-preview parser is ES5. The following are HARD-
+   REJECTED at preview time and will force you to redo the work:
+   - Arrow functions `() => {}` → use `function () {}`
+   - `const` / `let` → use `var`
+   - Template literals `` `${x}` `` → use string concat `'foo ' + x`
+   - Optional chaining `obj?.field` → use `obj && obj.field`
+   - Nullish coalescing `x ?? y` → use `(x !== undefined ? x : y)` or `x || y`
+   - Spread `{...obj}` / `[...arr]` → use `Object.assign({}, obj)` / `arr.slice()`
+   - `async / await` → use plain `.then(...)` Promise chains
+   - Destructuring `var {a, b} = obj` → use `var a = obj.a; var b = obj.b;`
+   Get this right on the FIRST try. Every retry costs an LLM call and the user's
+   patience.
+
+2. **Numeric HTML entities only** — `&middot;` / `&mdash;` / `&rarr;` and other
+   HTML5 named entities are NOT in the XHTML 1.0 set the parser knows. Use the
+   numeric form: `&#183;` (·), `&#8212;` (—), `&#8594;` (→), `&#8377;` (₹),
+   `&#9650;` (▲), `&#9660;` (▼). Standard XML entities `&amp;`, `&lt;`, `&gt;`,
+   `&apos;`, `&quot;` are fine.
+
+3. **No `innerHTML = <markup-string>` with interpolated values.** Use
+   `textContent` for text or `document.createElement` + `appendChild` for
+   structure. The quality-warnings validator will flag this; XSS through
+   ERPNext-stored values is a real risk.
+
+4. **End your script with `document.body.dataset.lazychatReady = '1';`** —
+   set this AFTER all initial `frappe.call(...)` / `frappe.db.get_list(...)`
+   promises resolve (use `Promise.all([...]).then(function() { ... });`). This
+   marker is what the screenshot preview tool waits for; without it, the M2
+   capture happens too early and the M3 visual judge grades a half-rendered
+   page.
+
+5. **`roles` must be real Frappe roles.** Common confusion: `'User'` does NOT
+   exist as a role. Use `'All'` (any logged-in user) or `'System Manager'`
+   (admin-only). ERPNext adds domain roles like `'Sales User'`,
+   `'Accounts User'`, `'Stock User'`. The wrapper auto-substitutes obvious
+   cases (`'User'` → `'All'`) but using the right name first avoids the
+   round-trip.
+
+### INTERPRETING CASUAL PROMPTS
+
+Real users don't write structured requirements. They say things like:
+- *"show me top customers with pending payments"*
+- *"I want a stock report"*
+- *"build me a dashboard for overdue tasks"*
+- *"sales by region this quarter"*
+
+When you get a casual prompt, do this:
+
+a) **Infer the data source.** Map common nouns to ERPNext doctypes:
+   | User says... | Probably means |
+   |---|---|
+   | customers, clients | `Customer` |
+   | pending payments, outstanding, receivables | `Sales Invoice` with `docstatus=1, outstanding_amount > 0` |
+   | overdue invoices | `Sales Invoice` with `due_date < today, outstanding_amount > 0` |
+   | sales | `Sales Invoice` (revenue) or `Sales Order` (booked but unbilled) |
+   | stock, inventory | `Bin` (live stock) or `Stock Ledger Entry` (history) |
+   | items, products, SKUs | `Item` |
+   | suppliers, vendors | `Supplier` |
+   | purchases | `Purchase Invoice` / `Purchase Order` |
+   | tasks, todos | `Task` / `ToDo` |
+   | employees, headcount | `Employee` |
+   | leads | `Lead` |
+   | quotations, quotes | `Quotation` |
+
+   Call `describe_doctype` on your inferred doctype to confirm field names
+   before writing the query — `outstanding_amount` exists on Sales Invoice but
+   not on Customer; `actual_qty` is on Bin not Item, etc.
+
+b) **Infer the title + slug.** From the user prompt:
+   - "show me top customers with pending payments" → title "Top Customers by
+     Outstanding", page_name "top-customers-outstanding"
+   - "stock report" → title "Stock Levels Dashboard", page_name "stock-levels"
+   Keep page_name ≤ 20 chars (Frappe truncates beyond that anyway).
+
+c) **Infer the layout** if the user doesn't specify:
+   - "report" / "list" → table with 1 row per record + sortable columns
+   - "dashboard" / "overview" → 3-5 KPI summary cards + 1-2 detail tables
+   - "by [time period]" → either a time-series chart or grouped bars
+
+d) **Default theme** if the user doesn't specify: use Frappe theme tokens (the
+   page automatically respects dark/light mode toggle). DON'T invent your own
+   colors unless the user explicitly asks for "navy" / "professional" / "warm"
+   / etc.
+
+e) **Default columns** when listing records: name, then 2-4 fields the user
+   most likely cares about (for Customer: `customer_name`, `customer_group`,
+   `territory`; for Sales Invoice: `customer`, `posting_date`,
+   `outstanding_amount`, `due_date`).
+
+### WORKFLOW
+
+1. **Plan the sections.** Identify each distinct section (header, KPI grid,
+   tables, lists). Note which need REAL data vs static.
 
 2. **For each data section, identify the source.** Single doctype read →
-   `frappe.db.get_list/get_value` from the Page's JS (no server-side wrapper
-   needed). Complex aggregation (sum / group-by / multi-doctype JOIN) → stage
-   a `prepare_create_server_script` (script_type=API) and have the Page's JS
-   call it via `frappe.call({method: 'api_method'})`.
+   `frappe.db.get_list` from the Page's JS (no server-side wrapper needed).
+   Complex aggregation (group-by / multi-doctype join) → stage
+   `prepare_create_server_script` and have the Page call it via
+   `frappe.call`. NOTE: server scripts require `lazychat_allow_dangerous_tools`
+   in site_config — if you get that gating error, fall back to client-side
+   `frappe.db.get_list` and aggregate in JS.
 
-3. **Use the discovery tools FIRST.** Before staging a new aggregation:
-   - `list_whitelisted_methods({prefix:'erpnext.'})` — ERPNext ships many
-     dashboard data methods; reuse before reinventing.
-   - `list_number_cards()` — if you're building a Workspace, reuse existing
-     Number Cards rather than duplicating ('Revenue MTD' shouldn't exist 4 times).
-   - `describe_doctype` / `find_join_path` / `get_doctype_relationships` for
-     unfamiliar data shapes.
+3. **Discovery FIRST.** Before staging:
+   - `list_whitelisted_methods({prefix: 'erpnext.'})` — reuse existing methods
+   - `describe_doctype` for any doctype you reference
 
-4. **For each Server Script: stage one `prepare_create_server_script`.** Keep
-   each focused — one endpoint per logical data unit. Use
-   `frappe.response.message = result_dict` as the output. Re-check perms
-   inside the script (`frappe.has_permission`) — defense-in-depth matters
-   even though the script runs as the caller.
+4. **Compose the Page: stage `prepare_create_page`** with `content` (HTML),
+   `style` (CSS), `script` (JS) — all ES5.
 
-5. **Compose the Page: stage `prepare_create_page`** with HTML in `content`,
-   CSS in `style`, JS in `script`. The JS calls each Server Script via
-   `frappe.call({method: '<api_method>'})`. Render-preview will hard-block
-   references to non-existent doctypes / methods — but methods you also
-   stage THIS turn are valid (the validator tracks staged methods on
-   frappe.local.flags).
+5. **Apply order**. Server Scripts first (so frappe.call references resolve),
+   then the Page. At Effort=max, LOW_RISK actions auto-Apply.
 
-6. **Apply order.** Server Scripts FIRST (so the Page's frappe.call references
-   resolve), then the Page. At Effort=max, both can auto-Apply for the LOW_RISK
-   wrappers (create_page); create_server_script always requires explicit Apply.
+### ES5-COMPATIBLE LOADING / EMPTY / ERROR PATTERN
 
-### Visual quality rules (CRITICAL — output has to actually look good)
+Copy this verbatim shape (NO ES2015+ syntax):
 
-1. **Use Frappe theme tokens** in CSS — `var(--bg-color)`, `var(--text-color)`,
+```js
+function renderRows(el, rows) {
+  while (el.firstChild) el.removeChild(el.firstChild);
+  if (!rows || rows.length === 0) {
+    el.textContent = 'No data.';
+    return;
+  }
+  var table = document.createElement('table');
+  for (var i = 0; i < rows.length; i++) {
+    var tr = document.createElement('tr');
+    var row = rows[i];
+    for (var j = 0; j < row.length; j++) {
+      var td = document.createElement('td');
+      td.textContent = String(row[j] != null ? row[j] : '-');
+      tr.appendChild(td);
+    }
+    table.appendChild(tr);
+  }
+  el.appendChild(table);
+}
+
+var sectionEl = document.querySelector('#section-x');
+sectionEl.textContent = 'Loading...';
+
+frappe.db.get_list('Sales Invoice', {
+  fields: ['name', 'customer', 'outstanding_amount', 'due_date'],
+  filters: { docstatus: 1, outstanding_amount: ['>', 0] },
+  order_by: 'outstanding_amount desc',
+  limit: 10
+}).then(function (rows) {
+  var data = [];
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    data.push([r.customer, r.outstanding_amount, r.due_date]);
+  }
+  renderRows(sectionEl, data);
+  document.body.dataset.lazychatReady = '1';
+}).catch(function (err) {
+  sectionEl.textContent = 'Failed: ' + (err && err.message ? err.message : String(err));
+  document.body.dataset.lazychatReady = '1';
+});
+```
+
+### INR / NUMBER FORMATTING
+
+Indian-rupee lakh/crore formatting is what most ERPNext users expect. ES5:
+
+```js
+function fmtINR(n) {
+  if (n == null || isNaN(n)) return '-';
+  var negative = n < 0 ? '-' : '';
+  n = Math.abs(n);
+  var str = n.toFixed(0);
+  var lastThree = str.slice(-3);
+  var rest = str.slice(0, -3);
+  if (rest) lastThree = ',' + lastThree;
+  rest = rest.replace(/\\B(?=(\\d{2})+(?!\\d))/g, ',');
+  return negative + '\\u20B9' + rest + lastThree;
+}
+// fmtINR(36562294) -> "₹3,65,62,294"
+```
+
+### VISUAL QUALITY RULES
+
+1. **Frappe theme tokens** — `var(--bg-color)`, `var(--text-color)`,
    `var(--primary-color)`, `var(--text-muted)`, `var(--border-color)`,
-   `var(--bg-gray)`, `var(--accent)`. NEVER hardcode brand colors. Hardcoded
-   colors = broken in dark mode = the #1 thing that signals 'AI-generated'.
+   `var(--bg-gray)`, `var(--accent)`. Hardcoded colors break dark mode.
 
-2. **Match the reference's typography exactly** if a mockup was provided:
-   load the same font families (via `<link rel="stylesheet" href="fonts.googleapis.com/...">`),
-   same weights, same letter-spacing.
+2. **Semantic HTML** — `<header>`, `<main>`, `<section>`. KPI cards via
+   `<dl><dt>label</dt><dd>value</dd></dl>`. Tables only for tabular data.
 
-3. **Match the reference's layout structure exactly.** If the mockup has a
-   topbar + sidebar + sections grid, build `<header>` + `<nav>` + `<main>`
-   with the SAME grid template. Don't substitute 'good enough' alternatives.
+3. **Real data, no placeholders.** Empty cells → `'—'` (em-dash), not '0'.
 
-4. **Use semantic HTML.** `<header>`, `<nav>`, `<main>`, `<section>`,
-   `<article>`, `<aside>`, `<footer>`. KPI labels-and-values via
-   `<dl><dt>label</dt><dd>value</dd></dl>`. Tables only for actual tabular
-   data, never for layout.
+4. **Match the reference** if the user uploaded one — typography, spacing,
+   colors. Substituting "good enough" alternatives produces obvious mismatches
+   the M3 visual judge will flag.
 
-5. **Wire data REAL — never placeholder.** If a section's data isn't reachable
-   yet, render `<em>(no data wired)</em>` explicitly rather than fake numbers.
-
-6. **Loading / empty / error states** for every `frappe.call`. Pattern:
-   ```js
-   const el = document.querySelector('#section-x');
-   el.textContent = 'Loading...';
-   frappe.call({method: 'x'}).then(r => {
-     if (!r.message?.rows?.length) { el.textContent = 'No data.'; return; }
-     const table = document.createElement('table');
-     for (const row of r.message.rows) {
-       const tr = document.createElement('tr');
-       for (const cell of row) {
-         const td = document.createElement('td');
-         td.textContent = String(cell ?? '-');
-         tr.appendChild(td);
-       }
-       table.appendChild(tr);
-     }
-     el.replaceChildren(table);
-   }).catch(e => { el.textContent = `Failed: ${e.message}`; });
-   ```
-
-7. **At the END of your `script`,** after all initial `frappe.call`s resolve
-   (`Promise.all(...).then(...)`), set `document.body.dataset.lazychatReady = '1'`.
-   This signals the screenshot preview tool that the page is fully rendered.
-
-### Anti-patterns (do NOT)
+### ANTI-PATTERNS
 
 - DON'T use `prepare_create_doc({doctype:'Page'})` — use `prepare_create_page`.
-- DON'T inline secrets / API keys in JS (Desk-readable).
-- DON'T poll `frappe.call` more than once per minute without a refresh button.
+- DON'T inline secrets in JS (Desk-readable).
+- DON'T poll `frappe.call` faster than 1×/minute without an explicit refresh.
 - DON'T use `<table>` for layout.
-- DON'T assemble HTML strings via property setters — use textContent +
-  document.createElement + appendChild.
+- DON'T assemble HTML strings — use `textContent` + `createElement`.
+- DON'T pass `roles=['User']` — it doesn't exist. Use `'All'` or `'System Manager'`.
 
-### Iteration loop ('fix the X')
+### ITERATION LOOP ('fix the X')
 
-User says 'the topbar font is too thin' -> use `prepare_update_doc({doctype:'Page',
-name:'<page_name>', patch:{style: '<refined CSS>'}})`. Patch ONLY the changed
-field — never re-stage the full Page on a small fix.
+User says 'the header font is too thin' → use `prepare_update_doc({
+doctype:'Page', name:'<page-name>', patch:{style: '<refined CSS>'}})`. Patch
+ONLY the changed field. Never re-stage the full Page on a small fix.
 
 """
 
