@@ -132,6 +132,15 @@ def compare(candidate_b64: str, reference_b64: str, intent_text: str, page_sourc
 		except Exception as e:
 			return {"skipped": True, "reason": f"no provider configured for {model_label}: {type(e).__name__}: {str(e)[:80]}"}
 
+		# Pre-decrypt the api_key in the MAIN thread (Frappe context is available
+		# here). The threadpool worker that runs the vision call doesn't have
+		# `frappe.local`, so password decryption would silently return "" there
+		# and we'd send `Authorization: Bearer ` to the gateway → 401.
+		from lazychat_erpnext.desk_assistant.password_utils import warm_provider_api_key
+		_warmed = warm_provider_api_key(provider_doc)
+		if not _warmed:
+			return {"skipped": True, "reason": f"provider {provider_doc.name} has no api_key set"}
+
 		ref_b64 = _strip_data_url_prefix(reference_b64)
 		cand_b64 = _strip_data_url_prefix(candidate_b64)
 		if not ref_b64 or not cand_b64:
@@ -262,6 +271,15 @@ def generate_fixes(diff_json: dict, page_doc: dict, intent_text: str, effort: st
 			model_doc, provider_doc, adapter = resolve_model(model_label)
 		except Exception as e:
 			return {"skipped": True, "reason": f"no provider configured for {model_label}: {type(e).__name__}: {str(e)[:80]}"}
+
+		# Pre-decrypt the api_key in the MAIN thread (Frappe context is available
+		# here). The threadpool worker that runs the vision call doesn't have
+		# `frappe.local`, so password decryption would silently return "" there
+		# and we'd send `Authorization: Bearer ` to the gateway → 401.
+		from lazychat_erpnext.desk_assistant.password_utils import warm_provider_api_key
+		_warmed = warm_provider_api_key(provider_doc)
+		if not _warmed:
+			return {"skipped": True, "reason": f"provider {provider_doc.name} has no api_key set"}
 
 		# Compact diff JSON for the prompt — trim mismatch lists if very large
 		mismatches = diff_json.get("mismatches") or []
