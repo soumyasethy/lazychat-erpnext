@@ -283,11 +283,35 @@ function fmtINR(n) {
 - DON'T assemble HTML strings — use `textContent` + `createElement`.
 - DON'T pass `roles=['User']` — it doesn't exist. Use `'All'` or `'System Manager'`.
 
+### CLIENT-SIDE FRAPPE HELPERS — what exists vs what is Python-only
+
+Several `frappe.utils.X` helpers exist ONLY on the Python server. Calling them
+from Page JS produces silent runtime errors (`TypeError: frappe.utils.X is not
+a function`). The page renders but the data section shows "Error loading data".
+
+| What you want | DON'T (server-only) | DO (client-side, real) |
+|---|---|---|
+| Format INR currency | `frappe.utils.format_currency(...)` | `new Intl.NumberFormat('en-IN', {style:'currency', currency:'INR'}).format(n)` — or the manual `fmtINR()` from the playbook |
+| Escape HTML in data | `frappe.utils.escapeHtml(...)` | Use `textContent` instead of `innerHTML`. The textContent setter escapes for you. |
+| Format date | `frappe.utils.formatdate(...)` | `frappe.datetime.str_to_user(s)` (client) — or `new Date(s).toLocaleDateString('en-IN')` |
+| Now | `frappe.utils.now()` | `frappe.datetime.now_datetime()` — or `new Date().toISOString()` |
+| Money | `frappe.utils.fmt_money(...)` | global `format_currency(value, currency)` — or `Intl.NumberFormat` |
+
+When in doubt: pure JavaScript (`Intl.NumberFormat`, `Date`, `textContent`).
+Frappe's CLIENT JS namespace is `frappe.db.*`, `frappe.call`,
+`frappe.datetime.*`, `frappe.defaults.*`, `frappe.ui.*`, `frappe.boot.*` —
+NOT `frappe.utils.*`.
+
 ### ITERATION LOOP ('fix the X')
 
 User says 'the header font is too thin' → use `prepare_update_doc({
 doctype:'Page', name:'<page-name>', patch:{style: '<refined CSS>'}})`. Patch
 ONLY the changed field. Never re-stage the full Page on a small fix.
+
+When patching a Page, you MUST send a FULL replacement string for any field
+you touch — the commit handler overwrites the on-disk file with what you
+send (it doesn't diff or merge). If you patch only `script`, the existing
+`content` and `style` files are preserved untouched.
 
 """
 

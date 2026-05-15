@@ -6210,9 +6210,75 @@ def commit_prepared(token, **extras):
 			if not frappe.has_permission(payload["doctype"], "write", doc=payload["name"]):
 				return {"ok": False, "error": "no write permission at commit time"}
 			doc = frappe.get_doc(payload["doctype"], payload["name"])
-			for f, v in (payload["patch"] or {}).items():
-				doc.set(f, v)
-			doc.save()
+			patch = payload.get("patch") or {}
+			# SPECIAL CASE: Page doctype has zero DB fields for HTML/CSS/JS
+			# content (`page_html` is a Section Break label, not a field).
+			# A patch with content/style/script must rewrite the disk-file trio
+			# at <app>/<module>/page/<scrub(name)>/<scrub(name)>.{js,css,html}
+			# — same path the create_page commit handler uses.
+			if payload["doctype"] == "Page" and any(k in patch for k in ("content", "style", "script")):
+				import os, json as _json
+				from frappe.modules import get_module_path, scrub
+				module_path = get_module_path(doc.module)
+				scrubbed = scrub(doc.name)
+				page_dir = os.path.join(module_path, "page", scrubbed)
+				os.makedirs(page_dir, exist_ok=True)
+				# Read existing content/style/script from disk so we can patch
+				# only the field(s) the user requested (preserve the others).
+				def _read(name):
+					p = os.path.join(page_dir, name)
+					if os.path.exists(p):
+						try:
+							with open(p) as fh:
+								return fh.read()
+						except Exception:
+							return ""
+					return ""
+				existing_html = _read(scrubbed + ".html")
+				existing_css = _read(scrubbed + ".css")
+				# Existing JS file is the wrapper; we extract just the user's
+				# script body if patch only sets style/content. To keep this
+				# simple, require the agent to send a full `script` if patching
+				# `script`, OR we re-derive the script from the existing
+				# wrapper. Since extraction is brittle, prefer requiring the
+				# agent to pass the full updated script.
+				new_html = patch.get("content", existing_html)
+				new_css = patch.get("style", existing_css)
+				new_script = patch.get("script")
+				if new_script is None:
+					# Patch didn't include script — keep the existing script
+					# content. Read the existing JS file and extract the inner
+					# user script (between the try{ and the closing })) — fall
+					# back to empty if we can't.
+					existing_js = _read(scrubbed + ".js")
+					m = re.search(r"try\s*\{(.*?)\}\s*catch\s*\(", existing_js, re.DOTALL)
+					new_script = (m.group(1).strip() if m else "")
+				js_wrapper = (
+					f"frappe.pages[{_json.dumps(doc.name)}].on_page_load = function(wrapper) {{\n"
+					f"  const page = frappe.ui.make_app_page({{ parent: wrapper, title: {_json.dumps(doc.title)}, single_column: true }});\n"
+					f"  page.main.html({_json.dumps(new_html)});\n"
+					f"  try {{\n"
+					f"{new_script.rstrip()}\n"
+					f"  }} catch (e) {{ console.error('[lazychat page]', e); }}\n"
+					f"}};\n"
+				)
+				with open(os.path.join(page_dir, scrubbed + ".js"), "w") as fh:
+					fh.write(js_wrapper)
+				with open(os.path.join(page_dir, scrubbed + ".css"), "w") as fh:
+					fh.write(new_css)
+				with open(os.path.join(page_dir, scrubbed + ".html"), "w") as fh:
+					fh.write(new_html)
+				# Also update any non-content/style/script fields on the doc
+				# (e.g. title, icon, roles) via the normal save path.
+				other_patch = {k: v for k, v in patch.items() if k not in ("content", "style", "script")}
+				if other_patch:
+					for f, v in other_patch.items():
+						doc.set(f, v)
+					doc.save()
+			else:
+				for f, v in patch.items():
+					doc.set(f, v)
+				doc.save()
 		elif action == "submit":
 			if not frappe.has_permission(payload["doctype"], "submit", doc=payload["name"]):
 				return {"ok": False, "error": "no submit permission at commit time"}
