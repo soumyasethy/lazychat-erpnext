@@ -545,6 +545,29 @@ When debugging *"my report URL gave 404 even though the chat said it was
 created"*: confirm the chat-ui bundle was rebuilt after this fix landed
 (`?v=` query in iframe URL should be > `1778066844`).
 
+## Cycle 13.2 — entity-decode auto-fix + Result Ready pill session-scope (2026-05-15)
+
+Two surgical post-ship hardening fixes shipped together as `cycle-13.2` (backend `0.3.1`, chat-ui `0.1.1`). Driven by two real-user reports during the same chat panel test session: (a) "create a hello world website" rendered the literal `<header>` text instead of a real heading; (b) the "Result ready" pill randomly appeared in sessions that hadn't generated any result.
+
+### Fix A — entity-encoded HTML auto-decoded at commit
+
+Agent (Haiku 4.5 via Vercel AI Gateway) generated `prepare_create_page(content="&lt;header&gt;...")` — fully entity-escaped HTML. Both call sites in [`tools.py`](lazychat_erpnext/desk_assistant/tools.py) (`create_page` + `update_doc(Page)` commit branches) wrote that verbatim to disk → `page.main.html("&lt;header&gt;...")` → jQuery `.html()` decoded the entities and displayed the result as visible literal text in the page main wrapper. New helper `_decode_if_fully_entity_escaped()` near the module top: heuristic `&lt;[a-z!/]` match AND no `<[a-z!/]` match → `html.unescape`. Mixed content (real tags + intentional `&lt;` for code samples) → unchanged, author intent wins. Decoder applied to `content`/`style`/`script` fields in both call sites.
+
+Playbook rewrite (mirrored in [`claude_bridge.py`](lazychat_erpnext/desk_assistant/claude_bridge.py) + [chat-ui `routerSystemPrompt.ts`](../lazychat.ai/apps/chat-ui/src/lib/routerSystemPrompt.ts)): rule #2 reworded from "Standard XML entities are fine" to "**HTML entities are for TEXT CONTENT, not tag delimiters**" with explicit WRONG/RIGHT example.
+
+### Fix B — Result Ready pill leaks across sessions
+
+`useUI.lastResultMessageId: string | null` was a single global with no session tag. Multi-session symptom: result emitted in session A → user switches to session B → pill renders in B pointing at a message id that doesn't exist in B's DOM tree. The reader at [`ResultReadyPill.tsx:36-39`](../lazychat.ai/apps/chat-ui/src/components/messages/ResultReadyPill.tsx) fell into `setOffScreen(true)` even when `querySelector` returned null. Mirror fix in chat-ui — see [`../lazychat.ai/CLAUDE.md` Cycle 13.2 section](../lazychat.ai/CLAUDE.md) for full chat-ui story.
+
+### Verification
+
+- in-process smoke: 274 → **277 pass / 0 fail / 6 skip** (3 new T100o/p/q records)
+- HTTP-wire smoke: unchanged (no tool-surface change)
+- chat-ui vitest: 457 → 461 (+4, all in chat-ui half)
+- E2E browser repro: chat panel → "create a hello world website" → load `/app/hello-world` → real `<header>` rendered (NOT visible text).
+
+---
+
 ## Cycle 13.1 — post-ship hardening: agentic-build trifecta + iteration-loop fix + client-helpers playbook (2026-05-15)
 
 Cycle 13's M1 shipped functional but had real-world rough edges that only surfaced once the agent (Haiku 4.5 via Vercel AI Gateway) was driven *fully through the chat panel inside ERPNext* — not via Python harness — to build a Number Card AND a website-style Desk Page from casual end-user prompts. Fixes here are commit-shaped on top of `cycle-13`; the cycle's design + smoke baselines stand. Tag: `cycle-13.1`. Companion chat-ui half: `lazychat.ai @ cycle-13.1`. Evidence: [`../2026-05-14-fully-agentic-chat-panel/`](../2026-05-14-fully-agentic-chat-panel/), [`../2026-05-15-chat-driven-page-build/`](../2026-05-15-chat-driven-page-build/).
