@@ -1219,3 +1219,163 @@ def lazychat_get_page_doc(name: str) -> dict:
 		"style": doc.style or "",
 		"script": doc.script or "",
 	}
+
+
+# Cycle 14 — Dashboard aggregate endpoint
+# Replaces the broken `frappe.client.get_list + JS reduce` pattern.
+# Validates field names against doctype meta; op against fixed whitelist.
+# System Manager only.
+
+_AGG_OPS = {"sum", "count", "avg", "min", "max"}
+_AGG_MAX_AGGREGATIONS = 12
+
+_OP_MAP = {
+	"=": "=", "!=": "!=", ">": ">", "<": "<", ">=": ">=", "<=": "<=",
+	"like": "LIKE", "in": "IN", "not in": "NOT IN",
+	"is": "IS", "is not": "IS NOT", "between": "BETWEEN",
+}
+
+
+@frappe.whitelist(methods=["POST"])
+def lazychat_dashboard_aggregate(spec):
+	"""Server-side SUM/COUNT/AVG/MIN/MAX with optional GROUP BY.
+
+	spec shape (validated):
+	  {
+	    "doctype": "Sales Invoice",
+	    "filters": {"docstatus": 1, "posting_date": [">=", "2025-04-01"]},
+	    "aggregations": [
+	      {"name": "ytd", "field": "grand_total", "op": "sum"},
+	      {"name": "n", "op": "count"}
+	    ],
+	    "group_by": "status"
+	  }
+
+	Returns: {"ok": true, "data": <dict or list>} on success,
+	         {"ok": false, "error": "..."} on any rejection.
+	"""
+	import json as _json
+
+	if "System Manager" not in (frappe.get_roles(frappe.session.user) or []):
+		return {"ok": False, "error": "System Manager required."}
+
+	if isinstance(spec, str):
+		try:
+			spec = _json.loads(spec)
+		except Exception as e:
+			return {"ok": False, "error": "spec must be a JSON object: {0}".format(e)}
+	if not isinstance(spec, dict):
+		return {"ok": False, "error": "spec must be an object."}
+
+	doctype = spec.get("doctype")
+	if not doctype or not isinstance(doctype, str):
+		return {"ok": False, "error": "spec.doctype is required (string)."}
+	if not frappe.db.exists("DocType", doctype):
+		return {"ok": False, "error": "unknown doctype: {0}".format(doctype)}
+	if not frappe.has_permission(doctype, "read"):
+		return {"ok": False, "error": "no read permission on {0}".format(doctype)}
+
+	aggregations = spec.get("aggregations") or []
+	if not isinstance(aggregations, list) or not aggregations:
+		return {"ok": False, "error": "spec.aggregations must be a non-empty list."}
+	if len(aggregations) > _AGG_MAX_AGGREGATIONS:
+		return {"ok": False, "error": "too many aggregations (max {0}).".format(_AGG_MAX_AGGREGATIONS)}
+
+	meta = frappe.get_meta(doctype)
+	valid_fields = {f.fieldname for f in meta.fields} | {
+		"name", "creation", "modified", "owner", "modified_by", "docstatus", "idx"
+	}
+
+	parts = []
+	names = []
+	for i, agg in enumerate(aggregations):
+		if not isinstance(agg, dict):
+			return {"ok": False, "error": "aggregations[{0}] must be an object.".format(i)}
+		op = (agg.get("op") or "").strip().lower()
+		if op not in _AGG_OPS:
+			return {"ok": False, "error": "aggregations[{0}].op must be one of {1}; got {2!r}.".format(i, sorted(_AGG_OPS), op)}
+		name = agg.get("name") or "agg_{0}".format(i)
+		if not isinstance(name, str) or not name.replace("_", "").isalnum():
+			return {"ok": False, "error": "aggregations[{0}].name must be alphanumeric/underscore; got {1!r}.".format(i, name)}
+		if op == "count":
+			fragment = "COUNT(*)"
+		else:
+			field = agg.get("field")
+			if not field:
+				return {"ok": False, "error": "aggregations[{0}].field required for op={1}.".format(i, op)}
+			if field not in valid_fields:
+				return {"ok": False, "error": "aggregations[{0}].field {1!r} is not in {2} meta.".format(i, field, doctype)}
+			fragment = "{0}(`{1}`)".format(op.upper(), field)
+		parts.append("{0} AS `{1}`".format(fragment, name))
+		names.append(name)
+
+	group_by_field = spec.get("group_by")
+	if group_by_field is not None:
+		if not isinstance(group_by_field, str) or group_by_field not in valid_fields:
+			return {"ok": False, "error": "group_by {0!r} is not in {1} meta.".format(group_by_field, doctype)}
+		parts.insert(0, "`{0}` AS `{0}`".format(group_by_field))
+		names.insert(0, group_by_field)
+
+	filters = spec.get("filters") or {}
+	where_sql, where_values = _build_safe_where(filters, valid_fields)
+	table = "`tab{0}`".format(doctype)
+	select_sql = ", ".join(parts)
+	group_sql = "GROUP BY `{0}`".format(group_by_field) if group_by_field else ""
+	sql = "SELECT {0} FROM {1} {2} {3}".format(select_sql, table, where_sql, group_sql).strip()
+
+	try:
+		rows = frappe.db.sql(sql, where_values, as_dict=True)
+	except Exception as e:
+		return {"ok": False, "error": "sql error: {0}: {1}".format(type(e).__name__, e)}
+
+	if group_by_field:
+		return {"ok": True, "data": rows}
+	return {"ok": True, "data": rows[0] if rows else {n: 0 for n in names}}
+
+
+def _build_safe_where(filters, valid_fields):
+	"""Translate dict / list filters into a WHERE fragment with parametrised
+	values. Only fields in `valid_fields` are accepted. Op is whitelisted.
+	Unknown fields and unknown ops are SILENTLY skipped (matches Frappe's
+	lenient internal behaviour; safer than letting them through to SQL)."""
+	if not filters:
+		return "", []
+	if isinstance(filters, list):
+		filters = {f[0]: [f[1], f[2]] for f in filters if isinstance(f, (list, tuple)) and len(f) >= 3}
+
+	clauses = []
+	values = []
+	for field, val in filters.items():
+		if field not in valid_fields:
+			continue
+		if isinstance(val, (list, tuple)) and len(val) >= 2:
+			op = (val[0] or "=").strip().lower()
+			if op not in _OP_MAP:
+				continue
+			sql_op = _OP_MAP[op]
+			if op in ("in", "not in"):
+				if not isinstance(val[1], (list, tuple)) or not val[1]:
+					continue
+				placeholders = ", ".join(["%s"] * len(val[1]))
+				clauses.append("`{0}` {1} ({2})".format(field, sql_op, placeholders))
+				values.extend(val[1])
+			elif op == "between":
+				if not isinstance(val[1], (list, tuple)) or len(val[1]) != 2:
+					continue
+				clauses.append("`{0}` BETWEEN %s AND %s".format(field))
+				values.extend(val[1])
+			elif op in ("is", "is not"):
+				v = val[1]
+				if v is None or str(v).lower() in ("not set", "null", ""):
+					clauses.append("`{0}` {1} NULL".format(field, sql_op))
+				else:
+					clauses.append("`{0}` {1} NOT NULL".format(field, sql_op))
+			else:
+				clauses.append("`{0}` {1} %s".format(field, sql_op))
+				values.append(val[1])
+		else:
+			clauses.append("`{0}` = %s".format(field))
+			values.append(val)
+	if not clauses:
+		return "", []
+	return "WHERE " + " AND ".join(clauses), values

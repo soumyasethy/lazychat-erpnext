@@ -545,6 +545,60 @@ When debugging *"my report URL gave 404 even though the chat said it was
 created"*: confirm the chat-ui bundle was rebuilt after this fix landed
 (`?v=` query in iframe URL should be > `1778066844`).
 
+## Cycle 14 — MD Dashboard rebuild + Dashboard-from-Mockup discipline (2026-05-15)
+
+Two coupled deliverables that close the same class of bug: the chat-driven `/app/md-dashboard` from a 90 KB Proman mockup ended up a ₹0 / ₹2 / ₹0 / 100 shell with 9 of 12 sections silently dropped. Three bugs compounded: aggregation via `frappe.client.get_list` + `limit_page_length` truncation, hardcoded `÷ 10⁷` with no unit suffix, and silent scope shrinkage. Cycle 14 fixes the page directly AND adds a playbook discipline so the agent does this right next time. Tag: `cycle-14`. Backend `0.4.0`, chat-ui `0.1.2`.
+
+### Custom doctypes for non-ERP MD data
+
+Four minimal System-Manager-only doctypes seeded idempotently in `install.py`:
+- [`MD KPI Score`](lazychat_erpnext/desk_assistant/doctype/md_kpi_score/) — BSC scorecard (54 seed rows from the mockup, 4 perspectives covering Financial / Customer / Internal Process / Learning & Growth)
+- [`MD Risk`](lazychat_erpnext/desk_assistant/doctype/md_risk/) — top risks (7 seed)
+- [`MD Decision`](lazychat_erpnext/desk_assistant/doctype/md_decision/) — pending decisions (7 seed)
+- [`Critical Role`](lazychat_erpnext/desk_assistant/doctype/critical_role/) — critical hiring flags (5 seed)
+
+Each is plain Frappe — Desk forms at `/app/md-kpi-score`, etc. The dashboard reads via `frappe.client.get_list` (small lists, no truncation concern).
+
+### Server-side aggregate endpoint
+
+[`lazychat_dashboard_aggregate(spec)`](lazychat_erpnext/desk_assistant/api.py) replaces `frappe.client.get_list + JS reduce` for any total / count over large tables. Spec is a JSON object with `{doctype, filters, aggregations, group_by}`. Validates field names against `frappe.get_meta(doctype).fields` (rejects unknown), op against `{sum, count, avg, min, max}` (rejects everything else), aggregations capped at 12. System Manager only. Errors return `{ok: false, error}` envelope (consistent with other lazychat endpoints).
+
+The 88,928-row Sales Invoice table on this bench: a `client.get_list` with `limit_page_length: 500` truncates to 0.5% of the data. The new endpoint runs `SELECT SUM(grand_total) FROM \`tabSales Invoice\` WHERE docstatus=1` directly — ~50 ms, correct total ≈ ₹76 Cr.
+
+### `/app/md-dashboard` full 12-section rebuild
+
+Replaced the cycle-13 chat-driven 3-section shell with a hand-crafted 12-section page:
+
+| # | Section | Source |
+|---|---|---|
+| 1 | Group Snapshot | aggregate over Sales Invoice + Employee |
+| 2 | BSC Scorecard | `frappe.db.get_list("MD KPI Score")` grouped by perspective |
+| 3 | Division KPI Progress | `frappe.db.get_list("MD KPI Score")` flat |
+| 4 | Top Risks | `frappe.db.get_list("MD Risk", {resolved_date: ['is', 'not set']})` |
+| 5 | MD Decisions | `frappe.db.get_list("MD Decision", {status: 'Pending'})` |
+| 6 | Sales & BD | aggregate Lead, Opportunity, Quotation, Sales Order |
+| 7 | Receivables Aging | 4× aggregate Sales Invoice with date-bucket filters |
+| 8 | Payables & Procurement | aggregate Purchase Invoice + Purchase Order + Material Request |
+| 9 | Operations & Production | aggregate Work Order (group_by status) + Stock Entry + Delivery Note |
+| 10 | Finance Snapshot | mirrors sections 1+8, plus GL Entry net |
+| 11 | HR & People | aggregate Job Opening + `Critical Role` doctype |
+| 12 | Digital Milestones | `frappe.db.get_list("MD KPI Score", {perspective: 'Learning & Growth'})` |
+
+Magnitude-aware `fmtINR(n)` helper renders ` Cr` / ` L` / raw rupees consistently. Auto-refresh every 5 min. `lazychatReady = '1'` fires after `Promise.all` of all 12 section calls.
+
+### Playbook upgrade — `_DASHBOARD_DISCIPLINE_BLOCK`
+
+Mirrored backend ↔ chat-ui (see [chat-ui story](../lazychat.ai/CLAUDE.md) for the chat-ui half). When the user uploads a 5+ section / 20+ KPI mockup, the agent must (1) INVENTORY all sections, (2) CLASSIFY each KPI as ERP-derivable (name doctype + aggregation) / manual entry (propose minimal custom doctype) / not-applicable, (3) AGGREGATE via the new endpoint not `client.get_list + reduce`, (4) handle UNITS magnitude-aware, (5) RENDER ALL sections — silent drops are the most expensive bug class. WRONG/RIGHT example included.
+
+### Verification
+
+- in-process smoke: **283 / 0 / 6** (was 277/0/6, +6 new T100r-w)
+- chat-ui vitest: **461 / 0** (unchanged)
+- `bench migrate` installs 4 new doctypes cleanly
+- E2E: `/app/md-dashboard` shows real ₹76 Cr YTD revenue + 88,928 Sales Invoices + ₹96 Cr creditors + 4 BSC perspective cards with status counts + 7 active risks + 7 pending decisions
+
+---
+
 ## Cycle 13.2 — entity-decode auto-fix + Result Ready pill session-scope (2026-05-15)
 
 Two surgical post-ship hardening fixes shipped together as `cycle-13.2` (backend `0.3.1`, chat-ui `0.1.1`). Driven by two real-user reports during the same chat panel test session: (a) "create a hello world website" rendered the literal `<header>` text instead of a real heading; (b) the "Result ready" pill randomly appeared in sessions that hadn't generated any result.

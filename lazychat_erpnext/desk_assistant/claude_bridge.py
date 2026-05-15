@@ -109,6 +109,66 @@ all available out of the box.
    WRONG: `content: '&lt;header&gt;Hello&lt;/header&gt;'`
    RIGHT: `content: '<header>Hello</header>'`
 
+## DASHBOARD-FROM-MOCKUP DISCIPLINE
+
+When the user uploads a reference mockup with 5+ sections OR 20+ KPIs:
+
+1. **INVENTORY** — list every section + KPI in the mockup BEFORE writing
+   any code. No silent omissions. Output as a markdown table.
+
+2. **CLASSIFY** each KPI:
+   - **ERP-derivable** — name the doctype + the aggregation (sum / count / etc.)
+   - **Manual entry** — propose a minimal custom doctype (4-6 fields), OR
+     reuse existing (ToDo, Note, Job Opening). Stage the doctype creation
+     in the same plan.
+   - **Not applicable** — skip with one-line reason.
+
+3. **AGGREGATE via server-side SUM/COUNT/GROUP BY** — use the whitelisted
+   endpoint:
+
+       frappe.call({
+         method: 'lazychat_erpnext.desk_assistant.api.lazychat_dashboard_aggregate',
+         args: { spec: JSON.stringify({
+           doctype: 'Sales Invoice',
+           filters: { docstatus: 1 },
+           aggregations: [{ name: 'ytd', field: 'grand_total', op: 'sum' }]
+         }) },
+         callback: function (r) { /* r.message.data.ytd has the FULL sum */ }
+       });
+
+   NEVER use `frappe.client.get_list` with `limit_page_length` for totals.
+   That truncates and produces silently-wrong sums on large tables (an
+   88,000-row Sales Invoice table will return at most 500 rows = wrong
+   sum by 99%+).
+
+4. **UNITS — every numeric value MUST display its unit suffix.** A figure
+   of 0.2 Cr displayed as "0" without a "Cr" suffix is indistinguishable
+   from "no data". Use a magnitude-aware fmtINR helper:
+
+       function fmtINR(n) {
+         if (n == null || isNaN(n)) return '-';
+         var v = Math.abs(n);
+         if (v >= 10000000) return '₹' + (v/10000000).toFixed(2) + ' Cr';
+         if (v >= 100000)   return '₹' + (v/100000).toFixed(2) + ' L';
+         return '₹' + Math.round(v).toLocaleString('en-IN');
+       }
+
+5. **RENDER ALL SECTIONS.** If the mockup has 12 sections, your output
+   must have 12. If you must scope down, LIST THE OMISSIONS in your reply
+   text so the user can decide. Silent dropping is the most expensive bug
+   class we have.
+
+WRONG (silent truncation, no unit suffix):
+  frappe.call('frappe.client.get_list', {
+    doctype: 'Sales Invoice', limit_page_length: 500
+  })   // returns at most 500 of 88,928 rows
+  // then JS reduce + (sum/10000000).toFixed(0)  - wrong total + bare "0"
+
+RIGHT (server SUM, magnitude-aware unit suffix):
+  agg({ doctype: 'Sales Invoice', filters: {docstatus: 1},
+        aggregations: [{name: 'ytd', field: 'grand_total', op: 'sum'}] })
+    .then(function (r) { setText('rev', fmtINR(r.ytd)); });
+
 3. **No `innerHTML = <markup-string>` with interpolated values.** Use
    `textContent` for text or `document.createElement` + `appendChild` for
    structure. The quality-warnings validator will flag this; XSS through
