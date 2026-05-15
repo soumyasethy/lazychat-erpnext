@@ -12,7 +12,7 @@ A **Frappe app** (`lazychat_erpnext`) that turns ERPNext into an LLM-driven agen
 Backend is fully built and battle-tested:
 - **Multi-provider LLM** ([providers/](lazychat_erpnext/desk_assistant/providers/)): two adapters cover Anthropic + everything OpenAI-compatible (OpenAI, OpenRouter, NVIDIA, Vercel AI Gateway, LM Studio, Groq, Together).
 - **Agent loop** ([claude_bridge.py](lazychat_erpnext/desk_assistant/claude_bridge.py)) with prompt caching, tool-use loop, max 8 turns.
-- **Tool registry** — 38 tools, all run with `frappe.session.user`'s permissions (no god-mode bypass).
+- **Tool registry** — 101 tools, all run with `frappe.session.user`'s permissions (no god-mode bypass).
 - **Two-phase mutation pattern**: agent calls `prepare_*` → returns `preview_token` → user types `/commit TOKEN` in chat → shim calls `commit_prepared_action(token)` → executes inside `frappe.db.savepoint`. The LLM is physically incapable of committing on its own (commit method is NOT in the tool registry).
 
 Default install: lazychat panel ON, legacy widget OFF, dist served from `/assets/lazychat_erpnext/lazychat_dist/index.html` (same-origin, port-free).
@@ -1872,7 +1872,7 @@ Both paths are operational and admin-selectable via `Lazychat Settings → Chat 
 
 `chat_path = auto` (default): chat-ui inspects active model — custom model in picker → browser path; built-in model → backend path. Effortless for end users.
 
-**Both paths share `tools.py` (38 tools, 1 implementation, 0 drift)**, both run with `frappe.session.user`'s permissions, both write to `Claude Conversation` (backend in `run_agentic_turn`; browser via `save_conversation`).
+**Both paths share `tools.py` (101 tools, 1 implementation, 0 drift)**, both run with `frappe.session.user`'s permissions, both write to `Claude Conversation` (backend in `run_agentic_turn`; browser via `save_conversation`).
 
 **Nothing is deprecated.** `LLM Provider`, `LLM Model`, `send_message_stream`, `run_agentic_turn`, `claude_bridge.py`, `providers/`, the legacy widget JS — all serve the backend path. Removing them would lose a real production deployment shape (org with shared keys).
 

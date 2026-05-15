@@ -396,7 +396,7 @@ Default `chat_path = auto`: chat-ui inspects the active model — built-in → b
 
 ---
 
-## Tool catalog — all 95
+## Tool catalog — all 101
 
 Grouped into 12 categories. Every tool runs scoped to `frappe.session.user`'s permissions; mutations stage to a Redis token and require explicit Apply. The **Try it** line is verbatim text you can paste into the chat panel right now (assuming you have ecommerce-shaped data — the prompts work great against the canonical ERPNext demo dataset).
 
@@ -1108,7 +1108,7 @@ claude mcp add --scope user --transport http lazychat-erpnext \
   http://localhost:8000/api/method/lazychat_erpnext.desk_assistant.mcp.handle_bearer \
   --header "Authorization: Bearer <YOUR_TOKEN>"
 
-# 3. Restart Claude Code → all 95 tools available
+# 3. Restart Claude Code → all 101 tools available
 ```
 
 ### B — Claude Desktop / MCP Inspector / any token-aware client
@@ -1159,7 +1159,7 @@ In claude.ai → Settings → Connectors → **Add Custom Connector**:
 | **OAuth Client ID** (Advanced settings) | from the bench command above |
 | **OAuth Client Secret** | from the bench command above |
 
-Click Add. claude.ai redirects you to Frappe → log in → "Confirm Access" → back to claude.ai with all 95 tools registered.
+Click Add. claude.ai redirects you to Frappe → log in → "Confirm Access" → back to claude.ai with all 101 tools registered.
 
 > **Public-URL caveat:** claude.ai's backend lives in Anthropic's cloud — `localhost` is not reachable. Either deploy Frappe on a public HTTPS URL or use [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/) (free, no interstitial unlike ngrok-free) to tunnel `localhost:8000`.
 
@@ -1180,7 +1180,7 @@ cp lazychat-erpnext/scripts/smoke-test-tools.py \
 cd <bench> && bench --site <site> execute lazychat_erpnext._smoke.run
 # expected: === 244 pass, 0 fail, 2 skip ===
 
-# Layer 2 — HTTP MCP wire (all 95 tools)
+# Layer 2 — HTTP MCP wire (all 101 tools)
 python3 lazychat-erpnext/test/curl_smoke.py
 # expected: tools registered: 95, called: 95
 ```
