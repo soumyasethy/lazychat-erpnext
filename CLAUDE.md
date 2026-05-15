@@ -545,6 +545,50 @@ When debugging *"my report URL gave 404 even though the chat said it was
 created"*: confirm the chat-ui bundle was rebuilt after this fix landed
 (`?v=` query in iframe URL should be > `1778066844`).
 
+## Cycle 13.1 — post-ship hardening: agentic-build trifecta + iteration-loop fix + client-helpers playbook (2026-05-15)
+
+Cycle 13's M1 shipped functional but had real-world rough edges that only surfaced once the agent (Haiku 4.5 via Vercel AI Gateway) was driven *fully through the chat panel inside ERPNext* — not via Python harness — to build a Number Card AND a website-style Desk Page from casual end-user prompts. Fixes here are commit-shaped on top of `cycle-13`; the cycle's design + smoke baselines stand. Tag: `cycle-13.1`. Companion chat-ui half: `lazychat.ai @ cycle-13.1`. Evidence: [`../2026-05-14-fully-agentic-chat-panel/`](../2026-05-14-fully-agentic-chat-panel/), [`../2026-05-15-chat-driven-page-build/`](../2026-05-15-chat-driven-page-build/).
+
+### Fixed
+
+1. **`prepare_update_doc(Page, patch={content,style,script})` no-op'd silently** — Frappe v15 Page has zero DB content fields (the page.json `page_html` entry is a Section Break label, not a Text field). `commit_prepared` `update` branch now special-cases Page: when patch contains any of `content`/`style`/`script`, the handler reads existing on-disk file trio (`<module>/page/<scrub>/<scrub>.{js,css,html}`), applies the patch (only the keys you touched), and rewrites disk files with `json.dumps()` for safe embedding. Recovers the pre-existing `script` from the JS file's `try{...}catch` block via regex when the patch only touches one of the other two fields. Other patch keys (title/icon/roles/module) still flow through the standard `doc.set` + `doc.save`. Idempotent. Lives in [`tools.py`](lazychat_erpnext/desk_assistant/tools.py) `commit_prepared` `update` branch. Without this, the M1 "iteration loop" the playbook promised was a lie for the doctype it was designed for.
+
+2. **`prepare_create_page` disk-file ordering** — writing the JS/CSS/HTML trio BEFORE `doc.insert()` got silently overwritten by `make_boilerplate` (which `insert()` runs as a side-effect). Flipped: `doc.insert()` first, then overwrite the scaffold with the LLM-generated content. Also: `frappe.modules.scrub` truncates `page_name` to 20 chars so the on-disk dir name diverges from the user-supplied slug for long names — code now uses `doc.name` + `doc.title` after `insert()` returns, never the original payload args.
+
+3. **`safe_provider_api_key()` returned `""` inside ThreadPoolExecutor workers** — the M3 visual-judge submits work to a 30s-bounded threadpool; `frappe.utils.password.get_decrypted_password` needs `frappe.local`, which workers don't inherit. Fixed in [`password_utils.py`](lazychat_erpnext/desk_assistant/password_utils.py): cache plaintext on `provider_doc.__lazychat_plain_api_key__` (`_CACHE_ATTR`); new `warm_provider_api_key(provider_doc)` pre-decrypts in the main thread before submit. [`visual_judge.py`](lazychat_erpnext/desk_assistant/visual_judge.py) `compare()` + `generate_fixes()` both call `warm_provider_api_key()` before the executor. Same bug shape would bite any future async/threaded LLM call — ALWAYS warm before submit.
+
+4. **`roles=["User"]` rejected by Frappe** — `User` isn't a real Frappe role (closest is `All`); `Anonymous` isn't either (it's `Guest`). `prepare_create_page` now validates each requested role against `tabRole`, auto-substitutes the two common confusions, and on miss returns a clean error envelope listing all valid roles (sorted) instead of crashing on `doc.insert()`.
+
+5. **Mojibake in user-supplied HTML** — `ftfy` doesn't fully recover Unicode arrows / `→` / curly quotes when the source double-encodes UTF-8 → cp1252 → UTF-8. For now, manual replacement table when ingesting reference mockups; future runs may need a more aggressive sanitize pass.
+
+6. **Frappe page-loader pre-processed `\'` escapes in JS literals** breaking pages with single-quoted strings inside event handlers / template literals — switched to `json.dumps()` for ALL JS-string embedding (was `repr()`). Eliminates the `SyntaxError: Unexpected identifier 'Courier'` family of bugs.
+
+### Changed — playbook upgrades (mirrored backend ↔ chat-ui)
+
+Both [`claude_bridge.py`](lazychat_erpnext/desk_assistant/claude_bridge.py) `_DESK_PAGE_PLAYBOOK` and [chat-ui's `routerSystemPrompt.ts`](../lazychat.ai/apps/chat-ui/src/lib/routerSystemPrompt.ts) `_SHARED_GUIDANCE` gained ~200 lines of agent-survival guidance. Single source of truth split intentionally: backend is canonical for backend-LLM path, chat-ui is canonical for browser-LLM path; both must be kept byte-aligned (smoke `T100p` will pin a hash diff in a follow-up).
+
+- **Five non-negotiable rules at top** — each banned ES6+ syntax with its ES5 equivalent; numeric HTML entities only (`&#8226;` not `&middot;`); no `innerHTML` with interpolated strings (use `textContent` + `appendChild`); `lazychatReady = '1'` written ONLY after all initial fetches resolve via `Promise.all`; real Frappe role names (validated list, never `User`/`Anonymous`).
+- **Casual-prompt cookbook** — table mapping common nouns ("customers", "suppliers", "sales", "stock", "items", "tasks", "employees", "leads", "quotations") to canonical doctypes, default page names, slug patterns, theme tokens, default columns. Hits the "show me my top customers" prompt class without needing 3 turns of clarification.
+- **ES5 reference patterns** — copy-paste loading/empty/error pattern + INR `fmtINR()` rewritten in pure ES5 (no template literals, no const, no arrow fns).
+- **CLIENT FRAPPE HELPERS — what's real vs Python-only** — table mapping `frappe.utils.format_currency` / `escapeHtml` / `formatdate` / `now_datetime` / `add_days` (all Python-only) → real client equivalents (`Intl.NumberFormat`, `textContent`, `frappe.datetime.str_to_user`, `frappe.datetime.now_datetime`, global `format_currency` shim). Eliminates the `TypeError: frappe.utils.X is not a function` runtime-error family that surfaced repeatedly in the chat-driven Page builds.
+- **Iteration patch guidance** — when patching a Page via `prepare_update_doc`, send FULL replacement strings for the keys you touch (the disk-write helper preserves untouched keys but does not merge partial strings).
+
+### Defaults — Cycle 13 ships allow-all
+
+`enable_screenshot_preview = 1` + `vision_judge_models` populated + `allow_dangerous_tools = 1` baked into `boot.py:_SETTINGS_DEFAULTS` so fresh installs work end-to-end. Existing installs keep stored values; flip in `/app/lazychat-settings`.
+
+### Verification
+
+In-process smoke unchanged: 274/0/6 (the 6 fixes don't change tool surface, only commit-handler behavior + system prompt text). HTTP-wire 82/16. chat-ui vitest 457/0. Manually validated end-to-end through the chat panel: a Number Card committed and rendered ([`2026-05-14-fully-agentic-chat-panel/`](../2026-05-14-fully-agentic-chat-panel/)), a Desk Page committed at `/app/top-customers-page` with iteration via `prepare_update_doc(Page, patch={content,style,script})` actually patching disk files ([`2026-05-15-chat-driven-page-build/`](../2026-05-15-chat-driven-page-build/)).
+
+### Open
+
+- Server Script side-effect AST gate (`frappe.sendmail`/`enqueue`/`publish_realtime`) still deferred — read-only-by-construction claim in `prepare_create_server_script` schema slightly overstated.
+- One remaining `frappe.utils.escapeHtml` call surfaced in the latest Page build; would self-heal in the next chat turn now that the playbook teaches `textContent` instead. Not gating release.
+- Backend ↔ chat-ui playbook hash-diff smoke test (T100p) deferred; today they're aligned manually per commit.
+
+---
+
 ## Cycle 13 — Mockup-to-ERPNext: typed UI primitives + Playwright screenshot + LLM-as-judge auto-iterate (2026-05-13)
 
 Three-milestone cycle that turns the LLM into a competent ERPNext dashboard builder: read a mockup like a person, build the equivalent dynamic Page (with real API calls) inside ERPNext, then visually verify against the reference and auto-iterate until convergence. Companion chat-ui story in [../lazychat.ai/CLAUDE.md](../lazychat.ai/CLAUDE.md) "Cycle 13".
