@@ -6,6 +6,31 @@ The companion chat-ui ships from [`lazychat.ai`](https://github.com/soumyasethy/
 
 ## [Unreleased]
 
+## [0.4.3] — Cycle 14.6 — backfill stale tool counts in user-facing docs — 2026-05-15
+
+Pure docs/text fix. No Python code change. Tag: `cycle-14.6`.
+
+### Fixed
+
+- Stale tool-count strings across 4 files that still referenced the old `38` / `94` / `95` numbers from earlier cycles (Cycle 7 had 38, marketing video referenced 94, Cycle 11 had 95). All now say **`101`** to match `tool_schemas.py:TOOL_SCHEMAS`:
+  - `README.md` — 4 mentions ("Tool catalog — all 95", "all 95 tools available", "all 95 tools registered", "all 95 tools")
+  - `CLAUDE.md` — 2 lines (top-of-file "Tool registry — 38 tools" + the dual-path section's "Both paths share tools.py (38 tools, 1 implementation, 0 drift)")
+  - `lazychat_settings/lazychat_settings.json` — covered in cycle-14.4 already
+  - `lazychat_skill/lazychat_skill.json` — `allowed_tools` field description: "Leave empty to allow all 38 tools" → "all 101 tools"
+  - `.github/assets/architecture.svg` — diagram label "tools.py · 94 tools" → "tools.py · 101 tools"
+
+The historical CHANGELOG entries (cycle-13 noting "95 → 101", cycle-14.4 explaining the help_html fix) remain unchanged — they're correct point-in-time records.
+
+### Verification
+
+- `grep -rn "38 tools|94 tools|95 tools" .` returns only the historical CHANGELOG/spec/test-evidence entries that describe the upgrade path. No live user-facing string still says the wrong number.
+
+### Commits in this release
+
+```
+<sha> docs(cycle-14.6): backfill 38/94/95 → 101 across README + CLAUDE.md + lazychat_skill + architecture.svg + version bump → 0.4.3
+```
+
 ## [0.4.2] — Cycle 14.5 — llm_proxy mirrors inbound HTTP method (GET pass-through for /v1/models) — 2026-05-15
 
 Backend-only fix to [`llm_proxy.handle`](lazychat_erpnext/desk_assistant/llm_proxy.py). Unblocks the chat-ui's "Fetch models" button on the BYO custom-model editor. Tag: `cycle-14.5`.
@@ -228,7 +253,8 @@ ed130db chore(cycle-13/m1): address M1.1 code-quality review
 
 Earlier cycles (12, 11, 10, 9, 8, 7, …) are documented in [CLAUDE.md](CLAUDE.md). Per-cycle git tags exist (`cycle-12-m2`, `cycle-12-m1`, `cycle-11-m4`, …) — `git log --oneline <prev-tag>..<tag>` to see commits per cycle.
 
-[Unreleased]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-14.5...HEAD
+[Unreleased]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-14.6...HEAD
+[0.4.3]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-14.5...cycle-14.6
 [0.4.2]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-14.4...cycle-14.5
 [0.4.1]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-14...cycle-14.4
 [0.4.0]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-13.2...cycle-14

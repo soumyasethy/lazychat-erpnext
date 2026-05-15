@@ -46,7 +46,7 @@
   <text x="440" y="251" text-anchor="middle" fill="#555" font-size="13">also: external MCP clients</text>
 
   <rect x="320" y="294" width="240" height="120" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="2"/>
-  <text x="440" y="321" text-anchor="middle" font-weight="600" fill="#111">tools.py · 94 tools</text>
+  <text x="440" y="321" text-anchor="middle" font-weight="600" fill="#111">tools.py · 101 tools</text>
   <text x="440" y="341" text-anchor="middle" fill="#555" font-size="13">runs as frappe.session.user</text>
   <text x="440" y="359" text-anchor="middle" fill="#555" font-size="13">permission re-check per call</text>
   <text x="440" y="377" text-anchor="middle" fill="#555" font-size="13">prepare_* stages → token</text>
