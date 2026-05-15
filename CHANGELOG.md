@@ -6,6 +6,34 @@ The companion chat-ui ships from [`lazychat.ai`](https://github.com/soumyasethy/
 
 ## [Unreleased]
 
+## [0.4.2] — Cycle 14.5 — llm_proxy mirrors inbound HTTP method (GET pass-through for /v1/models) — 2026-05-15
+
+Backend-only fix to [`llm_proxy.handle`](lazychat_erpnext/desk_assistant/llm_proxy.py). Unblocks the chat-ui's "Fetch models" button on the BYO custom-model editor. Tag: `cycle-14.5`.
+
+### Fixed
+
+- **"Fetch models" returned HTTP 403** when the user clicked it on any cross-origin endpoint (Groq, OpenAI, OpenRouter, NVIDIA, etc.). Two compounding bugs:
+  1. `llm_proxy.handle` was whitelisted with `methods=["POST", "OPTIONS"]` only. The chat-ui's `fetchModels` does `fetch(proxyUrl)` (no explicit method = default GET), so Frappe rejected the request at the auth gate before the handler ran.
+  2. Even if GET were allowed, the handler hardcoded `requests.post(target_url, ...)` for the upstream call. All providers expose `/v1/models` as GET-only, so the upstream would have 4xx'd anyway.
+
+  Fix:
+  - Added `"GET"` to the `@frappe.whitelist(methods=...)` list.
+  - Replaced `requests.post(...)` with `requests.request(method, ...)` to mirror the inbound HTTP method to the upstream. GET requests now have no body forwarded (matches HTTP semantics).
+  - All other behavior unchanged (host allowlist, header filtering, x-target-authorization rename, streaming response, timeout/error envelopes).
+
+### Verification
+
+- Backend: no smoke surface change; in-process smoke unchanged at 283/0/6.
+- Manual: `curl -X GET http://localhost:8000/api/method/lazychat_erpnext.desk_assistant.llm_proxy.handle -H 'x-target-url: https://httpbin.org/get'` now reaches the handler (was 403-method-not-allowed pre-fix; now 403-not-authenticated for unauth'd guest requests, which is the correct behavior).
+- E2E: in the chat-ui Model picker → Edit → click "Fetch models" → Groq returns the live model list → user can pick from a dropdown instead of typing the model id by hand.
+
+### Commits in this release
+
+```
+<sha> fix(cycle-14.5): llm_proxy allows GET + mirrors inbound HTTP method
+<sha> docs(cycle-14.5): CHANGELOG + CLAUDE.md + version bump → 0.4.2
+```
+
 ## [0.4.1] — Cycle 14.4 — Lazychat Settings polish (tool count + Code-field height) — 2026-05-15
 
 Two small UX fixes to the [`/app/lazychat-settings`](lazychat_erpnext/desk_assistant/doctype/lazychat_settings/lazychat_settings.json) form. Backend only — chat-ui unchanged. Tag: `cycle-14.4`.
@@ -200,7 +228,8 @@ ed130db chore(cycle-13/m1): address M1.1 code-quality review
 
 Earlier cycles (12, 11, 10, 9, 8, 7, …) are documented in [CLAUDE.md](CLAUDE.md). Per-cycle git tags exist (`cycle-12-m2`, `cycle-12-m1`, `cycle-11-m4`, …) — `git log --oneline <prev-tag>..<tag>` to see commits per cycle.
 
-[Unreleased]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-14.4...HEAD
+[Unreleased]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-14.5...HEAD
+[0.4.2]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-14.4...cycle-14.5
 [0.4.1]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-14...cycle-14.4
 [0.4.0]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-13.2...cycle-14
 [0.3.1]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-13.1...cycle-13.2
