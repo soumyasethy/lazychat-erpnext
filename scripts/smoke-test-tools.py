@@ -3341,6 +3341,104 @@ def run():
 	qw = r.get("quality_warnings", []) or []
 	record(_ok("T100g quality_warnings surface", bool(r.get("ok") and any(w.get("category") == "ready_signal" for w in qw)), f"qw={qw}"))
 
+	# T100o — Cycle 13.2 — entity-encoded HTML auto-decoded at commit
+	page_name_o = "_lz_smoke_page_o"
+	if frappe.db.exists("Page", page_name_o):
+		frappe.delete_doc("Page", page_name_o, ignore_permissions=True, force=True)
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit -- smoke pre-test cleanup
+	r = execute_tool("prepare_create_page", {
+		"page_name": page_name_o, "title": "Smoke O",
+		# Fully entity-escaped (the LLM hallucination this fix addresses)
+		"content": "&lt;header&gt;&lt;h1&gt;Hi&lt;/h1&gt;&lt;/header&gt;",
+		"style": "",
+		"script": "document.body.dataset.lazychatReady = '1';",
+	})
+	token_o = r.get("preview_token")
+	if not token_o:
+		record(_ok("T100o entity-decode stage", False, f"stage failed: {r}"))
+	else:
+		r2 = commit_prepared(token_o)
+		if not r2.get("ok"):
+			record(_ok("T100o entity-decode commit", False, f"commit failed: {r2}"))
+		else:
+			# Read the on-disk .html file and assert real tags
+			import os
+			from frappe.modules import get_module_path, scrub
+			page_dir = os.path.join(get_module_path("Desk Assistant"), "page", scrub(page_name_o))
+			html_path = os.path.join(page_dir, scrub(page_name_o) + ".html")
+			disk = open(html_path).read() if os.path.exists(html_path) else ""
+			record(_ok(
+				"T100o entity-decode writes real tags to disk",
+				"<header>" in disk and "&lt;header&gt;" not in disk,
+				f"disk[:120]={disk[:120]!r}",
+			))
+
+	# T100p — Cycle 13.2 — mixed content (real + escaped) is left alone
+	page_name_p = "_lz_smoke_page_p"
+	if frappe.db.exists("Page", page_name_p):
+		frappe.delete_doc("Page", page_name_p, ignore_permissions=True, force=True)
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit -- smoke pre-test cleanup
+	mixed_content = "<main><pre>&lt;header&gt;is a tag&lt;/header&gt;</pre></main>"
+	r = execute_tool("prepare_create_page", {
+		"page_name": page_name_p, "title": "Smoke P",
+		"content": mixed_content,
+		"style": "",
+		"script": "document.body.dataset.lazychatReady = '1';",
+	})
+	token_p = r.get("preview_token")
+	if not token_p:
+		record(_ok("T100p mixed-content stage", False, f"stage failed: {r}"))
+	else:
+		r2 = commit_prepared(token_p)
+		if not r2.get("ok"):
+			record(_ok("T100p mixed-content commit", False, f"commit failed: {r2}"))
+		else:
+			import os
+			from frappe.modules import get_module_path, scrub
+			page_dir = os.path.join(get_module_path("Desk Assistant"), "page", scrub(page_name_p))
+			html_path = os.path.join(page_dir, scrub(page_name_p) + ".html")
+			disk = open(html_path).read() if os.path.exists(html_path) else ""
+			# Mixed content stays verbatim — no decode applied.
+			record(_ok(
+				"T100p mixed content preserved verbatim",
+				disk == mixed_content,
+				f"disk={disk!r}",
+			))
+
+	# T100q — Cycle 13.2 — update_doc(Page, patch={content: "&lt;...&gt;"}) decodes
+	# Reuses _lz_smoke_page_o (created clean in T100o); patches content with
+	# entity-encoded markup; asserts disk file ends up with real tags.
+	# Skip if T100o didn't actually create the page (cascading skip).
+	if frappe.db.exists("Page", page_name_o):
+		r = execute_tool("prepare_update_doc", {
+			"doctype": "Page",
+			"name": page_name_o,
+			"patch": {"content": "&lt;main&gt;&lt;p&gt;updated&lt;/p&gt;&lt;/main&gt;"},
+		})
+		token_q = r.get("preview_token")
+		if not token_q:
+			record(_ok("T100q update_doc(Page) entity-decode stage", False, f"stage failed: {r}"))
+		else:
+			r2 = commit_prepared(token_q)
+			if not r2.get("ok"):
+				record(_ok("T100q update_doc(Page) entity-decode commit", False, f"commit failed: {r2}"))
+			else:
+				import os
+				from frappe.modules import get_module_path, scrub
+				page_dir = os.path.join(get_module_path("Desk Assistant"), "page", scrub(page_name_o))
+				html_path = os.path.join(page_dir, scrub(page_name_o) + ".html")
+				disk = open(html_path).read() if os.path.exists(html_path) else ""
+				record(_ok(
+					"T100q update_doc(Page) entity-decode writes real tags",
+					"<main>" in disk and "<p>updated</p>" in disk and "&lt;main&gt;" not in disk,
+					f"disk[:200]={disk[:200]!r}",
+				))
+	else:
+		_skip("T100q update_doc(Page) entity-decode stage", "T100o page not created — skip dependent test")
+		_skip("T100q update_doc(Page) entity-decode commit", "T100o page not created — skip dependent test")
+		_skip("T100q update_doc(Page) entity-decode writes real tags", "T100o page not created — skip dependent test")
+		results["skip"] += 3
+
 	# T100h — prepare_create_server_script happy path + commit creates the row.
 	# T100i/T100j — render-preview validator rejections. All gated on the site
 	# flag — when off, the wrapper short-circuits at the site-flag gate before
@@ -3545,7 +3643,7 @@ def run():
 	record(_ok("T102d generate_fixes shape", ok_shape, str(r)[:200]))
 
 	# Cleanup pages created during T100e/g (T100f never staged) + Server Script from T100h.
-	for pn in (page_name_e, "_lz_smoke_page_g"):
+	for pn in (page_name_e, "_lz_smoke_page_g", "_lz_smoke_page_o", "_lz_smoke_page_p"):
 		try:
 			if frappe.db.exists("Page", pn):
 				frappe.delete_doc("Page", pn, force=1, ignore_missing=True, ignore_permissions=True)

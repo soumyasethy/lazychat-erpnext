@@ -6,6 +6,35 @@ The companion chat-ui ships from [`lazychat.ai`](https://github.com/soumyasethy/
 
 ## [Unreleased]
 
+## [0.3.1] — Cycle 13.2 — entity-decode + pill session-scope — 2026-05-15
+
+Two surgical post-ship fixes on top of cycle-13.1. Companion chat-ui release: `lazychat.ai 0.1.1`.
+
+### Fixed
+
+- **Page renders HTML source as visible literal text** — agent-generated `prepare_create_page` payloads sometimes arrived entity-encoded (`&lt;header&gt;` instead of `<header>`), and the commit handler wrote those entities verbatim to the on-disk `.html` file + into the JS wrapper's `page.main.html(...)` call. The browser then displayed the literal `<header>` text inside the page. Defensive sanitizer `_decode_if_fully_entity_escaped()` in [`tools.py`](lazychat_erpnext/desk_assistant/tools.py) now auto-decodes when content is fully entity-escaped (has `&lt;tag` AND zero real `<tag` matches). Mixed content with intentional `&lt;` (e.g. code samples wrapped in `<pre>`) is left untouched. Applied to both `create_page` and `update_doc(Page)` commit branches.
+- **Playbook clarification** mirrored in `claude_bridge.py` and chat-ui `routerSystemPrompt.ts`: rule #2 rewritten with role-explicit wording — entities are for escaping characters in TEXT CONTENT, never for tag delimiters. WRONG/RIGHT examples added so future LLM versions don't repeat the hallucination.
+
+### Added
+
+- Smoke tests T100o (entity-decode happy path), T100p (mixed content preserved), T100q (update_doc(Page) entity-decode).
+
+### Verification
+
+- in-process smoke: 277 pass / 0 fail / 6 skip (was 274 / 0 / 6)
+- HTTP-wire smoke: unchanged (no tool-surface change)
+
+### Commits in this release
+
+```
+<sha> feat(cycle-13.2): _decode_if_fully_entity_escaped helper in tools.py
+<sha> feat(cycle-13.2): wire entity-decode into create_page commit
+<sha> feat(cycle-13.2): wire entity-decode into update_doc(Page) commit
+<sha> feat(cycle-13.2): playbook rewrite — entities for text content only
+<sha> test(cycle-13.2): T100o/p/q smoke for entity-decode
+<sha> docs(cycle-13.2): CHANGELOG + CLAUDE.md + version bump → 0.3.1
+```
+
 ## [0.3.0] — Cycle 13: Mockup-to-ERPNext + agentic-build hardening — 2026-05-15
 
 The headline release for Cycle 13. Three milestones (M1+M2+M3) plus a post-ship hardening pass driven by an end-to-end agentic test that surfaced 6 real defects.
@@ -118,5 +147,6 @@ ed130db chore(cycle-13/m1): address M1.1 code-quality review
 
 Earlier cycles (12, 11, 10, 9, 8, 7, …) are documented in [CLAUDE.md](CLAUDE.md). Per-cycle git tags exist (`cycle-12-m2`, `cycle-12-m1`, `cycle-11-m4`, …) — `git log --oneline <prev-tag>..<tag>` to see commits per cycle.
 
-[Unreleased]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-13.1...HEAD
+[Unreleased]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-13.2...HEAD
+[0.3.1]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-13.1...cycle-13.2
 [0.3.0]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-12-m2...cycle-13.1

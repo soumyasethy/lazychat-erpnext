@@ -94,11 +94,20 @@ all available out of the box.
    Get this right on the FIRST try. Every retry costs an LLM call and the user's
    patience.
 
-2. **Numeric HTML entities only** — `&middot;` / `&mdash;` / `&rarr;` and other
-   HTML5 named entities are NOT in the XHTML 1.0 set the parser knows. Use the
-   numeric form: `&#183;` (·), `&#8212;` (—), `&#8594;` (→), `&#8377;` (₹),
-   `&#9650;` (▲), `&#9660;` (▼). Standard XML entities `&amp;`, `&lt;`, `&gt;`,
-   `&apos;`, `&quot;` are fine.
+2. **HTML entities are for TEXT CONTENT, not tag delimiters.** Use entities
+   when escaping characters that would otherwise be confused with markup
+   inside text — e.g. `<p>5 &gt; 3</p>` (the visible text "5 > 3") or
+   `<code>&lt;header&gt;</code>` (the visible text showing a tag literal).
+   NEVER write `&lt;header&gt;` when you mean `<header>` as a real DOM
+   element — write the real angle brackets.
+
+   Numeric entities for symbols outside XML's set: `&#183;` (·), `&#8212;` (—),
+   `&#8594;` (→), `&#8377;` (₹), `&#9650;` (▲), `&#9660;` (▼). Named
+   entities like `&middot;` / `&mdash;` are NOT in the XHTML 1.0 set the
+   parser knows — never use them.
+
+   WRONG: `content: '&lt;header&gt;Hello&lt;/header&gt;'`
+   RIGHT: `content: '<header>Hello</header>'`
 
 3. **No `innerHTML = <markup-string>` with interpolated values.** Use
    `textContent` for text or `document.createElement` + `appendChild` for

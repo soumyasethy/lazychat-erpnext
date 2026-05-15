@@ -1,6 +1,7 @@
 import base64
 import difflib as _difflib
 import hashlib
+import html
 import io
 import json
 import re
@@ -27,6 +28,32 @@ _ATTACH_MIME_ALLOWLIST = (
 	"application/font-woff2",
 )
 _ATTACH_MAX_SIZE = 5 * 1024 * 1024
+
+# Cycle 13.2 — defensive sanitizer for agent-generated Page content.
+# LLMs sometimes entity-escape their entire HTML output (e.g. send
+# `&lt;header&gt;` when they mean `<header>`). The disk file ends up
+# rendering visible literal text instead of real DOM. This helper
+# detects fully-entity-encoded content (no real tags + at least one
+# entity-encoded tag start) and unescapes it. Mixed content
+# (real tags + intentional `&lt;` for code samples) is left alone —
+# author intent wins. Apply at create_page + update_doc(Page) commit.
+_ENTITY_TAG_RE = re.compile(r'&lt;[a-z!/]', re.IGNORECASE)
+_REAL_TAG_RE = re.compile(r'<[a-z!/]', re.IGNORECASE)
+
+
+def _decode_if_fully_entity_escaped(s):
+	"""Return s with HTML entities decoded IFF s looks fully entity-escaped.
+
+	Heuristic: contains an entity-encoded tag start (`&lt;header`) AND
+	contains zero real tag starts (`<header`). Otherwise return s unchanged.
+	None / empty inputs return "".
+	"""
+	if not s:
+		return s or ""
+	if _ENTITY_TAG_RE.search(s) and not _REAL_TAG_RE.search(s):
+		return html.unescape(s)
+	return s
+
 
 # DANGEROUS-TOOL GUARD
 # These tools (prepare_run_sql, prepare_run_python) require:
@@ -6242,10 +6269,21 @@ def commit_prepared(token, **extras):
 				# `script`, OR we re-derive the script from the existing
 				# wrapper. Since extraction is brittle, prefer requiring the
 				# agent to pass the full updated script.
-				new_html = patch.get("content", existing_html)
-				new_css = patch.get("style", existing_css)
-				new_script = patch.get("script")
-				if new_script is None:
+				# Cycle 13.2 — same defensive entity-decode as create_page.
+				# Apply per-field; if patch omits the field we keep the existing
+				# disk content unchanged (no decode — that file was written by
+				# us previously and is already correctly shaped).
+				new_html = (
+					_decode_if_fully_entity_escaped(patch["content"])
+					if "content" in patch else existing_html
+				)
+				new_css = (
+					_decode_if_fully_entity_escaped(patch["style"])
+					if "style" in patch else existing_css
+				)
+				if "script" in patch:
+					new_script = _decode_if_fully_entity_escaped(patch["script"])
+				else:
 					# Patch didn't include script — keep the existing script
 					# content. Read the existing JS file and extract the inner
 					# user script (between the try{ and the closing })) — fall
@@ -6717,23 +6755,29 @@ def commit_prepared(token, **extras):
 			# '. JSON string format is a strict subset of JS string format so
 			# json.dumps output is safe through any eval pipeline.
 			import json as _json
+			# Cycle 13.2 — defensively decode if the agent entity-escaped
+			# the entire HTML/CSS/JS payload (a recurring LLM hallucination
+			# class). Mixed-content payloads pass through untouched.
+			_content = _decode_if_fully_entity_escaped(payload.get("content") or "")
+			_style = _decode_if_fully_entity_escaped(payload.get("style") or "")
+			_script = _decode_if_fully_entity_escaped(payload.get("script") or "")
 			js_wrapper = (
 				f"frappe.pages[{_json.dumps(actual_name)}].on_page_load = function(wrapper) {{\n"
 				f"  const page = frappe.ui.make_app_page({{ parent: wrapper, title: {_json.dumps(actual_title)}, single_column: true }});\n"
-				f"  page.main.html({_json.dumps(payload.get('content') or '')});\n"
+				f"  page.main.html({_json.dumps(_content)});\n"
 				f"  try {{\n"
-				f"{(payload.get('script') or '').rstrip()}\n"
+				f"{_script.rstrip()}\n"
 				f"  }} catch (e) {{ console.error('[lazychat page]', e); }}\n"
 				f"}};\n"
 			)
 			with open(os.path.join(page_dir, f"{scrubbed}.js"), "w") as fh:
 				fh.write(js_wrapper)
 			with open(os.path.join(page_dir, f"{scrubbed}.css"), "w") as fh:
-				fh.write(payload.get("style") or "")
+				fh.write(_style)
 			# An empty .html is fine — the JS wrapper does the actual mounting.
 			# But we keep the file present so load_assets()'s listdir doesn't trip.
 			with open(os.path.join(page_dir, f"{scrubbed}.html"), "w") as fh:
-				fh.write(payload.get("content") or "")
+				fh.write(_content)
 			# __init__.py is what Frappe's module discovery needs for the
 			# page module to be importable by the Desk loader.
 			init_path = os.path.join(page_dir, "__init__.py")
