@@ -177,7 +177,7 @@ def trace_legacy_proxy_hit():
 		pass
 
 
-@frappe.whitelist(methods=["POST", "OPTIONS"], allow_guest=False)
+@frappe.whitelist(methods=["POST", "GET", "OPTIONS"], allow_guest=False)
 def handle():
 	"""Forward an arbitrary POST to the LLM URL declared in `x-target-url`.
 
@@ -257,14 +257,25 @@ def handle():
 	tgt_apikey_header = req.headers.get("x-target-api-key-header") or "x-api-key"
 	if tgt_apikey:
 		headers[tgt_apikey_header] = tgt_apikey
-	# Body — read raw; Frappe whitelisted methods may already have parsed form_dict but get_data returns the raw stream
-	body = req.get_data(cache=False, as_text=False) or b""
+	# Cycle 14.5 — mirror inbound HTTP method to upstream. The chat-ui's
+	# "Fetch models" button calls fetch(proxyUrl) with default method=GET to
+	# proxy a GET to the provider's /v1/models endpoint (Groq, OpenAI,
+	# OpenRouter all expose model listings as GET-only). Pre-14.5 the proxy
+	# hardcoded requests.post() which made the upstream return 4xx for
+	# /models, AND the @frappe.whitelist methods list omitted GET so Frappe
+	# 403'd the inbound request before our handler even ran.
+	method = (req.method or "POST").upper()
+	# Body — read raw; Frappe whitelisted methods may already have parsed
+	# form_dict but get_data returns the raw stream. GET requests have no
+	# body (any incoming body is silently dropped — matches HTTP semantics).
+	body = b"" if method == "GET" else (req.get_data(cache=False, as_text=False) or b"")
 
 	try:
-		upstream = requests.post(
+		upstream = requests.request(
+			method,
 			target_url,
 			headers=headers,
-			data=body,
+			data=body if method != "GET" else None,
 			stream=True,
 			timeout=120,
 		)

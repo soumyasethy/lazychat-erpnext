@@ -545,6 +545,38 @@ When debugging *"my report URL gave 404 even though the chat said it was
 created"*: confirm the chat-ui bundle was rebuilt after this fix landed
 (`?v=` query in iframe URL should be > `1778066844`).
 
+## Cycle 14.5 — llm_proxy mirrors inbound HTTP method (GET pass-through for /v1/models) (2026-05-15)
+
+Backend-only fix to [`llm_proxy.handle`](lazychat_erpnext/desk_assistant/llm_proxy.py). Unblocks the chat-ui's "Fetch models" button on the BYO custom-model editor. Tag: `cycle-14.5`. Backend `0.4.2`.
+
+### Bug — "Fetch models" returns HTTP 403
+
+User clicks "Fetch models" in the Edit-custom-model dialog → expects the provider's live model list → gets `HTTP 403 FORBIDDEN`. Two compounding bugs:
+
+1. `llm_proxy.handle` was whitelisted with `methods=["POST", "OPTIONS"]` only. The chat-ui's `fetchModels` does `fetch(proxyUrl)` (no explicit method = default GET). Frappe's `@frappe.whitelist` enforces method matching at the auth gate, so the request 403'd before our handler even ran.
+2. Even if GET were allowed, the handler hardcoded `requests.post(target_url, ...)`. All providers (Groq, OpenAI, OpenRouter, NVIDIA, Anthropic) expose `/v1/models` as **GET-only**, so the upstream would have 4xx'd anyway.
+
+### Fix
+
+Two-part, both in `llm_proxy.py:handle`:
+
+- Added `"GET"` to the `@frappe.whitelist(methods=...)` list.
+- Replaced `requests.post(target_url, ...)` with `requests.request(method, target_url, ...)` to mirror the inbound HTTP method to the upstream. GET requests now have no body forwarded (matches HTTP semantics; POST keeps its body unchanged).
+
+All other behavior unchanged: host allowlist, header filtering, x-target-authorization rename trick, streaming response, timeout/error envelopes.
+
+### Verification
+
+- `curl -X GET .../llm_proxy.handle` now reaches the handler (was method-blocked at the auth gate before).
+- Pre-auth tracer confirms `method=GET, target_url=https://httpbin.org/get` reaches the handler body.
+- in-process smoke unchanged at 283/0/6 (no surface change to the tool registry).
+
+### Future polish (not in this cycle)
+
+The chat-ui's "Fetch models" button is stateless — every click re-fetches. For providers with stable model lists this is fine; if it becomes annoying later, add a 5-min localStorage cache keyed by endpoint+token-hash.
+
+---
+
 ## Cycle 14.4 — Lazychat Settings polish (tool count + Code-field height) (2026-05-15)
 
 Two small UX fixes to `/app/lazychat-settings`. Backend only — chat-ui unchanged. Tag: `cycle-14.4`. Backend `0.4.1`.
