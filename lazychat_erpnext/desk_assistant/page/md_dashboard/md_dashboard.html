@@ -1,0 +1,95 @@
+<header class="md-topbar">
+  <div class="md-topbar-row">
+    <h1>MD Dashboard</h1>
+    <span id="lastUpdate" class="md-meta">—</span>
+  </div>
+</header>
+<main class="md-main">
+
+  <section class="md-sec" id="sec-snap">
+    <div class="md-sec-h"><div class="md-sec-bar md-bar-g"></div><h2>Group Snapshot</h2></div>
+    <div class="md-grid-4">
+      <div class="md-kpi"><div class="md-kpi-label">YTD Revenue</div><div id="ytdRev" class="md-kpi-val">—</div></div>
+      <div class="md-kpi"><div class="md-kpi-label">Sales Invoices YTD</div><div id="invCnt" class="md-kpi-val">—</div></div>
+      <div class="md-kpi"><div class="md-kpi-label">Outstanding</div><div id="outstand" class="md-kpi-val md-kpi-bad">—</div></div>
+      <div class="md-kpi"><div class="md-kpi-label">Headcount</div><div id="hcCount" class="md-kpi-val">—</div></div>
+    </div>
+  </section>
+
+  <section class="md-sec" id="sec-bsc">
+    <div class="md-sec-h"><div class="md-sec-bar md-bar-a"></div><h2>Balanced Scorecard</h2></div>
+    <div id="bscGrid" class="md-grid-4"><div class="md-loading">Loading…</div></div>
+  </section>
+
+  <section class="md-sec" id="sec-div">
+    <div class="md-sec-h"><div class="md-sec-bar md-bar-a"></div><h2>Division KPI Progress</h2></div>
+    <div id="divList" class="md-list"><div class="md-loading">Loading…</div></div>
+  </section>
+
+  <section class="md-sec" id="sec-risk">
+    <div class="md-sec-h"><div class="md-sec-bar md-bar-r"></div><h2>Top Risks &amp; Issues</h2></div>
+    <div id="riskList" class="md-list"><div class="md-loading">Loading…</div></div>
+  </section>
+
+  <section class="md-sec" id="sec-dec">
+    <div class="md-sec-h"><div class="md-sec-bar md-bar-a"></div><h2>Decisions Required from MD</h2></div>
+    <div id="decList" class="md-list"><div class="md-loading">Loading…</div></div>
+  </section>
+
+  <section class="md-sec" id="sec-sales">
+    <div class="md-sec-h"><div class="md-sec-bar md-bar-a"></div><h2>Sales &amp; Business Development</h2></div>
+    <div class="md-grid-4">
+      <div class="md-kpi"><div class="md-kpi-label">Active Leads</div><div id="leadCnt" class="md-kpi-val">—</div></div>
+      <div class="md-kpi"><div class="md-kpi-label">Open Opportunities</div><div id="oppCnt" class="md-kpi-val">—</div></div>
+      <div class="md-kpi"><div class="md-kpi-label">Pending Quotations</div><div id="quoteCnt" class="md-kpi-val">—</div></div>
+      <div class="md-kpi"><div class="md-kpi-label">Sales Order MTD</div><div id="soMtd" class="md-kpi-val">—</div></div>
+    </div>
+  </section>
+
+  <section class="md-sec" id="sec-rec">
+    <div class="md-sec-h"><div class="md-sec-bar md-bar-r"></div><h2>Receivables &amp; Collections</h2></div>
+    <div id="agingTable" class="md-panel"><div class="md-loading">Loading…</div></div>
+  </section>
+
+  <section class="md-sec" id="sec-pay">
+    <div class="md-sec-h"><div class="md-sec-bar md-bar-a"></div><h2>Payables &amp; Procurement</h2></div>
+    <div class="md-grid-4">
+      <div class="md-kpi"><div class="md-kpi-label">Total Creditors</div><div id="creditors" class="md-kpi-val">—</div></div>
+      <div class="md-kpi"><div class="md-kpi-label">Active POs</div><div id="poCount" class="md-kpi-val">—</div></div>
+      <div class="md-kpi"><div class="md-kpi-label">Overdue Payables</div><div id="overduePay" class="md-kpi-val md-kpi-bad">—</div></div>
+      <div class="md-kpi"><div class="md-kpi-label">Material Requests</div><div id="prCount" class="md-kpi-val">—</div></div>
+    </div>
+  </section>
+
+  <section class="md-sec" id="sec-ops">
+    <div class="md-sec-h"><div class="md-sec-bar md-bar-a"></div><h2>Operations &amp; Production</h2></div>
+    <div id="opsBlock" class="md-panel"><div class="md-loading">Loading…</div></div>
+  </section>
+
+  <section class="md-sec" id="sec-fin">
+    <div class="md-sec-h"><div class="md-sec-bar md-bar-a"></div><h2>Finance Snapshot</h2></div>
+    <div class="md-grid-4">
+      <div class="md-kpi"><div class="md-kpi-label">Revenue YTD</div><div id="revYtd2" class="md-kpi-val">—</div></div>
+      <div class="md-kpi"><div class="md-kpi-label">Outstanding Total</div><div id="outFin" class="md-kpi-val md-kpi-bad">—</div></div>
+      <div class="md-kpi"><div class="md-kpi-label">Creditors Total</div><div id="credFin" class="md-kpi-val">—</div></div>
+      <div class="md-kpi"><div class="md-kpi-label">GL Net</div><div id="cashNet" class="md-kpi-val">—</div></div>
+    </div>
+  </section>
+
+  <section class="md-sec" id="sec-hr">
+    <div class="md-sec-h"><div class="md-sec-bar md-bar-a"></div><h2>HR &amp; People</h2></div>
+    <div class="md-grid-4">
+      <div class="md-kpi"><div class="md-kpi-label">Active Headcount</div><div id="hrHc" class="md-kpi-val">—</div></div>
+      <div class="md-kpi"><div class="md-kpi-label">Open Positions</div><div id="hrOpen" class="md-kpi-val">—</div></div>
+      <div class="md-kpi"><div class="md-kpi-label">Critical Roles</div><div id="hrCrit" class="md-kpi-val md-kpi-bad">—</div></div>
+      <div class="md-kpi"><div class="md-kpi-label">Job Openings (ERP)</div><div id="hrJob" class="md-kpi-val">—</div></div>
+    </div>
+    <div id="critList" class="md-list md-mt-12"><div class="md-loading">Loading critical roles…</div></div>
+  </section>
+
+  <section class="md-sec" id="sec-dig">
+    <div class="md-sec-h"><div class="md-sec-bar md-bar-g"></div><h2>Digital Transformation Milestones</h2></div>
+    <div id="digList" class="md-list"><div class="md-loading">Loading…</div></div>
+  </section>
+
+</main>

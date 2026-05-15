@@ -3439,6 +3439,92 @@ def run():
 		_skip("T100q update_doc(Page) entity-decode writes real tags", "T100o page not created — skip dependent test")
 		results["skip"] += 3
 
+	# T100r — Cycle 14 — aggregate sum matches direct SQL on Sales Invoice
+	from lazychat_erpnext.desk_assistant.api import lazychat_dashboard_aggregate
+	r = lazychat_dashboard_aggregate({
+		"doctype": "Sales Invoice", "filters": {"docstatus": 1},
+		"aggregations": [{"name": "total", "field": "grand_total", "op": "sum"}, {"name": "n", "op": "count"}],
+	})
+	direct = frappe.db.sql("SELECT SUM(grand_total) AS total, COUNT(*) AS n FROM `tabSales Invoice` WHERE docstatus=1", as_dict=True)
+	d_total = (direct[0]["total"] or 0) if direct else 0
+	d_n = (direct[0]["n"] or 0) if direct else 0
+	api_total = (r.get("data") or {}).get("total", 0) or 0
+	api_n = (r.get("data") or {}).get("n", 0) or 0
+	record(_ok(
+		"T100r aggregate sum matches direct SQL",
+		r.get("ok") and float(api_total) == float(d_total) and int(api_n) == int(d_n),
+		"api={0}, d_total={1}, d_n={2}".format(r, d_total, d_n),
+	))
+
+	# T100s — aggregate rejects unknown field
+	r = lazychat_dashboard_aggregate({
+		"doctype": "Sales Invoice",
+		"aggregations": [{"name": "x", "field": "definitely_not_a_field_xyz", "op": "sum"}],
+	})
+	record(_ok(
+		"T100s aggregate rejects unknown field",
+		(not r.get("ok")) and "definitely_not_a_field_xyz" in (r.get("error") or ""),
+		"r={0}".format(r),
+	))
+
+	# T100t — aggregate rejects op outside whitelist
+	r = lazychat_dashboard_aggregate({
+		"doctype": "Sales Invoice",
+		"aggregations": [{"name": "x", "op": "exec_arbitrary_sql"}],
+	})
+	record(_ok(
+		"T100t aggregate rejects unknown op",
+		(not r.get("ok")) and "exec_arbitrary_sql" in (r.get("error") or ""),
+		"r={0}".format(r),
+	))
+
+	# T100u — 4 MD doctypes installed + seeded with expected counts
+	from lazychat_erpnext.install import _seed_md_dashboard
+	_seed_md_dashboard()
+	expected = {"MD KPI Score": "non_zero", "MD Risk": 7, "MD Decision": 7, "Critical Role": 5}
+	all_ok = True
+	notes = []
+	for dt, want in expected.items():
+		actual = frappe.db.count(dt)
+		if want == "non_zero":
+			ok = actual > 0
+		else:
+			ok = actual == want
+		if not ok:
+			all_ok = False
+		notes.append("{0}={1} (want {2})".format(dt, actual, want))
+	record(_ok("T100u MD doctype seed counts", all_ok, "; ".join(notes)))
+
+	# T100v — group_by aggregate returns multiple rows with the group_by field
+	r = lazychat_dashboard_aggregate({
+		"doctype": "Sales Invoice", "filters": {"docstatus": 1},
+		"aggregations": [{"name": "count", "op": "count"}],
+		"group_by": "status",
+	})
+	rows = r.get("data") or []
+	record(_ok(
+		"T100v aggregate group_by returns rows with group_by field",
+		r.get("ok") and isinstance(rows, list) and len(rows) >= 1
+		and all(isinstance(row, dict) and "status" in row and "count" in row for row in rows),
+		"rows[:3]={0}".format(rows[:3] if isinstance(rows, list) else rows),
+	))
+
+	# T100w — permission gate rejects non-System-Manager (monkey-patch get_roles)
+	original_get_roles = frappe.get_roles
+	frappe.get_roles = lambda *args, **kwargs: []
+	try:
+		r = lazychat_dashboard_aggregate({
+			"doctype": "Sales Invoice",
+			"aggregations": [{"name": "x", "op": "count"}],
+		})
+		record(_ok(
+			"T100w aggregate rejects non-System-Manager",
+			(not r.get("ok")) and "System Manager" in (r.get("error") or ""),
+			"r={0}".format(r),
+		))
+	finally:
+		frappe.get_roles = original_get_roles
+
 	# T100h — prepare_create_server_script happy path + commit creates the row.
 	# T100i/T100j — render-preview validator rejections. All gated on the site
 	# flag — when off, the wrapper short-circuits at the site-flag gate before

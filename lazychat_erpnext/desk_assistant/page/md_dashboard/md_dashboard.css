@@ -1,0 +1,39 @@
+/* Cycle 14 — MD Dashboard. Uses Frappe theme tokens for theme adaptivity.
+   Status colors hardcoded for stable RAG signal across themes. */
+
+.md-topbar { padding: 14px 20px; border-bottom: 1px solid var(--border-color, rgba(0,0,0,.08)); background: var(--bg-color, #fff); }
+.md-topbar-row { display: flex; align-items: center; justify-content: space-between; }
+.md-topbar h1 { margin: 0; font-size: 22px; color: var(--text-color); }
+.md-meta { font-family: monospace; font-size: 11px; color: var(--text-muted, #888); }
+
+.md-main { padding: 18px 20px; display: flex; flex-direction: column; gap: 22px; }
+
+.md-sec { background: transparent; }
+.md-sec-h { display: flex; align-items: center; gap: 10px; padding-bottom: 10px; margin-bottom: 14px; border-bottom: 1px solid var(--border-color, rgba(0,0,0,.08)); }
+.md-sec-h h2 { font-size: 16px; font-weight: 500; margin: 0; color: var(--text-color); }
+.md-sec-bar { width: 3px; height: 18px; }
+.md-bar-g { background: #00B894; } .md-bar-a { background: #F39C12; } .md-bar-r { background: #E74C3C; } .md-bar-b { background: #2980B9; }
+
+.md-grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+
+.md-kpi { background: var(--bg-light, var(--card-bg, #f7f7f7)); border: 1px solid var(--border-color, rgba(0,0,0,.06)); padding: 12px 14px; }
+.md-kpi-label { font-size: 9px; letter-spacing: .07em; text-transform: uppercase; color: var(--text-muted, #888); margin-bottom: 6px; }
+.md-kpi-val { font-family: monospace; font-size: 19px; font-weight: 500; color: var(--text-color); }
+.md-kpi-bad { color: #E74C3C; } .md-kpi-good { color: #00B894; } .md-kpi-warn { color: #F39C12; }
+
+.md-panel { background: var(--bg-light, var(--card-bg, #f7f7f7)); border: 1px solid var(--border-color, rgba(0,0,0,.06)); padding: 14px; }
+
+.md-list { display: flex; flex-direction: column; gap: 4px; }
+.md-row { display: flex; align-items: flex-start; gap: 10px; padding: 8px 12px; background: var(--bg-light, var(--card-bg, #f7f7f7)); border-left: 2px solid #5F6E7A; border-bottom: 1px solid var(--border-color, rgba(0,0,0,.04)); font-size: 12px; }
+.md-row-r { border-left-color: #E74C3C; } .md-row-a { border-left-color: #F39C12; } .md-row-g { border-left-color: #00B894; } .md-row-b { border-left-color: #2980B9; }
+
+.md-tag { font-family: monospace; font-size: 10px; padding: 1px 6px; border: 1px solid var(--border-color); color: var(--text-muted); white-space: nowrap; }
+.md-tag-r { color: #E74C3C; border-color: #E74C3C; } .md-tag-a { color: #F39C12; border-color: #F39C12; } .md-tag-g { color: #00B894; border-color: #00B894; }
+
+.md-loading { color: var(--text-muted, #888); font-size: 12px; }
+.md-mt-12 { margin-top: 12px; }
+
+.md-aging-row { display: grid; grid-template-columns: 100px 120px 1fr 80px; gap: 10px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border-color, rgba(0,0,0,.04)); }
+.md-aging-row:last-child { border-bottom: 0; }
+.md-aging-bar { height: 6px; background: var(--border-color, rgba(0,0,0,.06)); }
+.md-aging-fill { height: 100%; }

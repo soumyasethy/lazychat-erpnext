@@ -6,6 +6,37 @@ The companion chat-ui ships from [`lazychat.ai`](https://github.com/soumyasethy/
 
 ## [Unreleased]
 
+## [0.4.0] — Cycle 14 — MD Dashboard rebuild + Dashboard-from-Mockup discipline — 2026-05-15
+
+Two coupled fixes that close the same class of bug. Companion chat-ui release: `lazychat.ai 0.1.2`.
+
+### Added
+- 4 minimal custom doctypes for non-ERP MD-facing data: `MD KPI Score` (BSC, 54 seed), `MD Risk` (7 seed), `MD Decision` (7 seed), `Critical Role` (5 seed). System Manager only. Seeded idempotently via `_seed_md_dashboard()` in `install.py`.
+- Server-side aggregate endpoint `lazychat_dashboard_aggregate(spec)` in `api.py`: SUM/COUNT/AVG/MIN/MAX with optional GROUP BY. Validates field names against doctype meta and op against `{sum,count,avg,min,max}`. System Manager only. Replaces the broken `frappe.client.get_list + JS reduce` pattern.
+- `/app/md-dashboard` full 12-section rebuild (Group Snapshot · BSC · Division KPIs · Risks · Decisions · Sales · Receivables · Payables · Operations · Finance · HR · Digital). Magnitude-aware `fmtINR` helper (` Cr` / ` L` / raw rupees). Auto-refresh every 5 min. `lazychatReady = '1'` after `Promise.all` of 12 section calls.
+- 6 new in-process smoke tests (T100r through T100w): aggregate sum matches direct SQL, rejects unknown field, rejects unknown op, MD doctype seed counts, group_by returns rows, System Manager gate.
+
+### Changed
+- Playbook DASHBOARD-FROM-MOCKUP DISCIPLINE block in `claude_bridge.py` (mirrored in chat-ui `routerSystemPrompt.ts`): for any 5+ section / 20+ KPI mockup, agent must INVENTORY → CLASSIFY → AGGREGATE via the new endpoint → handle UNITS magnitude-aware → RENDER ALL sections.
+- `/app/md-dashboard` Page roles tightened from `All` to `System Manager` only.
+
+### Verification
+- in-process smoke: 277 → 283 pass / 0 fail / 6 skip
+- chat-ui vitest: 461 / 0 (unchanged)
+- bench migrate clean (4 new doctypes installed)
+- E2E: `/app/md-dashboard` shows real ₹76 Cr YTD revenue, 88,928 Sales Invoices, ₹96 Cr creditors, 4 BSC perspective cards, 7 risks, 7 decisions
+
+### Commits in this release
+
+```
+<sha> feat(cycle-14): 4 MD custom doctypes + idempotent seed
+<sha> feat(cycle-14): lazychat_dashboard_aggregate endpoint w/ field-meta + op-whitelist
+<sha> feat(cycle-14): /app/md-dashboard 12-section rebuild
+<sha> feat(cycle-14): playbook DASHBOARD-FROM-MOCKUP DISCIPLINE block
+<sha> test(cycle-14): T100r-w smoke for aggregate + seed
+<sha> docs(cycle-14): CHANGELOG + CLAUDE.md + version bump → 0.4.0
+```
+
 ## [0.3.1] — Cycle 13.2 — entity-decode + pill session-scope — 2026-05-15
 
 Two surgical post-ship fixes on top of cycle-13.1. Companion chat-ui release: `lazychat.ai 0.1.1`.
@@ -147,6 +178,7 @@ ed130db chore(cycle-13/m1): address M1.1 code-quality review
 
 Earlier cycles (12, 11, 10, 9, 8, 7, …) are documented in [CLAUDE.md](CLAUDE.md). Per-cycle git tags exist (`cycle-12-m2`, `cycle-12-m1`, `cycle-11-m4`, …) — `git log --oneline <prev-tag>..<tag>` to see commits per cycle.
 
-[Unreleased]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-13.2...HEAD
+[Unreleased]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-14...HEAD
+[0.4.0]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-13.2...cycle-14
 [0.3.1]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-13.1...cycle-13.2
 [0.3.0]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-12-m2...cycle-13.1

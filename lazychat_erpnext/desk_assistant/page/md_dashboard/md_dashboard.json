@@ -1,0 +1,20 @@
+{
+ "creation": "2026-05-15 00:00:00.000000",
+ "docstatus": 0,
+ "doctype": "Page",
+ "icon": "fa fa-bar-chart",
+ "idx": 1,
+ "modified": "2026-05-15 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Desk Assistant",
+ "name": "md-dashboard",
+ "owner": "Administrator",
+ "page_name": "md-dashboard",
+ "roles": [
+  {
+   "role": "System Manager"
+  }
+ ],
+ "standard": "Yes",
+ "title": "MD Dashboard"
+}

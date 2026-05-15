@@ -1,0 +1,27 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:KPI-{####}",
+ "creation": "2026-05-15 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": ["section_identity","perspective","kpi_code","kpi_name","section_targets","target_text","current_value","status","section_meta","period","notes"],
+ "fields": [
+  {"fieldname": "section_identity", "fieldtype": "Section Break", "label": "KPI Identity"},
+  {"fieldname": "perspective", "fieldtype": "Select", "options": "Financial\nCustomer\nInternal Process\nLearning & Growth", "label": "BSC Perspective", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "kpi_code", "fieldtype": "Data", "label": "KPI Code", "in_list_view": 1, "description": "e.g. F01, C03, I05, L02"},
+  {"fieldname": "kpi_name", "fieldtype": "Data", "label": "KPI Name", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "section_targets", "fieldtype": "Section Break", "label": "Targets & Status"},
+  {"fieldname": "target_text", "fieldtype": "Data", "label": "Target", "description": "e.g. >35% or <60d"},
+  {"fieldname": "current_value", "fieldtype": "Data", "label": "Current Value"},
+  {"fieldname": "status", "fieldtype": "Select", "options": "On Track\nAt Risk\nBehind\nNot Started", "label": "Status", "reqd": 1, "default": "Not Started", "in_list_view": 1},
+  {"fieldname": "section_meta", "fieldtype": "Section Break", "label": "Meta"},
+  {"fieldname": "period", "fieldtype": "Data", "label": "Reporting Period"},
+  {"fieldname": "notes", "fieldtype": "Small Text", "label": "Notes"}
+ ],
+ "issingle": 0, "links": [],
+ "modified": "2026-05-15 12:00:00.000000", "modified_by": "Administrator",
+ "module": "Desk Assistant", "name": "MD KPI Score", "owner": "Administrator",
+ "permissions": [{"create": 1, "delete": 1, "email": 0, "export": 1, "print": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1}],
+ "sort_field": "modified", "sort_order": "DESC", "track_changes": 1
+}

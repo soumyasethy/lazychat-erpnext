@@ -1,0 +1,24 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:RISK-{####}",
+ "creation": "2026-05-15 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": ["severity","description","owner","section_dates","raised_date","resolved_date","section_action","action_note"],
+ "fields": [
+  {"fieldname": "severity", "fieldtype": "Select", "options": "High\nMedium\nLow", "label": "Severity", "reqd": 1, "default": "Medium", "in_list_view": 1},
+  {"fieldname": "description", "fieldtype": "Small Text", "label": "Description", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "owner", "fieldtype": "Data", "label": "Owner / Function", "in_list_view": 1},
+  {"fieldname": "section_dates", "fieldtype": "Section Break", "label": "Lifecycle"},
+  {"fieldname": "raised_date", "fieldtype": "Date", "label": "Raised On"},
+  {"fieldname": "resolved_date", "fieldtype": "Date", "label": "Resolved On", "description": "Leave empty while the risk is open. Dashboard treats null = unresolved."},
+  {"fieldname": "section_action", "fieldtype": "Section Break", "label": "Action"},
+  {"fieldname": "action_note", "fieldtype": "Small Text", "label": "Action / Mitigation"}
+ ],
+ "issingle": 0, "links": [],
+ "modified": "2026-05-15 12:00:00.000000", "modified_by": "Administrator",
+ "module": "Desk Assistant", "name": "MD Risk", "owner": "Administrator",
+ "permissions": [{"create": 1, "delete": 1, "email": 0, "export": 1, "print": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1}],
+ "sort_field": "modified", "sort_order": "DESC", "track_changes": 1
+}

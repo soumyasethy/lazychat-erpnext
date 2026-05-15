@@ -10,6 +10,7 @@ def run_after_migrate():
 	seed_lazychat_form_helpers()
 	lazychat_setup_check()
 	_check_playwright_available()
+	_seed_md_dashboard()
 
 
 def after_install():
@@ -25,6 +26,7 @@ def after_install():
 	seed_lazychat_form_helpers()
 	lazychat_setup_check()
 	_check_playwright_available()
+	_seed_md_dashboard()
 	_print_welcome_banner()
 
 
@@ -466,3 +468,143 @@ def seed_lazychat_form_helpers():
 		except Exception:
 			frappe.log_error(frappe.get_traceback(), f"lazychat_erpnext.seed_lazychat_form_helpers/{dt}")
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit -- seed_lazychat_form_helpers (after_install/after_migrate hook): commit the seeded Client Script helpers so they're durable
+
+
+def _seed_md_dashboard():
+	"""Cycle 14 — seed the 4 MD Dashboard doctypes with starter rows from the
+	Proman MD Dashboard mockup. Idempotent: only seeds when the table is empty
+	for that doctype, so re-running after_install or run_after_migrate is safe."""
+	import frappe
+
+	# MD KPI Score — 53 BSC starter rows (4 perspectives covering ~13 each).
+	# Tuple shape: (perspective, kpi_code, kpi_name, target_text, current_value, status, period)
+	if frappe.db.count("MD KPI Score") == 0:
+		_KPI_SEED = [
+			("Financial", "F01", "Gross margin %", ">35-45%", "32%", "At Risk", "Q1 FY27"),
+			("Financial", "F02", "EBITDA margin %", ">12-18%", "11.4%", "Behind", "Q1 FY27"),
+			("Financial", "F03", "Net profit margin %", ">7-12%", "8.1%", "At Risk", "Q1 FY27"),
+			("Financial", "F04", "Free cash flow", "Positive monthly", "Positive", "On Track", "Q1 FY27"),
+			("Financial", "F05", "Cash runway (weeks)", ">10 weeks", "12 weeks", "On Track", "Q1 FY27"),
+			("Financial", "F06", "DSO (debtor days)", "<60d", "68d", "Behind", "Q1 FY27"),
+			("Financial", "F07", "Overdue >90d", "<25L", "320L", "Behind", "Q1 FY27"),
+			("Financial", "F08", "Revenue growth YoY", ">15%", "18%", "On Track", "Q1 FY27"),
+			("Financial", "F09", "Recurring revenue growth", ">20% YoY", "14%", "At Risk", "Q1 FY27"),
+			("Financial", "Q01", "QMS sales 15 Cr", "1.25 Cr/month", "On track", "On Track", "Q1 FY27"),
+			("Customer", "C01", "CSAT (post-install)", ">4.2/5", "4.4/5", "On Track", "Q1 FY27"),
+			("Customer", "C02", "NPS", ">45", "38", "At Risk", "Q1 FY27"),
+			("Customer", "C03", "Repeat order rate", ">50%", "58%", "On Track", "Q1 FY27"),
+			("Customer", "C04", "AMC renewal rate", ">85%", "78%", "At Risk", "Q1 FY27"),
+			("Customer", "C05", "On-site response time", "<24 hrs", "18 hrs", "On Track", "Q1 FY27"),
+			("Customer", "C06", "Complaint resolution", "<5 days", "4.2 days", "On Track", "Q1 FY27"),
+			("Customer", "C07", "New customers/month", "3-5/mo", None, "Not Started", "Q1 FY27"),
+			("Customer", "C08", "Revenue per installed plant", "Growing YoY", None, "Not Started", "Q1 FY27"),
+			("Customer", "S01", "Sales target Cr annual", "120 Cr", "98 Cr trajectory", "On Track", "Q1 FY27"),
+			("Customer", "S02", "Pipeline coverage", ">=3x quarterly target", "2.7x", "At Risk", "Q1 FY27"),
+			("Customer", "S03", "Conversion rate", ">35%", "28%", "Behind", "Q1 FY27"),
+			("Customer", "S04", "Quote TAT", "<2 days", "3.2 days", "Behind", "Q1 FY27"),
+			("Customer", "A01", "Service revenue 52 Cr", "10.4 Cr Q1", "9.8 Cr", "On Track", "Q1 FY27"),
+			("Customer", "A02", "Spares fill rate", ">85% within 24hr", None, "Not Started", "Q1 FY27"),
+			("Customer", "A03", "Inventory cap", "<=9 Cr all stores", None, "Not Started", "Q1 FY27"),
+			("Internal Process", "I01", "OEE %", ">75%", "67%", "Behind", "Q1 FY27"),
+			("Internal Process", "I02", "On-time delivery %", ">90%", "62%", "Behind", "Q1 FY27"),
+			("Internal Process", "I03", "Inventory turns - spares", "6-8x", "6.4x", "On Track", "Q1 FY27"),
+			("Internal Process", "I04", "Vendor OTD %", ">88%", None, "Not Started", "Q1 FY27"),
+			("Internal Process", "I05", "Rework/scrap % COGS", "<1.5%", "2.1%", "Behind", "Q1 FY27"),
+			("Internal Process", "I06", "BOM material variance", "<3%", "2.4%", "On Track", "Q1 FY27"),
+			("Internal Process", "I07", "Plan adherence", ">85%", None, "Not Started", "Q1 FY27"),
+			("Internal Process", "I08", "WIP as % revenue", "<8%", None, "Not Started", "Q1 FY27"),
+			("Internal Process", "I09", "ERPNext utilisation %", ">85%", None, "Not Started", "Q1 FY27"),
+			("Internal Process", "B01", "BMH equipment 11 Cr", "Sizer/Retrofit qtr", "10.2 Cr", "On Track", "Q1 FY27"),
+			("Internal Process", "B02", "BMH new orders 40 Cr annual", "New equipment booking", "8 Cr Q1", "On Track", "Q1 FY27"),
+			("Internal Process", "E01", "Projects on-time (IM) 75%", "75% on time", "62%", "At Risk", "Q1 FY27"),
+			("Internal Process", "E02", "Drawing release error rate", "Log + zero defects", None, "Not Started", "Q1 FY27"),
+			("Internal Process", "Q02", "Margin WP/SP", "WP 15% SP 40%", None, "Not Started", "Q1 FY27"),
+			("Internal Process", "Q03", "Export new customers", "2-3 new/yr", None, "Not Started", "Q1 FY27"),
+			("Internal Process", "P01", "Production volume", "2500 MT/yr", "Q1 ramp", "On Track", "Q1 FY27"),
+			("Internal Process", "P02", "Plant utilisation", "47.5% avg", None, "Not Started", "Q1 FY27"),
+			("Internal Process", "P03", "Promax DSO", "<=45 days", None, "Not Started", "Q1 FY27"),
+			("Internal Process", "M01", "5S / Kaizen safety programs", "Active", "Active", "On Track", "Q1 FY27"),
+			("Internal Process", "M02", "ERP operations module", "Implementation", None, "Not Started", "Q1 FY27"),
+			("Learning & Growth", "L01", "Employee attrition %", "<10%", "11%", "Behind", "Q1 FY27"),
+			("Learning & Growth", "L02", "Critical vacancy rate", "<10%", "9%", "At Risk", "Q1 FY27"),
+			("Learning & Growth", "L03", "Training hrs/employee/yr", ">24 hrs", "26 hrs", "On Track", "Q1 FY27"),
+			("Learning & Growth", "L04", "ERP utilisation %", ">85%", None, "Not Started", "Q1 FY27"),
+			("Learning & Growth", "L05", "New product launches", "2-3/yr", "2", "On Track", "Q1 FY27"),
+			("Learning & Growth", "L06", "Revenue from products <3 yrs", ">15%", "17%", "On Track", "Q1 FY27"),
+			("Learning & Growth", "D01", "Design cycle time reduction", "Quarterly target", None, "Not Started", "Q1 FY27"),
+			("Learning & Growth", "D02", "AI literacy completion", "Training rate", None, "Not Started", "Q1 FY27"),
+			("Learning & Growth", "D03", "Transformation ROI", "Proman Edge ROI", None, "Not Started", "Q1 FY27"),
+		]
+		for persp, code, name, target, current, status, period in _KPI_SEED:
+			doc = frappe.get_doc({
+				"doctype": "MD KPI Score",
+				"perspective": persp, "kpi_code": code, "kpi_name": name,
+				"target_text": target, "current_value": current,
+				"status": status, "period": period,
+			})
+			doc.insert(ignore_permissions=True)
+		print("[lazychat] seeded {0} MD KPI Score rows".format(len(_KPI_SEED)))
+
+	# MD Risk — 7 starter rows
+	if frappe.db.count("MD Risk") == 0:
+		_RISK_SEED = [
+			("High", "Jaw plate castings from Glazier Tekno delayed 12 days; 3 orders at risk", "Ops / Glazier"),
+			("High", "Overdue collection from Rajasthan quarry 1.2 Cr, 90+ days outstanding", "Finance / Sales"),
+			("High", "Bidadi CNC machine #3 downtime 4 days; repair 1.8L pending MD approval", "Dynatek / Engg"),
+			("High", "M-Sand VSI wear parts stockout; 2 customer machines idle (Pune, Hyderabad)", "ACE / Spares"),
+			("Medium", "Middle East contract renewal 3.2 Cr; proposal pending 18 days, no response", "Sales / MD"),
+			("Medium", "Glazier foundry quality rejection rate up 3% this quarter; RCA in progress", "Quality / Glazier"),
+			("Medium", "2 senior engineers resigned; notice ends Apr 20, replacement pipeline empty", "HR"),
+		]
+		for severity, desc, owner in _RISK_SEED:
+			doc = frappe.get_doc({
+				"doctype": "MD Risk",
+				"severity": severity, "description": desc, "owner": owner,
+			})
+			doc.insert(ignore_permissions=True)
+		print("[lazychat] seeded {0} MD Risk rows".format(len(_RISK_SEED)))
+
+	# MD Decision — 7 starter rows
+	if frappe.db.count("MD Decision") == 0:
+		from datetime import date, timedelta
+		_today = date.today()
+		_DEC_SEED = [
+			("Approve 1.8L Bidadi CNC repair; vendor quote received and reviewed", "CapEx", _today + timedelta(days=2)),
+			("Sanction revised credit limit for Rajasthan customer (2 Cr -> 75L)", "Credit", _today + timedelta(days=3)),
+			("Approve Middle East proposal dispatch; Sales needs green light", "Sales", _today + timedelta(days=1)),
+			("Sign off H1 FY27 hiring plan; 8 positions across entities", "Hiring", _today + timedelta(days=7)),
+			("Confirm AI/ERP technology partner selection (Proman Edge milestone)", "Strategy", _today + timedelta(days=10)),
+			("Approve strategic pricing revision; Cone Crusher CC-300 series", "Pricing", _today + timedelta(days=13)),
+			("Authorise emergency spares procurement 3.4L; clear VSI wear parts stockout", "Procurement", _today + timedelta(days=1)),
+		]
+		for decision, category, due in _DEC_SEED:
+			doc = frappe.get_doc({
+				"doctype": "MD Decision",
+				"decision": decision, "category": category,
+				"due_date": due, "status": "Pending",
+			})
+			doc.insert(ignore_permissions=True)
+		print("[lazychat] seeded {0} MD Decision rows".format(len(_DEC_SEED)))
+
+	# Critical Role — 5 starter rows
+	if frappe.db.count("Critical Role") == 0:
+		from datetime import date, timedelta
+		_open_45 = date.today() - timedelta(days=45)
+		_open_30 = date.today() - timedelta(days=30)
+		_ROLE_SEED = [
+			("Sr Design Engineer (SolidWorks)", "Proman Infrastructure", "Critical", _open_45),
+			("Production Supervisor - Bidadi", "Dynatek", "Critical", _open_45),
+			("Service Engineer - Field South", "ACE", "Critical", _open_30),
+			("Sales Engineer - North India", "PCS", "High", _open_30),
+			("Finance Executive - Group", "Group HQ", "High", _open_30),
+		]
+		for pos, entity, criticality, open_since in _ROLE_SEED:
+			doc = frappe.get_doc({
+				"doctype": "Critical Role",
+				"position_name": pos, "entity": entity,
+				"criticality": criticality, "open_since": open_since,
+			})
+			doc.insert(ignore_permissions=True)
+		print("[lazychat] seeded {0} Critical Role rows".format(len(_ROLE_SEED)))
+
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit -- one-time idempotent seed

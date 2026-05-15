@@ -1,0 +1,23 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:DEC-{####}",
+ "creation": "2026-05-15 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": ["decision","category","section_due","due_date","status","section_resolution","resolution_note"],
+ "fields": [
+  {"fieldname": "decision", "fieldtype": "Small Text", "label": "Decision Required", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "category", "fieldtype": "Data", "label": "Category", "in_list_view": 1},
+  {"fieldname": "section_due", "fieldtype": "Section Break", "label": "Tracking"},
+  {"fieldname": "due_date", "fieldtype": "Date", "label": "Due By", "in_list_view": 1},
+  {"fieldname": "status", "fieldtype": "Select", "options": "Pending\nResolved", "label": "Status", "reqd": 1, "default": "Pending", "in_list_view": 1},
+  {"fieldname": "section_resolution", "fieldtype": "Section Break", "label": "Resolution"},
+  {"fieldname": "resolution_note", "fieldtype": "Small Text", "label": "Resolution Note"}
+ ],
+ "issingle": 0, "links": [],
+ "modified": "2026-05-15 12:00:00.000000", "modified_by": "Administrator",
+ "module": "Desk Assistant", "name": "MD Decision", "owner": "Administrator",
+ "permissions": [{"create": 1, "delete": 1, "email": 0, "export": 1, "print": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1}],
+ "sort_field": "modified", "sort_order": "DESC", "track_changes": 1
+}
