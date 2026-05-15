@@ -2269,3 +2269,13 @@ body.cad-dock-shift .cad-claude-float-layer:not(.cad-claude-float-layer--dock) {
 		transition: none;
 	}
 }
+
+/* Cycle 14.4 — Lazychat Settings: constrain Code-field heights so JSON arrays
+   with ~1 line of content don't render as 600px-tall editors. The .ace_editor
+   class is Frappe v15's underlying ACE editor used for Code fieldtype. */
+[data-doctype="Lazychat Settings"] [data-fieldname="llm_proxy_allowed_hosts"] .ace_editor,
+[data-doctype="Lazychat Settings"] [data-fieldname="vision_judge_models"] .ace_editor {
+	min-height: 80px !important;
+	max-height: 140px !important;
+	height: 100px !important;
+}

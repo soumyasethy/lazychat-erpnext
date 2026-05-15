@@ -545,6 +545,26 @@ When debugging *"my report URL gave 404 even though the chat said it was
 created"*: confirm the chat-ui bundle was rebuilt after this fix landed
 (`?v=` query in iframe URL should be > `1778066844`).
 
+## Cycle 14.4 — Lazychat Settings polish (tool count + Code-field height) (2026-05-15)
+
+Two small UX fixes to `/app/lazychat-settings`. Backend only — chat-ui unchanged. Tag: `cycle-14.4`. Backend `0.4.1`.
+
+### Stale tool count
+
+The Help block's "Both share" bullet read "the same 38 ERPNext tools (tools.py)" — that number was correct in cycle-7, before Cycle 13 added `prepare_create_page`, `prepare_create_workspace`, `prepare_attach_assets`, `prepare_create_server_script`, `list_number_cards`, `list_whitelisted_methods`, etc. Verified actual count in [`tool_schemas.py:TOOL_SCHEMAS`](lazychat_erpnext/desk_assistant/tool_schemas.py): **101 tools**. Updated the help text accordingly.
+
+### Code-field editors way too tall
+
+The two `Code` fields on Lazychat Settings — `llm_proxy_allowed_hosts` and `vision_judge_models` — each rendered as ~600px-tall ACE editors despite usually holding one or two lines of content. Made the form unscannable.
+
+Fix: scoped CSS in [`public/css/lazychat_erpnext_desk.css`](lazychat_erpnext/public/css/lazychat_erpnext_desk.css) constraining those two specific editors to `height: 100px` (min 80, max 140). The `.ace_editor` selector is scoped to this doctype + these two fieldnames only — other Code fields elsewhere in ERPNext (Server Script, Custom Script, etc.) are untouched.
+
+### Verification
+
+Backend: no Python change → in-process smoke unchanged at 283/0/6. Visual: `/app/lazychat-settings` form now compact + correct "101 tools" label.
+
+---
+
 ## Cycle 14 — MD Dashboard rebuild + Dashboard-from-Mockup discipline (2026-05-15)
 
 Two coupled deliverables that close the same class of bug: the chat-driven `/app/md-dashboard` from a 90 KB Proman mockup ended up a ₹0 / ₹2 / ₹0 / 100 shell with 9 of 12 sections silently dropped. Three bugs compounded: aggregation via `frappe.client.get_list` + `limit_page_length` truncation, hardcoded `÷ 10⁷` with no unit suffix, and silent scope shrinkage. Cycle 14 fixes the page directly AND adds a playbook discipline so the agent does this right next time. Tag: `cycle-14`. Backend `0.4.0`, chat-ui `0.1.2`.

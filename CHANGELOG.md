@@ -6,6 +6,28 @@ The companion chat-ui ships from [`lazychat.ai`](https://github.com/soumyasethy/
 
 ## [Unreleased]
 
+## [0.4.1] — Cycle 14.4 — Lazychat Settings polish (tool count + Code-field height) — 2026-05-15
+
+Two small UX fixes to the [`/app/lazychat-settings`](lazychat_erpnext/desk_assistant/doctype/lazychat_settings/lazychat_settings.json) form. Backend only — chat-ui unchanged. Tag: `cycle-14.4`.
+
+### Fixed
+
+- **Stale tool-count in Help block.** The "Both share" bullet read "the same 38 ERPNext tools" — that was the cycle-7 number. Actual count after Cycle 13 (`prepare_create_page`, `prepare_create_workspace`, `prepare_attach_assets`, etc.) is **101 tools** in `tool_schemas.py`. Updated to "the same 101 ERPNext tools" with a one-line description of what's covered.
+- **Code-field editors way too tall** in Lazychat Settings. The two `Code` fields (Allowed Upstream Hosts JSON array, Vision-Judge Models JSON object) each rendered as ~600px-tall ACE editors despite usually holding a single line of content. Added scoped CSS in `lazychat_erpnext_desk.css` that constrains those two specific editors to `height: 100px` (min 80, max 140) so the form scans cleanly. Other Code fields elsewhere in ERPNext are untouched.
+
+### Verification
+
+- Backend: no Python change → smoke unchanged at 283/0/6.
+- Visual: `/app/lazychat-settings` now shows compact JSON editors + correct "101 tools" label.
+
+### Commits in this release
+
+```
+<sha> fix(cycle-14.4): help_html says 101 tools (was 38)
+<sha> fix(cycle-14.4): constrain Lazychat Settings Code-field heights
+<sha> docs(cycle-14.4): CHANGELOG + CLAUDE.md + version bump → 0.4.1
+```
+
 ## [0.4.0] — Cycle 14 — MD Dashboard rebuild + Dashboard-from-Mockup discipline — 2026-05-15
 
 Two coupled fixes that close the same class of bug. Companion chat-ui release: `lazychat.ai 0.1.2`.
@@ -178,7 +200,8 @@ ed130db chore(cycle-13/m1): address M1.1 code-quality review
 
 Earlier cycles (12, 11, 10, 9, 8, 7, …) are documented in [CLAUDE.md](CLAUDE.md). Per-cycle git tags exist (`cycle-12-m2`, `cycle-12-m1`, `cycle-11-m4`, …) — `git log --oneline <prev-tag>..<tag>` to see commits per cycle.
 
-[Unreleased]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-14...HEAD
+[Unreleased]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-14.4...HEAD
+[0.4.1]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-14...cycle-14.4
 [0.4.0]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-13.2...cycle-14
 [0.3.1]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-13.1...cycle-13.2
 [0.3.0]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-12-m2...cycle-13.1
