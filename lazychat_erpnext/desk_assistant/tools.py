@@ -14,6 +14,25 @@ from frappe.utils import get_url as _frappe_get_url
 PREP_TTL_SEC = 300
 PREP_KEY = "lazychat:prep:"
 
+
+def _doctype_url_slug(doctype: str) -> str:
+    """Convert a DocType name to its Frappe Desk URL slug.
+
+    Frappe Desk routes `/app/<slug>/<name>` where slug is the doctype
+    name lowercased with spaces replaced by hyphens. This is distinct
+    from `frappe.scrub()` (underscores, for module/field names).
+
+    Examples:
+        "Print Format" -> "print-format"
+        "Purchase Order" -> "purchase-order"
+        "Sales Invoice" -> "sales-invoice"
+        "Report"        -> "report"
+        ""              -> ""
+        None            -> ""
+    """
+    return (doctype or "").strip().lower().replace(" ", "-")
+
+
 # Cycle 13 M1.6 — prepare_attach_assets: per-file size cap + mime allowlist.
 # Files are base64-decoded at preview time; we reject anything above 5 MB to
 # keep Redis staging payloads bounded. Mime prefixes cover the typical Page
@@ -867,13 +886,12 @@ def _form_prefill_capabilities(doctype):
 		"Client Script", f"Lazychat Form Helper ({doctype})"
 	))
 	is_target = doctype in LAZYCHAT_FORM_HELPER_TARGETS
-	scrub = frappe.scrub(doctype)
 	return {
 		"doctype": doctype,
 		"helper_installed": helper_installed,
 		"is_supported_target": is_target,
 		"url_pattern": (
-			f"/app/{scrub}/new"
+			f"/app/{_doctype_url_slug(doctype)}/new"
 			"?<parent_field>=<value>&_lz_items=<base64-json-array>"
 		),
 		"parent_whitelist": list(LAZYCHAT_PARENT_WHITELIST),
@@ -4820,7 +4838,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				"doc_type": doc_type,
 				"print_format_type": print_format_type,
 				"html_preview": (html[:300] + "…") if len(html) > 300 else html,
-				"open_url": f"/app/print-format/{pf_name}",
+				"open_url": f"/app/{_doctype_url_slug('Print Format')}/{pf_name}",
 			},
 			"expires_in_sec": PREP_TTL_SEC,
 			"confirm_with": "click the inline Apply button to confirm",
@@ -6103,7 +6121,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"action": "restore",
 			"doctype": original_dt,
 			"name": original_name,
-			"link": f"/app/{frappe.scrub(original_dt)}/{original_name}",
+			"link": f"/app/{_doctype_url_slug(original_dt)}/{original_name}",
 		}
 
 	# Skills (Tier E) — runtime activation/deactivation of agent personas.
@@ -7329,7 +7347,7 @@ def commit_prepared(token, **extras):
 		elif doc.doctype == "Workspace":
 			link = f"/app/{frappe.scrub(doc.name).replace('_', '-')}"
 		else:
-			link = f"/app/{frappe.scrub(doc.doctype)}/{doc.name}"
+			link = f"/app/{_doctype_url_slug(doc.doctype)}/{doc.name}"
 		response = {
 			"ok": True,
 			"action": action,
