@@ -3748,5 +3748,73 @@ def run():
 			pass
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit -- smoke test cleanup; final cleanup must commit so subsequent runs see a clean slate
 
+	# ─── Cycle 15 — URL slug helper ───────────────────────────────────────────────
+	print("\n=== Cycle 15 — URL slug helper ===")
+
+	try:
+		from lazychat_erpnext.desk_assistant.tools import _doctype_url_slug
+		record(_ok("T103a url_slug Print Format",
+				  _doctype_url_slug("Print Format") == "print-format",
+				  repr(_doctype_url_slug("Print Format"))))
+	except ImportError as _e:
+		record(_ok("T103a url_slug Print Format", False, str(_e)))
+
+	try:
+		from lazychat_erpnext.desk_assistant.tools import _doctype_url_slug
+		record(_ok("T103b url_slug Purchase Order",
+				  _doctype_url_slug("Purchase Order") == "purchase-order",
+				  repr(_doctype_url_slug("Purchase Order"))))
+	except ImportError as _e:
+		record(_ok("T103b url_slug Purchase Order", False, str(_e)))
+
+	try:
+		from lazychat_erpnext.desk_assistant.tools import _doctype_url_slug
+		record(_ok("T103c url_slug single word",
+				  _doctype_url_slug("Report") == "report",
+				  repr(_doctype_url_slug("Report"))))
+	except ImportError as _e:
+		record(_ok("T103c url_slug single word", False, str(_e)))
+
+	try:
+		from lazychat_erpnext.desk_assistant.tools import _doctype_url_slug
+		record(_ok("T103d url_slug empty/None",
+				  _doctype_url_slug("") == "" and _doctype_url_slug(None) == "",
+				  f"empty={repr(_doctype_url_slug(''))}, None={repr(_doctype_url_slug(None))}"))
+	except ImportError as _e:
+		record(_ok("T103d url_slug empty/None", False, str(_e)))
+
+	# T103e: round-trip stage prepare_create_print_format → commit → verify link uses hyphen
+	try:
+		from lazychat_erpnext.desk_assistant.tools import execute_tool as _execute_tool_t103e
+		from lazychat_erpnext.desk_assistant.api import commit_prepared_action as _commit_t103e
+		pf_name_t103e = "Lazychat Smoke PF T103e"
+		if frappe.db.exists("Print Format", pf_name_t103e):
+			frappe.delete_doc("Print Format", pf_name_t103e, ignore_permissions=True, force=True)
+			frappe.db.commit()  # nosemgrep: frappe-manual-commit -- smoke test cleanup
+		staged = _execute_tool_t103e("prepare_create_print_format", {
+			"name": pf_name_t103e,
+			"doc_type": "Note",
+			"html": "<div>{{ doc.title }}</div>",
+			"print_format_type": "Jinja",
+		})
+		if not staged.get("ok"):
+			record(_ok("T103e commit link uses slug helper", False, f"stage failed: {staged}"))
+		else:
+			token_t103e = staged["preview_token"]
+			out_t103e = _commit_t103e(token_t103e)
+			link_t103e = out_t103e.get("link", "")
+			ok_t103e = (
+				out_t103e.get("ok")
+				and "/app/print-format/" in link_t103e
+				and "/app/print_format/" not in link_t103e
+			)
+			record(_ok("T103e commit link uses slug helper", ok_t103e,
+					  f"link={link_t103e!r}"))
+			if frappe.db.exists("Print Format", pf_name_t103e):
+				frappe.delete_doc("Print Format", pf_name_t103e, ignore_permissions=True, force=True)
+				frappe.db.commit()  # nosemgrep: frappe-manual-commit -- smoke test cleanup
+	except Exception as _e:
+		record(_ok("T103e commit link uses slug helper", False, str(_e)[:200]))
+
 	print(f"\n=== {results['pass']} pass, {results['fail']} fail, {results['skip']} skip ===")
 	return results
