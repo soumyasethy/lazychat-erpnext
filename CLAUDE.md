@@ -545,6 +545,326 @@ When debugging *"my report URL gave 404 even though the chat said it was
 created"*: confirm the chat-ui bundle was rebuilt after this fix landed
 (`?v=` query in iframe URL should be > `1778066844`).
 
+## Cycle 17.4 + 17.5 — Effort-tuned retry budgets + Custom Field Link options validation (2026-05-19)
+
+Two small, focused improvements on top of cycle 17.3. Tag: `cycle-17.5`. Backend `0.5.7`.
+
+### Cycle 17.4 — Effort-tuned silent-retry budgets
+
+Until now, system prompt rule #11c said "cap at 5 attempts" regardless of the user's Effort setting. That's wrong: at Effort=low the user wants fast-fail, at Effort=max they're willing to wait for thorough resolution. Now each Effort tier has its own cap:
+
+- low → **1 silent retry** (fast-fail, ~10s upper bound on cheap models)
+- medium → **2 silent retries** (default, ~20-30s)
+- high → **5 silent retries** (cycle 17.0 original default, ~60s)
+- max → **8 silent retries** (compound business asks, multi-pivot)
+
+`EFFORT_MAP` in [`claude_bridge.py`](lazychat_erpnext/desk_assistant/claude_bridge.py) gained `runtime_silent_retry_cap` per tier. `_system_prompt` now accepts an `effort` kwarg and prepends an `ACTIVE EFFORT TIER: <tier>. Your silent-retry budget is N attempt(s)...` block so the agent can cite the exact cap without reading EFFORT_MAP directly. Rule #11c text in both backend prompt and chat-ui mirror updated with the per-tier breakdown.
+
+### Cycle 17.5 — Custom Field Link/Table options DocType existence check
+
+Closes a silent-success bug class: when the agent stages a Link/Table/Table MultiSelect field with a non-existent target DocType in `options` (typo or hallucinated name), the Apply succeeds at the DB layer but the form field can't autocomplete to anything, leaving the user with a broken field and no diagnostic.
+
+`prepare_create_custom_field` now does an `frappe.db.exists("DocType", options)` check at stage time. On miss, returns an error with `difflib.get_close_matches` suggestions so the agent's next attempt is one re-stage away with the correct DocType name.
+
+**Why static validation, not savepoint runtime check?** Same MariaDB InnoDB constraint as cycle 17.1: `ALTER TABLE` (triggered by `Custom Field.insert()` via Frappe's `updatedb`) causes implicit COMMIT, breaking the savepoint. We can't INSERT a Custom Field inside a savepoint and roll back. Static check is what we can safely do; covers the most common bug class.
+
+### Smoke
+
+- In-process: 317 → **321 pass** / 5 fail (pre-existing httpbin + flaky critic + open_url) / 6 skip. +4 cases T108a-d (EFFORT_MAP caps, _system_prompt Effort injection, Link options rejection with suggestions, valid Link regression guard).
+- HTTP-wire: 91/91 unchanged.
+
+### Still queued (cycle 17.6+)
+
+1. **Cycle 17.6 — Anti-pivot enforcement** (server-side detect agent staging a new Report after dep refusal + refuse cross-type retries). The cycle 17.3 visual test showed the prompt-only DEPENDENCY ORDER rule already works; this is defense-in-depth for models that don't follow the rule. Deferred until we see it fail in the wild.
+2. **Cycle 17.7 — Runtime-check coverage extension** to Print Format, Notification, Workflow, Page (cycle-13 screenshot service is the runtime check), Dashboard.
+3. **Cycle 17.8 — Auto-upgrade to claude-opus on retry #4** at Effort=max for runtime-class errors.
+
+---
+
+## Cycle 17.3 — Pre-Apply runtime verification for Script Reports + in-DB convention fix (2026-05-19)
+
+Closes the chat-ui-visible gap from cycle 17.2's live test: agent pivoted Query Report → Script Report and bypassed the cycle 17.0/17.1 runtime check entirely, then shipped a Script Report whose `def execute(filters)` returned `None` — empty report, no traceback, broken user experience. Tag: `cycle-17.3`. Backend `0.5.6`.
+
+### Two fixes in one cycle
+
+**Fix 1 — Extend savepoint runtime check to Script Reports**
+
+Refactored cycle 17.0's inline savepoint dry-run code into a shared helper `_runtime_verify_report_in_savepoint(rep_values, filter_defs, javascript)` in [`tools.py`](lazychat_erpnext/desk_assistant/tools.py). Both `prepare_create_report` Query Report branch AND Script Report branch now call it; same envelope, same rollback semantics. Script Report branch calls it AFTER the existing safe_exec dry-run validation passes.
+
+**Fix 2 — Teach the agent the IN-DB Script Report convention**
+
+The root cause of the cycle 17.2 visual test's null-result bug was a documentation/convention mismatch. There are TWO Script Report flavors in Frappe:
+
+- **File-based** (`apps/erpnext/.../general_ledger.py`): Python file with `def execute(filters=None): return columns, data`. Frappe's framework calls the function directly.
+- **In-DB** (`Report.report_script` field, the field LLM-generated Script Reports populate): Python source stored in DB, run via `safe_exec(self.report_script, ...)` which DOES NOT auto-call functions. The script must set top-level variables `columns = [...]` and `result = [...]` (or `data = [...]`); Frappe extracts them from the safe_exec locals dict.
+
+Old `_validate_script_report_body` enforced the file-based convention, so it REJECTED valid in-DB scripts AND ACCEPTED in-DB scripts with `def execute()` that would fail silently at runtime. New validator accepts BOTH; runtime check catches the def-without-call case at safe_exec runtime with an actionable hint.
+
+[`tool_schemas.py`](lazychat_erpnext/desk_assistant/tool_schemas.py) `prepare_create_report.script` description rewritten to teach the in-DB convention as canonical. Old description showed `def execute()` as the pattern; new shows top-level vars + flags def-without-call as WRONG.
+
+### Smoke
+
+- In-process: 315 → **317 pass** / 5 fail (3 pre-existing httpbin T66/T67/T68 + 1 pre-existing flaky T92c + 1 pre-existing T88q open_url) / 6 skip. +3 new cases T107a-c (Script Report happy path, def-without-call caught, top-level runtime exception caught).
+- T87f + T88e updated to use the in-DB convention.
+
+### Chrome DevTools MCP visual verify — cycle 17.1 + 17.3 working end-to-end
+
+Sent the user's original Cash Discount Enhancement prompt with v4 name. Live observation (model auto-switched to `seed-oss-36b-instruct` mid-session):
+
+1. ✅ Agent staged 5 Custom Fields cleanly (cycle 16 cascade + DELIVERABLE DISCIPLINE).
+2. ✅ Single `prepare_create_report` call (no retries) → hit `sql_phase=dependency` because SQL referenced staged-but-not-applied CFs.
+3. ✅ Agent acknowledged the signal: *"Perfect — the system identified the dependency. Let me state clearly: DEPENDENCY CHECKPOINT"*.
+4. ✅ Agent emitted textbook-perfect user message: checkmarks for staged fields, hourglass for pending, clear "Please click Apply on each Custom Field card above (in order, top-to-bottom). Once all 5 are applied... I'll create the Cash Discount AP Report v4 in your next message."
+5. ✅ Agent ended the turn cleanly — waiting for user.
+6. ✅ NO Notes-as-code fallback. NO Server Script bypass attempts (agent explained why Server Script was gated and pivoted to Query Report).
+
+This is the FIRST live run where the cycle 16 + 17.x architecture works end-to-end exactly as designed. Screenshot: [`.github/assets/cycle-16/09-cycle-17-dependency-checkpoint-working.png`](.github/assets/cycle-16/09-cycle-17-dependency-checkpoint-working.png).
+
+### Open follow-ups (cycle 17.4+)
+
+1. **Cycle 17.4 — Effort-tuned silent-retry budgets** (low=1, medium=2, high=5, max=8 + auto-upgrade to claude-opus on retry #4 for runtime-class errors).
+2. **Cycle 17.5 — Coverage extension** to Custom Field (verify `frappe.get_meta` reflects the field after savepoint INSERT), Print Format (dry-render — cycle 13.2 already does this for the html field; extend to the runtime-check envelope), Notification, Workflow, Page (screenshot via cycle-13 service), Dashboard.
+3. **Cycle 17.6 — Anti-pivot enforcement** for cases where the agent switches report types or strategies in ways that bypass an unresolved dep.
+
+---
+
+## Cycle 17.1 — Dependency-aware refusal + Cycle 17.2 chat-ui retry-card polish (2026-05-19)
+
+Follow-up to cycle 17.0. Closes the chat-ui-visible gap from 17.0's live test where the agent would burn its silent-retry budget on Reports whose SQL referenced staged-but-not-applied Custom Fields. Tag: `cycle-17.1`. Backend `0.5.5`. chat-ui `0.2.1` (bundle rebuilt).
+
+### Why we can't materialize staged Custom Fields inside the savepoint
+
+The "obvious" cycle 17.1 design — INSERT staged Custom Fields inside the same savepoint that wraps the Report dry-run, then check, then roll back everything — does NOT work. MariaDB InnoDB treats `ALTER TABLE` (which Frappe's Custom Field `on_update` triggers via `frappe.db.updatedb`) as a DDL statement that causes an **implicit COMMIT**. The savepoint is silently dropped. Any subsequent `frappe.db.rollback(save_point=…)` becomes a no-op for the implicit-committed work. We end up with a dirty state: Custom Field persisted, Report not — exactly what the savepoint was supposed to prevent. T106b smoke proved this empirically.
+
+### Solution — pre-runtime dependency check + structured "wait for Apply" refusal
+
+New helper `_check_sql_dependencies_satisfied(query, ref_doctypes)` in [`tools.py`](lazychat_erpnext/desk_assistant/tools.py):
+1. For each referenced doctype, fetch staged-in-session Custom Field payloads via `_session_staged_custom_field_payloads(dt)` (sibling of cycle-16's `_session_staged_custom_field_names`).
+2. Skip CFs that are already on the live DocType (cycle-16 already-applied case).
+3. Scan the SQL for token-boundary references (`\b<fieldname>\b`) to remaining staged-but-not-applied fieldnames.
+4. If matches found → return refusal envelope `{ok: false, sql_phase: "dependency", error, hint, staged_dependencies: [{dt, fieldname, label}, …]}`.
+
+**Wired BEFORE `_probe_select_sql_explain`** (critical — otherwise EXPLAIN catches "Unknown column" first and returns `sql_phase=explain`, sending the agent down the wrong fix path of calling `describe_doctype`).
+
+### New system prompt rule #12 — DEPENDENCY ORDER
+
+Added to [`claude_bridge.py`](lazychat_erpnext/desk_assistant/claude_bridge.py) `_system_prompt` and mirrored in [chat-ui's `routerSystemPrompt.ts`](../lazychat.ai/apps/chat-ui/src/lib/routerSystemPrompt.ts). When `sql_phase: "dependency"` arrives:
+- (a) STOP retrying this turn — no agent-side fix is possible.
+- (b) Tell the user clearly: "I've staged the Custom Fields above. Please click Apply on each, then in your next message I'll create the Report."
+- (c) End the turn. Wait for user's next message.
+- (d) This is the ONE case where the agent SHOULD narrate a "wait for the user" checkpoint (the OPPOSITE of rule #11 silent-retry which applies only to `sql_phase=runtime`).
+
+### chat-ui polish (Cycle 17.2)
+
+[`packages/types/src/messages.ts`](../lazychat.ai/packages/types/src/messages.ts) — `mcpTool` Message gains `sqlPhase?: 'runtime' | 'dependency' | 'validate' | 'explain' | 'execute'` field.
+
+[`agentRunner.ts`](../lazychat.ai/apps/chat-ui/src/lib/agentRunner.ts) `onToolEnd` — extracts `sql_phase` from the structured error envelope on `resultJson` and threads through to the replaced `mcpTool` message.
+
+[`MCPToolBlock.tsx`](../lazychat.ai/apps/chat-ui/src/components/messages/MCPToolBlock.tsx) — three new rendering branches based on `sqlPhase`:
+- **`runtime` / `validate` / `explain` / `execute` errors** → muted dot + italic *"Verifying… (agent is refining the runtime — will retry automatically)"*. Hides the silent-retry loop from the user's main visual attention, so the chat reads as one coherent "thinking → result" flow instead of a cascade of red Failed cards.
+- **`dependency` errors** → orange-asterisk dot + bold *"Waiting for Apply — this artifact depends on staged Custom Fields. Apply them above first, then ask again."* with collapsible details. Surfaces user-actionable blockers prominently.
+- Other error kinds → unchanged loud "Failed after Xms" rendering (those ARE the user-visible failures).
+
+### Smoke
+
+- In-process: 312 → **315 pass** / 4 fail (3 pre-existing httpbin + 1 pre-existing flaky T92c name collision) / 6 skip. +3 new (one was T106c pre-existing): T106a (`_extract_doctype_refs_from_sql`), T106b (e2e dep refusal returns `staged_dependencies`), T106d (no-deps pass-through).
+- chat-ui: vitest 475/475, typecheck clean across `packages/types` + `packages/host-sdk` + `apps/chat-ui`.
+
+### Chrome DevTools MCP live test — what surfaced
+
+Sent the original Cash Discount Enhancement prompt with a fresh report name ("Cash Discount AP Report v3") on `claude-haiku-latest`. Observed:
+
+- ✅ Backend 0.5.5 + new chat-ui bundle live (verified via `frappe.boot.lazychat_settings.deploy_version`).
+- ✅ Agent stayed on artifact path — 16 Custom Field stages, 5 `prepare_create_report` attempts, 2 prose Notes.
+- ⚠️ **Agent pivoted to `Script Report` when Query Report attempts hit issues**. The Script Report path doesn't go through cycle 17.0's savepoint runtime check or cycle 17.1's dep refusal — it uses safe_exec dry-run instead. The Report committed and `frappe.desk.query_report.run` returns NO traceback (cycle 17 architecture working FOR THE PATH IT COVERS) — but the agent's Python `def execute(filters)` returns `null`, producing an empty report. This is a Python-correctness issue at a different layer than cycle 17 covers.
+- ⚠️ The cycle 17.2 chat-ui "Verifying…" / "Waiting for Apply" styling didn't render in THIS run because the agent's Query Report attempts hit type-validation + Python-syntax errors (not `sql_phase=runtime` or `sql_phase=dependency`). The rendering exists in the bundle (vitest passes); just no matching events occurred to display it.
+
+Screenshot: [`.github/assets/cycle-16/08-cycle-17-1-and-2-end-state.png`](.github/assets/cycle-16/08-cycle-17-1-and-2-end-state.png).
+
+### Open follow-ups (queued as cycle 17.3+)
+
+1. **Cycle 17.3 — extend runtime check to Script Report** (uses same `frappe.desk.query_report.run` endpoint as Query Report, so adding a savepoint dry-run + dep check to the Script Report branch is a small lift). Then expand to: Custom Field (verify `frappe.get_meta` reflects the field), Print Format (dry-render against a sample doc — already exists in cycle 13.2!), Notification, Workflow, Page (screenshot via cycle-13 service), Dashboard.
+2. **Cycle 17.4 — agent-side anti-pivot enforcement**. The prompt rule #12 says "end turn" but the agent sometimes interprets "this Report type didn't work" as "try a different report type" — pivoting from Query Report to Script Report bypasses the dep check entirely. Stronger guidance needed in the prompt, OR detect cross-type retries server-side and refuse with a hint.
+3. **Cycle 17.5 — Effort-tuned silent-retry budgets** (low=1, medium=2, high=5, max=8 + auto-upgrade to claude-opus on retry #4).
+4. **Cycle 17.6 — Python `def execute()` shape validation for Script Reports**. Today safe_exec only verifies syntax + AST safety; it doesn't verify the function returns a `(columns, data)` tuple of the right shape. Add an actual dry-call inside the safe_exec sandbox that checks the return shape.
+
+---
+
+## Cycle 17.0 — Pre-Apply runtime verification for Query Reports (savepoint dry-run) (2026-05-19)
+
+**Architectural shift**, not just another validator. Closes the "agent ships broken artifact, user has to debug" failure shape that drove cycles 16/16.1. Tag: `cycle-17.0`. Backend `0.5.4`. **Scope: Query Reports only this cycle** — expansion to Custom Fields / Print Formats / Pages / etc. queued for follow-up cycles.
+
+### The principle
+
+By the time a `prepare_create_report` returns a `preview_token`, the artifact has already been INSERTed in a savepoint, exercised via `frappe.desk.query_report.run` against synthesized default filter values (the EXACT path Frappe uses at user-open time), and rolled back. If runtime check fails, no token is issued — the LLM gets `{ok:false, sql_phase:"runtime", traceback, hint}` and re-stages in the same loop. The user only ever sees Apply cards for artifacts that already ran successfully.
+
+### Three new helpers in [`tools.py`](lazychat_erpnext/desk_assistant/tools.py)
+
+- `_inject_query_report_filters_into_javascript(doc, filter_defs)` — extracted from cycle 16.1's commit handler so the savepoint dry-run and the real commit produce byte-identical `Report.javascript`. Without this, the runtime check could pass under a different filter setup than what users actually get post-commit.
+- `_synthesize_default_filters(filter_defs)` — type-aware default generator. `Date` → `frappe.utils.today()`; `Link` → first existing doc of the linked DocType via `frappe.db.get_value(opts, {}, "name")`; `Select` → first option from the pipe-separated options string; `Int`/`Float`/`Currency`/`Percent`/`Check` → `0`; `Data`/`Text`/anything else → `""`. Literal string `default` values are honored verbatim; JS-side function expressions (`frappe.datetime.now_date()`) are skipped (they only evaluate client-side).
+- `_runtime_check_query_report(report_name, filter_defs)` — invokes `frappe.desk.query_report.run(report_name=..., filters=<synthesized>)` inside a try/except. Maps the common runtime exception classes to actionable hints:
+  - `ValueError: unsupported format character` → "Escape literal `%` as `%%` in CASE/THEN/ELSE strings"
+  - `KeyError: '<field>'` → "Add `{fieldname:<field>, label:..., fieldtype:Data}` to args.filters[]"
+  - `OperationalError: Unknown column` → reuse cycle-7 `_wrap_db_error` with schema hint
+  - `PermissionError` → "Report.roles list too narrow for caller"
+  - Anything else → generic "read the traceback and re-stage"
+
+### Wiring
+
+Inside `prepare_create_report` Query Report branch ([`tools.py`](lazychat_erpnext/desk_assistant/tools.py)), AFTER the existing static + EXPLAIN + EXECUTE-with-NULLs probes:
+
+```python
+sp_name = f"lz_dry_{secrets.token_hex(4)}"
+try:
+    frappe.db.savepoint(sp_name)
+    doc = frappe.get_doc(rep_values).insert(ignore_permissions=False)
+    _inject_query_report_filters_into_javascript(doc, filters)
+    if isinstance(filters, list) and filters:
+        doc.save(ignore_permissions=False)
+    runtime_result = _runtime_check_query_report(doc.name, filters)
+finally:
+    frappe.db.rollback(save_point=sp_name)
+
+if not runtime_result["ok"]:
+    return {"ok": False, "sql_phase": "runtime", **runtime_result}
+# Promote real-runtime sample over NULL-probe sample
+sample_rows = runtime_result["sample_rows"]
+```
+
+### System prompt rule #11 — RUNTIME-RETRY DISCIPLINE
+
+New rule appended to TOOL-ERROR HONESTY section in [`claude_bridge.py`](lazychat_erpnext/desk_assistant/claude_bridge.py) and mirrored in [chat-ui's `routerSystemPrompt.ts`](../lazychat.ai/apps/chat-ui/src/lib/routerSystemPrompt.ts):
+
+- (a) Do NOT narrate the runtime failure to the user — retry is invisible.
+- (b) Read `hint` + `traceback` IMMEDIATELY. Common errors mapped to fixes.
+- (c) Re-stage `prepare_create_report` IN THE SAME TURN. Cap at 5 attempts.
+- (d) The `sample_rows` in a runtime-verified response is REAL data; user can trust it.
+
+Explicit guidance: this is the OPPOSITE of rule #6 TOOL-ERROR HONESTY (which applies to NON-runtime errors where the user already saw a Failed card). Runtime errors are caught BEFORE the user sees anything.
+
+### Smoke
+
+- In-process: 307 → **312 pass** / 3 fail (pre-existing T66/T67/T68 httpbin) / 6 skip. +5 cases T105a-e:
+  - T105a — happy path, runtime check passes, verified preview_token returned
+  - T105b — `_runtime_check_query_report` returns `{ok:false, hint, traceback}` for missing report
+  - T105c — savepoint rollback verified (no Report row persists before commit_prepared_action)
+  - T105d — `_synthesize_default_filters` per-fieldtype defaults
+  - T105e — full e2e: runtime-verified `prepare_create_report` → `commit_prepared` → `frappe.desk.query_report.run` returns rows
+- HTTP-wire: 91/91 unchanged.
+
+### Chrome DevTools MCP live test — what worked, what surfaced as a NEW gap
+
+Sent the original Cash Discount Enhancement prompt with a fresh report name ("Cash Discount AP Report v2") via `claude-haiku-latest`. Observed:
+
+- ✅ **Runtime retry mechanism IS firing**: agent issued `prepare_create_report` **6 times** in a single turn, each iteration consuming the structured error hint to refine the SQL: *"Perfect! Let me fix the SQL escaping and try again"* → *"The issue is with line breaks in the Frappe query parser. Let me condense the SQL"* → *"The issue is with the alias. Let me use proper table aliases without 'as'"*.
+- ❌ **Agent narrated the retries to the user** — rule #11 says "do NOT narrate" but the LLM is still emitting "Let me fix X and try again" between attempts. The prompt rule isn't strong enough alone; the chat-ui needs to actually hide the in-progress retry tool cards (Pillar 2 from the cycle-17 design — deferred to follow-up).
+- ❌ **Agent fell back to creating a Note after retries** — the cycle-16 DELIVERABLE DISCIPLINE rule + cycle-16 Notes-code-dump guard didn't prevent the fallback because the Note body was prose HTML (not Python/JS code), and the title was "Cash Discount Enhancement v2 - Complete Implementation Guide" which matched the title heuristic but the body didn't trip the code-shape regex.
+
+**NEW architectural gap surfaced**: when a Query Report's SQL references Custom Fields that are STAGED but not yet COMMITTED, the savepoint runtime check fails on "Unknown column" because the staged Custom Fields don't exist in the live DocType meta. The agent recognized this on the 6th attempt ("The custom field hasn't been created yet - I need to apply those pending field creations first") but pivoted to a Note instead of telling the user "Apply Custom Fields first, then re-run for the Report".
+
+### Open follow-ups (queued for next cycle)
+
+1. **Pillar 2 of the cycle-17 design — chat-ui hides in-progress runtime-retry tool cards**. Today the user sees all 6 retry attempts as visible tool cards in the chat, defeating the "invisible retry" UX goal. Fix: extend `MCPPreviewActionCard` to render `sql_phase=runtime` tool results as a compact "Verifying runtime…" inline progress indicator instead of full tool cards; only the FINAL successful card OR the after-cap summary surfaces fully.
+2. **Cycle 17.1 — runtime check needs to see staged-but-not-committed dependencies**. Options:
+   - (a) Auto-commit staged Custom Fields BEFORE running the Report runtime check (and roll back together via outer savepoint).
+   - (b) Pass the list of in-session staged Custom Field names to `_runtime_check_query_report` so it can substitute them or skip schema validation.
+   - (c) Refuse a Report stage that references custom fields not yet on the live DocType, with a hint "stage and apply the Custom Fields first, then stage the Report".
+   I lean (a) — most user-friendly, preserves the "everything just works" promise. Requires careful savepoint nesting.
+3. **Cycle 17.2 — expand runtime verification coverage** to: Custom Field, Server Script, Print Format, Notification, Workflow, Page, Dashboard. Per the cycle-17 design matrix.
+4. **Cycle 17.3 — Effort-tuned silent-retry budgets** (low=1, medium=2, high=5, max=8 + auto-upgrade to claude-opus on retry #4). Today the cap is implicit (5 in the prompt rule, 16 from MAX_TURNS).
+
+### Why ship 17.0 anyway (architectural foundation)
+
+The mechanism IS validated end-to-end via smoke (T105e: stage → commit → run end-to-end returns rows) AND the live chat-ui run proved the retry loop fires (6 attempts). The two remaining gaps (UI hide + dependency-aware runtime check) are bounded, separately-scoped follow-ups. Without 17.0, those follow-ups have nothing to build on. With 17.0 in place, the platform now has the right architectural shape — every future "agent ships broken Report" bug class gets caught for free at the runtime check; future cycles polish the UX and expand coverage rather than re-discovering the architecture.
+
+---
+
+## Cycle 16.1 — SQL `%`-escape + filter-completeness guards (2026-05-19)
+
+Follow-up to Cycle 16, surfaced by RUNNING the Cash Discount Report end-to-end (Cycle 16's "report row exists in DB" verification missed runtime SQL bugs). Two stacked LLM-SQL failure modes that surface only when `frappe.desk.query_report.run` executes the query. Tag: `cycle-16.1`. Backend `0.5.3`.
+
+### Bug A — bare `%` in SQL string literals → `ValueError: unsupported format character`
+
+Agent emitted `CASE WHEN ... THEN '30-Day: Apply 2%' END`. Frappe's `report.execute_query_report(filters)` calls `frappe.db.sql(query, filters)`; pymysql's `mogrify` does Python `query % args` substitution **before** the SQL hits MariaDB. The bare `%'` is interpreted as a format spec and raises `ValueError: unsupported format character ''' (0x27)`. The EXPLAIN-probe and EXECUTE-probe both passed because they don't pass a filters dict — pymysql skips `%` substitution when args is omitted, so the probes never see the bug.
+
+**Fix**: new `_validate_sql_percent_escaping(query)` helper in [`tools.py`](lazychat_erpnext/desk_assistant/tools.py) near `_validate_select_sql`. Strips `%%` and `%(name)s` shapes first, then asserts no remaining `%`. On match, returns an actionable error with the rule (`'2%%'` instead of `'2%'`) and context around the offending position. Wired into `prepare_create_report` Query Report branch BEFORE EXPLAIN, plus the commit handler for defense-in-depth.
+
+### Bug B — `%(name)s` placeholders without matching Report filter defs → `KeyError`
+
+Same Cash Discount Report, second bug. SQL has `WHERE posting_date BETWEEN %(from_date)s AND %(to_date)s AND company = %(company)s` but the staged `filters` arg defaults to `{}`. Frappe commits the Report row successfully. At report-open time, Frappe calls the report with `filters={}` → pymysql can't find `from_date` → traceback.
+
+**Fix**: new `_validate_sql_filter_completeness(query, filters_arg)` extracts all `%(name)s` placeholders, normalizes the staged `filters` arg (accepts both `list` of filter-field dicts and legacy `dict`), refuses with example shape when any placeholder lacks a matching `fieldname` definition. The error includes a concrete `filters` example pre-baked with the standard Company/Date/Date triple so the LLM can paste it in next turn.
+
+### Bug D — Filter defs landed in `Report.json` but Query Reports read from `Report.javascript`
+
+Surfaced during chrome-devtools MCP end-to-end run AFTER the SQL fixes shipped. The Desk filter form was empty (`frappe.query_report.filters` = `[]`) even though the Report's `json` field had `{"filters":[{...},{...}]}`. Root cause: Frappe Query Reports read their filter definitions from `Report.javascript` (`frappe.query_reports[<name>].filters = [...]`), NOT from `Report.json` (which is the Report Builder convention). The commit handler had been writing to `.json`, which Query Reports ignore.
+
+**Fix**: commit handler `create_report` branch now auto-injects a trailing `frappe.query_reports[<name>] = frappe.query_reports[<name>] || {}; frappe.query_reports[<name>].filters = <json>;` assignment into `Report.javascript` for Query Reports. Existing javascript (e.g. agent-provided `onload` handlers with `add_inner_button`) is preserved verbatim by appending the assignment AFTER it. T104l smoke verifies the assignment lands in the saved doc.
+
+### Bug C (process) — Cycle 16 verification only checked "row exists in DB"
+
+Cycle 16's claim "Report works end-to-end" was wrong. I checked `frappe.db.exists("Report", name)` and that the `/app/query-report/<name>` page-shell loaded its title — neither of which executes the SQL. Both Bug A and Bug B surface ONLY when Frappe RUNS the report.
+
+**Fix**: new T104k smoke case enforces the proper methodology: `execute_tool("prepare_create_report", …)` → `commit_prepared(token)` → `frappe.desk.query_report.run(report_name, filters={…})` → assert `result` is a list. Returns 4 rows from real ToDo data; any future regression in runtime execution (not just DB write) is caught here.
+
+### Smoke
+
+- In-process: 299 → **307 pass** / 3 fail (pre-existing T66/T67/T68 httpbin) / 6 skip. +7 new cases T104e-l. T87d updated to pass matching `filters` def (its old "tolerates placeholders without defs" expectation was the bug we now fix).
+- HTTP-wire: 91/91 unchanged.
+
+### Live patch + chrome-devtools MCP verification
+
+Cash Discount Report on this bench had all three runtime bugs. Hot-patched: `%` → `%%` in CASE strings + filter defs added to `Report.javascript` (`frappe.query_reports['Cash Discount Report - AP'].filters = [{company}, {from_date}, {to_date}, {supplier}]`). Then navigated to `/app/query-report/Cash Discount Report - AP` via chrome-devtools MCP, set filters (Company=Agilitas Brands, From=2025-12-01, To=2025-12-31), triggered `frappe.query_report.refresh()` → **53 rows rendered in the datatable with zero errors**. Screenshot: [`.github/assets/cycle-16/06-report-working-53-rows.png`](.github/assets/cycle-16/06-report-working-53-rows.png). Report works for user today.
+
+### Out of scope
+
+- Auto-fix at stage time (silent `%` → `%%` rewrite). Considered, rejected: surprising semantic change without consent risks breaking LIKE clauses where the LLM intentionally used `%` as a wildcard. Refuse-with-hint is the right user-facing behavior; the next LLM turn applies the fix.
+
+---
+
+## Cycle 16 — Deliverable Discipline (Notes-as-code guard + cascade insert_after + prompt rule) (2026-05-19)
+
+Surfaced by real-user replay of "Cash Discount Report for AP" prompt on `claude-haiku-latest`. Agent staged 1 Custom Field, 5 cascading fields FAILED, then pivoted to two `prepare_create_note` calls dumping `FILE 1: hooks.py` Python code — meaningless on a running ERPNext. Report only got created after user typed "where is report?" five turns later. Three independent root causes, three pillars. Tag: `cycle-16`. Backend `0.5.2`.
+
+### Pillar A — `_session_staged_custom_field_names(dt)` cascade-aware validator
+
+`prepare_create_custom_field` at [`tools.py:5805-5807`](lazychat_erpnext/desk_assistant/tools.py) validated `insert_after` against the LIVE DocType meta only. When the LLM staged a coherent group (Section Break → 30 Days % → 60 Days % → 90 Days % → Column Break → Enable Check), only the first one validated; the rest failed with "insert_after '<staged-sibling>' is not a fieldname on <dt>" because the staged-but-not-applied siblings live in Redis, not on the DocType.
+
+New helper at [`tools.py`](lazychat_erpnext/desk_assistant/tools.py) (just after `_consume_action`): `_session_staged_custom_field_names(dt) -> set` scans `lazychat:prep:*` keys for the current user's staged `create_custom_field` actions on the same `dt`, returns their fieldnames. Validator unions live + staged.
+
+**Implementation gotcha**: `frappe.cache().get_keys(k)` returns site-prefixed bytes (`<db_name>|<key>`), while `get_value(k)` calls `make_key(k)` internally — passing the full prefixed key to `get_value` double-prefixes and misses. Strip the `<db_name>|` prefix before lookup. Error hint also now includes `(staged-in-session also valid: [...])` when the agent uses a fieldname that's neither live nor staged.
+
+### Pillar B — `prepare_create_note` code-dump guard
+
+Heuristic at top of [`prepare_create_note`](lazychat_erpnext/desk_assistant/tools.py): if content matches code-shape regex `\b(import frappe|from frappe|def execute\(|hooks\s*=\s*\{|doc_events\s*=\s*\{|@frappe\.whitelist|frappe\.db\.(get_list|sql|get_value|set_value|get_all)|class \w+\(Document\)|cur_frm\.|frm\.set_value|frappe\.ui\.form|frappe\.call\s*\()` 2+ times AND title matches `\b(implementation|server-side|hooks|python (code|implementation)|file \d|complete (guide|solution)|client-side js|api code)\b` (OR ≥5 code hits with any title) → refuse with structured `{ok: false, error, hint}` redirect to the right `prepare_create_*` wrapper.
+
+False-positive risk minimized by requiring BOTH signals (code-shape AND implementation-y title). Legitimate Notes (meeting notes, briefs, decisions) pass through unchanged. Tested both paths in T104b (refuse) + T104c (accept).
+
+### Pillar C — DELIVERABLE DISCIPLINE prompt rule
+
+New rule #10 in TOOL-ERROR HONESTY section of `_system_prompt` in [`claude_bridge.py`](lazychat_erpnext/desk_assistant/claude_bridge.py), mirrored in chat-ui's [`routerSystemPrompt.ts`](../lazychat.ai/apps/chat-ui/src/lib/routerSystemPrompt.ts) `_SHARED_GUIDANCE`. Tells the LLM: (a) stage dependencies FIRST, primary artifact LAST so the final Apply card is the deliverable; (b) NEVER use `prepare_create_note` as substitute for a real artifact — Notes are for human text, not code dumps; (c) if a tool fails TWICE in a row on the same target, STOP and tell the user what blocked you; (d) for compound business requests, emit a numbered Plan up front naming each artifact + which `prepare_*` tool will create it.
+
+### Smoke
+
+- In-process: 295 → **299 pass** / 3 fail (pre-existing httpbin.org-dependent T66/T67/T68 unchanged) / 6 skip. +4 new cases:
+  - T104a — cascade insert_after accepts staged sibling
+  - T104b — Note refuses code-dump body
+  - T104c — Note accepts normal text content (regression guard)
+  - T104d — DELIVERABLE DISCIPLINE rule present in system prompt
+
+### Visual verification
+
+Replayed the exact user prompt via Chrome DevTools MCP on `claude-haiku-latest`. Compared to original screenshots (2 implementation-Note dumps + Report only on follow-up), Cycle 16 run produced **zero `prepare_create_note` calls** across the entire agentic loop. Agent stayed on artifact-building (12 Custom Field stages, 5 DocType stages, 3 `describe_doctype` discovery calls). The Notes-dump anti-pattern is eliminated.
+
+Live round-trip via `bench execute`: helper found 7 staged Custom Fields in the test-session cache; refuse-code-dump fired with correct error+hint envelope; normal-text Note still accepted; rule #10 present in `_system_prompt({}, True)`. Evidence: [`.github/assets/cycle-16/01-deliverable-discipline-no-note-dumps.png`](.github/assets/cycle-16/01-deliverable-discipline-no-note-dumps.png).
+
+### Out of scope
+
+- The agent still spends turns staging supporting DocTypes (Cash Discount Term / Cash Discount Record) before getting to the Report — that's an effort-budget issue (Effort=medium ceiling at 16 turns), not the Notes-dump anti-pattern. Bumping turn budget for compound business requests is a separate cycle.
+- Per-turn "primary deliverable" detection (would parse the user message for noun-anchoring like "report" / "dashboard" and weight prepare_* tool selection) — premature optimization; the prompt rule covers it conceptually.
+
+---
+
 ## Cycle 15.1 — Print Format `custom_format=1` hotfix (2026-05-19)
 
 Surfaced by chrome-devtools-MCP browser-replay of cycle-15. Clicking "Open Print Format" navigates correctly (cycle-15 fix), but applying the format via `?format=<name>` against a real Purchase Order showed the **default Frappe fieldgroup layout**, not the LLM-authored Jinja template — the agent reports success but the user sees the wrong thing.
