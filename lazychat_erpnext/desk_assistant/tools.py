@@ -33,6 +33,32 @@ def _doctype_url_slug(doctype: str) -> str:
     return (doctype or "").strip().lower().replace(" ", "-")
 
 
+def _exists_redirect_to_update(doctype: str, name: str, *, name_arg: str = "name") -> dict | None:
+    """If <doctype>/<name> already exists, return a structured redirect to
+    prepare_update_doc. Otherwise return None (caller proceeds with create).
+
+    Used by typed prepare_create_* wrappers as a pre-check. Returning the
+    redirect dict produces a deterministic error envelope the LLM can act
+    on (per cycle-15 — the DUPLICATE PIVOT rule mirrored in the system
+    prompt teaches the agent to use prepare_update_doc on this signal).
+    """
+    if not name or not doctype:
+        return None
+    if not frappe.db.exists(doctype, name):
+        return None
+    return {
+        "ok": False,
+        "error": f"{doctype} '{name}' already exists.",
+        "hint": (
+            f"To MODIFY the existing {doctype}, use "
+            f"prepare_update_doc(doctype='{doctype}', name='{name}', patch={{...}}) "
+            f"on the next turn (NOT another prepare_create_*). "
+            f"If you want a DIFFERENT {doctype.lower()}, choose a "
+            f"{name_arg} that doesn't conflict (current attempted: '{name}')."
+        ),
+    }
+
+
 # Cycle 13 M1.6 — prepare_attach_assets: per-file size cap + mime allowlist.
 # Files are base64-decoded at preview time; we reject anything above 5 MB to
 # keep Redis staging payloads bounded. Mime prefixes cover the typical Page
@@ -4110,8 +4136,10 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:64]
 		if not slug:
 			return {"error": "could not derive slug from title — pass `slug` explicitly"}
-		if frappe.db.exists("Lazychat Knowledge Base", slug):
-			return {"error": f"knowledge base already exists: {slug}"}
+		# Cycle 15: exists-pre-check — redirect to prepare_update_doc if KB already exists.
+		redirect = _exists_redirect_to_update("Lazychat Knowledge Base", slug, name_arg="slug")
+		if redirect:
+			return redirect
 		if is_public and "System Manager" not in frappe.get_roles():
 			return {"error": "only System Manager can publish a knowledge base (is_public=true)"}
 		if not frappe.has_permission("Lazychat Knowledge Base", "create"):
@@ -4195,17 +4223,11 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			return {"error": "no create permission on Report"}
 		if not frappe.has_permission(ref_dt, "report"):
 			return {"error": f"no report permission on {ref_dt}"}
-		# Pre-detect duplicate name so the user sees the conflict at preview
-		# time — NOT after clicking Apply and getting a commit-time
-		# IntegrityError 1062. Production bug 2026-05-08: LLM kept restaging
-		# the same name and narrating success after each Failed card.
-		if frappe.db.exists("Report", report_name):
-			return {"error": (
-				f"Report '{report_name}' already exists. To modify it, use "
-				f"prepare_update_doc({{doctype:'Report', name:{report_name!r}, "
-				f"patch:{{...}}}}). To replace, delete the existing Report "
-				f"first via prepare_delete_doc."
-			)}
+		# Cycle 15: exists-pre-check — redirect to prepare_update_doc if Report already exists.
+		# Replaces the earlier ad-hoc duplicate check with the canonical helper.
+		redirect = _exists_redirect_to_update("Report", report_name, name_arg="report_name")
+		if redirect:
+			return redirect
 		# Sample data captured by the execute probe — populated for Query
 		# Reports below, embedded in the preview response so the LLM (and
 		# the Apply card) can verify shape before commit.
@@ -4427,6 +4449,10 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		cron_format = args.get("cron_format") or ""
 		if not method:
 			return {"error": "method required (e.g. 'app.module.fn' — must be a server-side import path)"}
+		# Cycle 15: exists-pre-check — Scheduled Job Type name is derived from method; redirect if exists.
+		redirect = _exists_redirect_to_update("Scheduled Job Type", method, name_arg="method")
+		if redirect:
+			return redirect
 		valid_freqs = ("All", "Hourly", "Daily", "Daily Long", "Weekly", "Weekly Long", "Monthly", "Monthly Long", "Cron", "Annual")
 		if frequency not in valid_freqs:
 			return {"error": f"frequency must be one of: {', '.join(valid_freqs)}"}
@@ -4462,6 +4488,10 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 
 	if name == "prepare_create_number_card":
 		label = args.get("label") or args.get("name")
+		# Cycle 15: exists-pre-check — redirect to prepare_update_doc if Number Card already exists.
+		redirect = _exists_redirect_to_update("Number Card", label, name_arg="label")
+		if redirect:
+			return redirect
 		dt = args.get("doctype")
 		function = args.get("function") or "Count"
 		aggregate_field = args.get("aggregate_function_based_on") or args.get("aggregate_field") or ""
@@ -4510,6 +4540,10 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 
 	if name == "prepare_create_dashboard":
 		dashboard_name = args.get("dashboard_name") or args.get("name")
+		# Cycle 15: exists-pre-check — redirect to prepare_update_doc if Dashboard already exists.
+		redirect = _exists_redirect_to_update("Dashboard", dashboard_name, name_arg="dashboard_name")
+		if redirect:
+			return redirect
 		charts = args.get("charts") or []
 		cards = args.get("cards") or []
 		module = args.get("module") or ""
@@ -4566,6 +4600,8 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 	# ------------------------------------------------------------------
 
 	if name == "prepare_create_calendar_event":
+		# Cycle 15: Event has hash autoname; no deterministic exists-check possible.
+		# Skipping the DUPLICATE PIVOT pre-check for this wrapper.
 		subject = (args.get("subject") or "").strip()
 		starts_on = args.get("starts_on")
 		ends_on = args.get("ends_on")
@@ -4646,6 +4682,15 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		title = (args.get("title") or "").strip()
 		content = args.get("content") or ""
 		public = bool(args.get("public"))
+		# Cycle 15: exists-pre-check — redirect to prepare_update_doc if a Note
+		# with the same title already exists. Note autonames by hash; we search
+		# by title field to detect duplicates deterministically.
+		if title and frappe.db.exists("Note", {"title": title}):
+			_note_name = frappe.db.get_value("Note", {"title": title}, "name")
+			redirect = _exists_redirect_to_update("Note", _note_name, name_arg="title")
+			if redirect:
+				redirect["error"] = f"Note with title '{title}' already exists."
+				return redirect
 		# M1.7 — universal validator on typed create (runs on args before field checks).
 		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 		_settings_typ = get_lazychat_settings()
@@ -4802,6 +4847,10 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 
 	if name == "prepare_create_print_format":
 		pf_name = (args.get("name") or "").strip()
+		# Cycle 15: exists-pre-check — redirect to prepare_update_doc if Print Format already exists.
+		redirect = _exists_redirect_to_update("Print Format", pf_name, name_arg="name")
+		if redirect:
+			return redirect
 		doc_type = args.get("doc_type")
 		print_format_type = args.get("print_format_type") or "Jinja"
 		html = args.get("html") or ""
@@ -4906,6 +4955,10 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 
 	if name == "prepare_create_email_template":
 		tpl_name = (args.get("name") or "").strip()
+		# Cycle 15: exists-pre-check — redirect to prepare_update_doc if Email Template already exists.
+		redirect = _exists_redirect_to_update("Email Template", tpl_name, name_arg="name")
+		if redirect:
+			return redirect
 		subject = args.get("subject") or ""
 		response = args.get("response") or ""
 		use_html = bool(args.get("use_html") if args.get("use_html") is not None else True)
@@ -5184,6 +5237,18 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		disabled = bool(args.get("disabled"))
 		if not dt or not track_field:
 			return {"error": "document_type and track_field required"}
+		# Cycle 15: exists-pre-check — redirect if Milestone Tracker for this dt+field already exists.
+		if dt and track_field and frappe.db.exists("Milestone Tracker", {"document_type": dt, "track_field": track_field}):
+			_mt_name = frappe.db.get_value("Milestone Tracker", {"document_type": dt, "track_field": track_field}, "name")
+			if _mt_name:
+				return {
+					"ok": False,
+					"error": f"Milestone Tracker for {dt}.{track_field} already exists (name={_mt_name!r}).",
+					"hint": (
+						f"To MODIFY it, use prepare_update_doc(doctype='Milestone Tracker', "
+						f"name={_mt_name!r}, patch={{...}})."
+					),
+				}
 		if not frappe.db.exists("DocType", dt):
 			return {"error": f"document_type '{dt}' does not exist"}
 		if not frappe.has_permission("Milestone Tracker", "create"):
@@ -5322,10 +5387,13 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		public = bool(args.get("public"))
 		if not title:
 			return {"error": "title required"}
-		# Email Group autonames from title — refuse if the same title
-		# already has a row.
+		# Cycle 15: exists-pre-check — Email Group autonames from title; redirect if already exists.
 		if frappe.db.exists("Email Group", {"title": title}):
-			return {"error": f"Email Group with title '{title}' already exists"}
+			_eg_name = frappe.db.get_value("Email Group", {"title": title}, "name")
+			redirect = _exists_redirect_to_update("Email Group", _eg_name, name_arg="title")
+			if redirect:
+				redirect["error"] = f"Email Group with title '{title}' already exists."
+				return redirect
 		if not frappe.has_permission("Email Group", "create"):
 			return {"error": "no create permission on Email Group"}
 		token = _stage_action(
@@ -5692,6 +5760,21 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		fieldname = (args.get("fieldname") or "").strip()
 		if not dt:
 			return {"error": "dt required (target DocType to attach the field to)"}
+		# Cycle 15: exists-pre-check — Custom Field has composite key (dt + fieldname).
+		# Use frappe.db.exists with filters; no _exists_redirect_to_update helper since
+		# the name is not known yet (fieldname may be auto-derived from label).
+		if dt and fieldname and frappe.db.exists("Custom Field", {"dt": dt, "fieldname": fieldname}):
+			_cf_name = frappe.db.get_value("Custom Field", {"dt": dt, "fieldname": fieldname}, "name")
+			return {
+				"ok": False,
+				"error": f"Custom Field '{fieldname}' on doctype '{dt}' already exists.",
+				"hint": (
+					f"To modify it, use prepare_update_doc(doctype='Custom Field', "
+					f"name={_cf_name!r}, patch={{...}}). "
+					f"Lookup the existing name with get_value(doctype='Custom Field', "
+					f"filters={{\"dt\":\"{dt}\", \"fieldname\":\"{fieldname}\"}}, fieldname='name')."
+				),
+			}
 		if not label:
 			return {"error": "label required"}
 		if not insert_after:
@@ -5790,6 +5873,9 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		if not cs_name:
 			h = hashlib.sha1(script.encode("utf-8")).hexdigest()[:6]
 			cs_name = f"{dt} {view} (lazychat {h})"
+		# Cycle 15: Client Script uses a suffix-loop to avoid collisions rather
+		# than the DUPLICATE PIVOT redirect — a new script body should always
+		# be staged as a new script (no meaningful "update existing" flow here).
 		# Avoid name collisions: if a Client Script with this name already
 		# exists, suffix -2, -3, … so the new staged action can commit.
 		base_name = cs_name
@@ -5844,15 +5930,10 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		if not title:
 			return {"ok": False, "error": "title is required.", "hint": "e.g. 'MD Dashboard'"}
 		page_name = args.get("page_name") or frappe.scrub(title).replace("_", "-")
-		if frappe.db.exists("Page", page_name):
-			return {
-				"ok": False,
-				"error": f"Page '{page_name}' already exists.",
-				"hint": (
-					f"Use `prepare_update_doc({{doctype: 'Page', name: '{page_name}', patch: {{...}}}})` "
-					f"to modify it, or pick a different page_name."
-				),
-			}
+		# Cycle 15: exists-pre-check — redirect to prepare_update_doc if Page already exists.
+		redirect = _exists_redirect_to_update("Page", page_name, name_arg="page_name")
+		if redirect:
+			return redirect
 		content = args.get("content") or ""
 		style = args.get("style") or ""
 		script = args.get("script") or ""
@@ -5991,6 +6072,11 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		title = (args.get("title") or "").strip()
 		if not title:
 			return {"ok": False, "error": "title is required."}
+		# Cycle 15: exists-pre-check — Workspace name is frappe.scrub(title); redirect if exists.
+		ws_name = frappe.scrub(title) if title else None
+		redirect = _exists_redirect_to_update("Workspace", ws_name, name_arg="title")
+		if redirect:
+			return redirect
 		cards = args.get("cards") or []
 		charts = args.get("charts") or []
 		shortcuts = args.get("shortcuts") or []
@@ -6056,12 +6142,10 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			return {"ok": False, "error": "name is required.", "hint": "e.g. 'get_revenue_mtd'"}
 		if not script:
 			return {"ok": False, "error": "script is required."}
-		if frappe.db.exists("Server Script", ss_name):
-			return {
-				"ok": False,
-				"error": f"Server Script '{ss_name}' already exists.",
-				"hint": f"Use prepare_update_doc(doctype='Server Script', name='{ss_name}', patch={{script: '...'}}) to modify it.",
-			}
+		# Cycle 15: exists-pre-check — redirect to prepare_update_doc if Server Script already exists.
+		redirect = _exists_redirect_to_update("Server Script", ss_name, name_arg="name")
+		if redirect:
+			return redirect
 		# Auto-derive api_method when omitted: lazychat_erpnext.dashboards.<scrubbed_name>.
 		if not api_method:
 			api_method = f"lazychat_erpnext.dashboards.{frappe.scrub(ss_name)}"

@@ -777,6 +777,12 @@ For ALL prepare_* tools:
 7. ANTI-LOOP: if a tool call has failed twice in a row with the SAME error, STOP staging
    and tell the user what's blocking. Do NOT keep re-staging the same broken thing in the
    hope it works the third time.
+8. DUPLICATE PIVOT — If a typed `prepare_create_X` returns "already exists" OR a commit
+   returns IntegrityError 1062 (duplicate primary key), DO NOT retry the same create. The
+   doc EXISTS already. Switch to `prepare_update_doc(doctype='X', name='<name>',
+   patch={...})` on the next turn to modify it. If the user explicitly asked for a NEW
+   doc, choose a different name/label/title that doesn't conflict. Never call the same
+   `prepare_create_X` again with the same name after an "already exists" error.
 
 For unfamiliar doctypes, call describe_doctype first to learn the field schema before staging a create or update.
 For workflow actions, call list_workflow_actions first to learn which actions are valid from the current state.

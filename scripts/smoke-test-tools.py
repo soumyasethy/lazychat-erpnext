@@ -3874,5 +3874,114 @@ def run():
 	except Exception as _e:
 		record(_ok("T103m _retrieve_action wrong user", False, str(_e)[:200]))
 
+	# ─── Cycle 15 — Duplicate-create pivot ────────────────────────────────────────
+	print("\n=== Cycle 15 — Duplicate-create pivot ===")
+
+	# T103f: prepare_create_print_format with existing name returns redirect to update
+	try:
+		from lazychat_erpnext.desk_assistant.tools import execute_tool as _exec_t103f
+		pf_name_t103f = "Lazychat Smoke PF T103f"
+		# Setup: ensure it exists
+		if not frappe.db.exists("Print Format", pf_name_t103f):
+			frappe.get_doc({
+				"doctype": "Print Format", "name": pf_name_t103f, "doc_type": "Note",
+				"print_format_type": "Jinja", "html": "<p>x</p>",
+			}).insert(ignore_permissions=True)
+			frappe.db.commit()  # nosemgrep: frappe-manual-commit -- smoke setup
+		try:
+			result = _exec_t103f("prepare_create_print_format", {
+				"name": pf_name_t103f, "doc_type": "Note", "html": "<p>y</p>",
+				"print_format_type": "Jinja",
+			})
+			err = (result.get("error") or "") + " " + (result.get("hint") or "")
+			ok = (
+				result.get("ok") is False
+				and "already exists" in err.lower()
+				and "prepare_update_doc" in err
+			)
+			record(_ok("T103f prepare_create_print_format duplicate -> redirect", ok,
+					  repr(result)[:200]))
+		finally:
+			if frappe.db.exists("Print Format", pf_name_t103f):
+				frappe.delete_doc("Print Format", pf_name_t103f, ignore_permissions=True, force=True)
+				frappe.db.commit()  # nosemgrep: frappe-manual-commit -- smoke cleanup
+	except Exception as _e:
+		record(_ok("T103f prepare_create_print_format duplicate -> redirect", False, str(_e)[:200]))
+
+	# T103g: prepare_create_note with duplicate title returns redirect to update
+	try:
+		from lazychat_erpnext.desk_assistant.tools import execute_tool as _exec_t103g
+		title_t103g = "Lazychat Smoke Note T103g"
+		# Setup: ensure it exists
+		_note_name_t103g = None
+		if not frappe.db.exists("Note", {"title": title_t103g}):
+			_note_doc = frappe.get_doc({"doctype": "Note", "title": title_t103g, "content": "<p>orig</p>"})
+			_note_doc.insert(ignore_permissions=True)
+			_note_name_t103g = _note_doc.name
+			frappe.db.commit()  # nosemgrep: frappe-manual-commit -- smoke setup
+		else:
+			_note_name_t103g = frappe.db.get_value("Note", {"title": title_t103g}, "name")
+		try:
+			result = _exec_t103g("prepare_create_note", {"title": title_t103g, "content": "<p>dup</p>"})
+			err = (result.get("error") or "") + " " + (result.get("hint") or "")
+			ok = (
+				result.get("ok") is False
+				and "already exists" in err.lower()
+				and "prepare_update_doc" in err
+			)
+			record(_ok("T103g prepare_create_note duplicate title -> redirect", ok,
+					  repr(result)[:200]))
+		finally:
+			if _note_name_t103g and frappe.db.exists("Note", _note_name_t103g):
+				frappe.delete_doc("Note", _note_name_t103g, ignore_permissions=True, force=True)
+				frappe.db.commit()  # nosemgrep: frappe-manual-commit -- smoke cleanup
+	except Exception as _e:
+		record(_ok("T103g prepare_create_note duplicate title -> redirect", False, str(_e)[:200]))
+
+	# T103h: prepare_create_dashboard with duplicate name returns redirect to update
+	try:
+		from lazychat_erpnext.desk_assistant.tools import execute_tool as _exec_t103h
+		db_name_t103h = "Lazychat Smoke Dashboard T103h"
+		# Setup: ensure it exists — Dashboard requires at least one chart child row.
+		_existing_chart = frappe.db.get_value("Dashboard Chart", {}, "name")
+		if not _existing_chart:
+			record(_ok("T103h prepare_create_dashboard duplicate -> redirect", None,
+					  "skip: no Dashboard Chart rows found on this site"))
+		else:
+			if not frappe.db.exists("Dashboard", db_name_t103h):
+				_db_doc = frappe.get_doc({"doctype": "Dashboard", "dashboard_name": db_name_t103h})
+				_db_doc.append("charts", {"chart": _existing_chart, "width": "Full"})
+				_db_doc.insert(ignore_permissions=True)
+				frappe.db.commit()  # nosemgrep: frappe-manual-commit -- smoke setup
+			try:
+				result = _exec_t103h("prepare_create_dashboard", {
+					"dashboard_name": db_name_t103h,
+					"charts": [{"chart": _existing_chart}],
+				})
+				err = (result.get("error") or "") + " " + (result.get("hint") or "")
+				ok = (
+					result.get("ok") is False
+					and "already exists" in err.lower()
+					and "prepare_update_doc" in err
+				)
+				record(_ok("T103h prepare_create_dashboard duplicate -> redirect", ok,
+						  repr(result)[:200]))
+			finally:
+				if frappe.db.exists("Dashboard", db_name_t103h):
+					frappe.delete_doc("Dashboard", db_name_t103h, ignore_permissions=True, force=True)
+					frappe.db.commit()  # nosemgrep: frappe-manual-commit -- smoke cleanup
+	except Exception as _e:
+		record(_ok("T103h prepare_create_dashboard duplicate -> redirect", False, str(_e)[:200]))
+
+	# T103i: _exists_redirect_to_update helper: non-existent doc returns None (no redirect)
+	try:
+		from lazychat_erpnext.desk_assistant.tools import _exists_redirect_to_update as _ert
+		result_none = _ert("Note", "definitely-does-not-exist-T103i-xyz-abc")
+		ok = result_none is None
+		record(_ok("T103i _exists_redirect_to_update returns None for missing doc", ok,
+				  repr(result_none)[:100]))
+	except Exception as _e:
+		record(_ok("T103i _exists_redirect_to_update returns None for missing doc", False, str(_e)[:200]))
+
 	print(f"\n=== {results['pass']} pass, {results['fail']} fail, {results['skip']} skip ===")
 	return results
