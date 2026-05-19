@@ -1189,6 +1189,30 @@ The smoke gates exist to catch drift between schema, implementation, and live be
 
 ---
 
+## Cycle 15 — Apply-path hardening (2026-05-19)
+
+Real-user transcript on `claude-haiku-latest`: agent stuck looping on a Print Format creation. Four root causes diagnosed and fixed in one cycle.
+
+| Bug | Fix | Where |
+|---|---|---|
+| **URL slug 404** on `prepare_create_*` Apply | New `_doctype_url_slug()` helper replaces `frappe.scrub()` in commit-response `link`; `Print Format` now → `print-format` (hyphen), not `print_format` (underscore) | `tools.py` |
+| **Agent loops on duplicate-create** instead of switching to update | New `_exists_redirect_to_update()` helper pre-checks 14 typed `prepare_create_*` wrappers; returns structured `prepare_update_doc` hint on duplicate | `tools.py` |
+| **`PREP_TTL_SEC = 300`** too short for multi-turn loops | Bumped to 1800 (30 min); `_retrieve_action` refactored to distinguish malformed / expired-or-consumed / wrong-user with actionable messages | `tools.py` |
+| **Agent emits ghost CTAs** ("Click Apply" with no card attached) | `MAX_TURNS` 8 → 16; new **CTA HONESTY** + **DUPLICATE PIVOT** rules in system prompt (mirrored chat-ui); ghost-CTA detection in `agentRunner.ts` surfaces an inline warning | `claude_bridge.py` + `agentRunner.ts` |
+
+### End-to-end browser replay
+
+Verified `claude-haiku-latest` with the exact transcript that triggered the original bug. Full evidence in [`.github/assets/cycle-15/`](.github/assets/cycle-15/) including the [browser-replay result writeup](docs/superpowers/specs/2026-05-19-cycle-15-browser-replay-result.md).
+
+<table>
+<tr><td align="center"><img src=".github/assets/cycle-15/02-apply-card-staged.png" alt="Apply card after agent stages Print Format" width="100%"/><br/><sub><b>1.</b> Agent stages <code>prepare_create_print_format</code> (after 3 Jinja-template retries — bounded by <code>MAX_TURNS = 16</code> bump in Bug 4)</sub></td><td align="center"><img src=".github/assets/cycle-15/03-applied-with-open-button.png" alt="Applied with Open Print Format button" width="100%"/><br/><sub><b>2.</b> <code>Applied · create_print_format</code> + Open Print Format link with corrected hyphen URL: <code>/app/print-format/Purchase%20Order%20-%20Agilitas</code></sub></td></tr>
+<tr><td align="center" colspan="2"><img src=".github/assets/cycle-15/04-print-format-page-loaded-no-404.png" alt="Print Format page loaded — no 404" width="100%"/><br/><sub><b>3.</b> Print Format page loads at <code>/app/print-format/Purchase%20Order%20-%20Agilitas</code> — 200 OK, no <em>"Page print_format not found"</em>. This is the Bug 1 fix end-to-end.</sub></td></tr>
+</table>
+
+**Smoke gates:** in-process 283 → 293 (+10 new T103a-T103o cases, zero new failures), HTTP-wire 91/91 unchanged, chat-ui vitest 472 → 475 (+3 ghost-CTA detection). Spec: [docs/superpowers/specs/2026-05-16-cycle-15-apply-path-hardening-design.md](docs/superpowers/specs/2026-05-16-cycle-15-apply-path-hardening-design.md).
+
+---
+
 ## Roadmap
 
 | Cycle | Status | Theme |
@@ -1203,6 +1227,7 @@ The smoke gates exist to catch drift between schema, implementation, and live be
 | 11 M1-M4 — UX hardening | ✅ done | CommitCard, stage-and-redirect prefill, structured SQL gate, live tool progress |
 | 12 M1-M2 — Critic coverage expansion | ✅ done | Critic now grades 12 prepare_* tools (helper-extracted) |
 | 13 — README rewrite | 🚧 in progress | This document |
+| **15 — Apply-path hardening** | ✅ done | **URL slugs · duplicate-pivot · token TTL · turn budget (this section above)** |
 | Future — GitHub Actions CI badges, per-tool deep-dive docs, multi-language | 📅 deferred | |
 
 ---
