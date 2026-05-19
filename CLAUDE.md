@@ -545,6 +545,35 @@ When debugging *"my report URL gave 404 even though the chat said it was
 created"*: confirm the chat-ui bundle was rebuilt after this fix landed
 (`?v=` query in iframe URL should be > `1778066844`).
 
+## Cycle 15 — Apply-path hardening (URL slug · duplicate pivot · token TTL · turn budget) (2026-05-16)
+
+Triggered by real-user transcript on `claude-haiku-latest`: agent stuck in a 5-failure loop creating a Print Format. Four root causes diagnosed and fixed in one cycle. Tag: `cycle-15`. Backend `0.5.0`, chat-ui `0.2.0`.
+
+### Fixes
+
+1. **URL slug 404 after Apply** ([tools.py](lazychat_erpnext/desk_assistant/tools.py)) — `commit_prepared_action`'s response `link` used `frappe.scrub(doc.doctype)` (returns `print_format` with underscore). Frappe Desk routes use `print-format` (hyphen). New helper `_doctype_url_slug(doctype)` lowercases + replaces spaces with hyphens. Applied at 4 call sites including the commit-response link builder, the preview `open_url`, the revert handler, and the form-prefill URL pattern. Report's special-case branch and Workspace's hyphen-replace pattern intentionally untouched (they have their own conventions).
+
+2. **Duplicate-create loop** ([tools.py](lazychat_erpnext/desk_assistant/tools.py)) — typed `prepare_create_*` wrappers now pre-check existence with new helper `_exists_redirect_to_update(doctype, name, name_arg=)`. On duplicate, returns `{ok: false, error: "...already exists", hint: "use prepare_update_doc"}` — agent gets actionable feedback at preview time instead of looping on IntegrityError 1062 at commit. Applied to 14 wrappers; Calendar Event + Client Script skipped (hash autoname + suffix-loop respectively).
+
+3. **Token TTL too short** ([tools.py](lazychat_erpnext/desk_assistant/tools.py:14)) — `PREP_TTL_SEC` 300 → 1800 (30 min). Multi-turn agent loops survive realistic latency. `_retrieve_action` refactored to distinguish malformed (token too short) / expired-or-consumed (not in cache) / wrong-user (security boundary) with specific actionable messages. `commit_prepared` updated to propagate the structured error envelope.
+
+4. **Ghost CTAs after turn exhaustion** ([claude_bridge.py:13](lazychat_erpnext/desk_assistant/claude_bridge.py) + chat-ui) — `MAX_TURNS` 8 → 16 (matches effort=medium default). New CTA HONESTY rule in `_system_prompt` (and `routerSystemPrompt.ts` for browser-LLM): forbids emitting "Click Apply"-style text without an accompanying `prepare_*` tool call in the same turn. Chat-ui-side defensive detection in `agentRunner.ts` appends an `error` Message when the final `done` text matches the CTA regex AND no `mcpPreviewAction` is in recent messages — user sees a clear "agent ran out of turns, try again or use stronger model" instead of silent failure.
+
+### System prompt additions (TOOL-ERROR HONESTY)
+
+- **8. DUPLICATE PIVOT** — switch to `prepare_update_doc` on duplicate-create.
+- **9. CTA HONESTY** — never emit "Click Apply" without staging the action.
+
+Both mirrored in chat-ui's `routerSystemPrompt.ts` (`_SHARED_GUIDANCE`).
+
+### Smoke
+
+- In-process: 283 → **293 pass / 0 fail / 6 skip** (+10 new T103a-T103o).
+- HTTP-wire: 91/91 unchanged.
+- Chat-ui vitest: 472 → **475 passed** (+3 ghost-CTA detection cases in `agentRunner.ghostCta.test.ts`).
+
+---
+
 ## Cycle 14.5 — llm_proxy mirrors inbound HTTP method (GET pass-through for /v1/models) (2026-05-15)
 
 Backend-only fix to [`llm_proxy.handle`](lazychat_erpnext/desk_assistant/llm_proxy.py). Unblocks the chat-ui's "Fetch models" button on the BYO custom-model editor. Tag: `cycle-14.5`. Backend `0.4.2`.
