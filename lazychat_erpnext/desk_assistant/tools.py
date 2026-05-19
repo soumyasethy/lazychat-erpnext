@@ -11,7 +11,7 @@ import urllib.parse
 import frappe
 from frappe.utils import get_url as _frappe_get_url
 
-PREP_TTL_SEC = 300
+PREP_TTL_SEC = 1800  # 30 min; was 300. Multi-turn agent loops blow past 5 min.
 PREP_KEY = "lazychat:prep:"
 
 
@@ -741,18 +741,41 @@ def _stage_action(action, payload):
 	return token
 
 
-def _retrieve_action(token):
-	user = frappe.session.user
-	raw = frappe.cache().get_value(PREP_KEY + token)
+def _retrieve_action(token: str) -> dict:
+	"""Return the staged action dict on success, or a structured error dict.
+
+	Three failure modes are distinguished so the agent (and surfaced UI)
+	can produce actionable next-step guidance:
+	  - malformed: token empty or too short to be one we issued
+	  - missing/expired: token not in cache (TTL elapsed OR already consumed)
+	  - wrong-user: token belongs to a different user (security boundary)
+	"""
+	if not token or len(token) < 8:
+		return {"ok": False, "error": "Token malformed (empty or too short)."}
+	token_key = PREP_KEY + token
+	raw = frappe.cache().get_value(token_key)
 	if not raw:
-		return None
+		return {
+			"ok": False,
+			"error": (
+				"Token not found — either it expired (TTL = 30 min) OR it was "
+				"already consumed by a prior commit. Re-stage the action with "
+				"a fresh prepare_* call and try Apply again."
+			),
+		}
 	try:
 		obj = json.loads(raw if isinstance(raw, str) else raw.decode("utf-8"))
 	except Exception:
-		return None
-	if obj.get("user") != user:
-		return None
-	return obj
+		return {"ok": False, "error": "Token malformed (empty or too short)."}
+	if obj.get("user") != frappe.session.user:
+		return {
+			"ok": False,
+			"error": (
+				"Token belongs to a different user (not yours). Each preview_token "
+				"is bound to the user who staged it. Re-stage with the current user."
+			),
+		}
+	return obj  # success: the staged action dict
 
 
 def _consume_action(token):
@@ -6236,7 +6259,11 @@ def commit_prepared(token, **extras):
 	  - export_csv: extras['fields'] from the field-picker UI
 	"""
 	obj = _retrieve_action(token)
-	if not obj:
+	if not obj or obj.get("ok") is False:
+		# _retrieve_action now returns a structured error dict on failure;
+		# propagate it so the caller sees the granular message.
+		if isinstance(obj, dict) and "error" in obj:
+			return obj
 		return {"ok": False, "error": "Token not found, expired, or not yours"}
 	action = obj["action"]
 	payload = obj["payload"]
