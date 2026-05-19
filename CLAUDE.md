@@ -545,6 +545,18 @@ When debugging *"my report URL gave 404 even though the chat said it was
 created"*: confirm the chat-ui bundle was rebuilt after this fix landed
 (`?v=` query in iframe URL should be > `1778066844`).
 
+## Cycle 15.1 — Print Format `custom_format=1` hotfix (2026-05-19)
+
+Surfaced by chrome-devtools-MCP browser-replay of cycle-15. Clicking "Open Print Format" navigates correctly (cycle-15 fix), but applying the format via `?format=<name>` against a real Purchase Order showed the **default Frappe fieldgroup layout**, not the LLM-authored Jinja template — the agent reports success but the user sees the wrong thing.
+
+**Root cause:** `commit_prepared(action='create_print_format')` in [`tools.py`](lazychat_erpnext/desk_assistant/tools.py) built the doc with `print_format_type='Jinja'` and a populated `html` field, but didn't set `custom_format=1`. Frappe treats `custom_format=0` as "ignore the html field, use the default fieldgroup renderer." The html the LLM wrote sits in the DB unused.
+
+**Fix:** one line — `"custom_format": 1` added to the `values` dict in the commit handler. Verified via round-trip (`prepare_create_print_format` → commit → `frappe.get_doc().custom_format == 1`) and end-to-end via Chrome DevTools MCP: `/printview?doctype=Purchase+Order&name=PO-C-26-000002&format=Purchase+Order+-+Agilitas` now shows the LLM's header / order-details / supplier / items table / grand total instead of the default layout.
+
+Tag: `cycle-15.1`. Backend `0.5.1`. No chat-ui change.
+
+---
+
 ## Cycle 15 — Apply-path hardening (URL slug · duplicate pivot · token TTL · turn budget) (2026-05-16)
 
 Triggered by real-user transcript on `claude-haiku-latest`: agent stuck in a 5-failure loop creating a Print Format. Four root causes diagnosed and fixed in one cycle. Tag: `cycle-15`. Backend `0.5.0`, chat-ui `0.2.0`.
