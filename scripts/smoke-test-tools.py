@@ -1119,16 +1119,21 @@ def run():
 
 	# T87d: prepare_create_report Query Report — placeholder substitution.
 	# Frappe Query Reports support `%(filter_name)s` filters; the EXPLAIN
-	# probe must not trip on these. We substitute placeholders with NULL
-	# before EXPLAIN-ing so legitimate parameterized reports pass through.
+	# probe substitutes placeholders with NULL so legitimate parameterized
+	# reports pass through. Cycle 16.1 added _validate_sql_filter_completeness,
+	# so a `%(customer)s` placeholder now REQUIRES a matching filter-field
+	# definition in args["filters"] — otherwise the report would commit but
+	# fail at report-run time with `KeyError`. Test updated to pass a matching
+	# filter def.
 	r = execute_tool("prepare_create_report", {
 		"report_name": f"_lazychat_smoke_qr_param_{frappe.generate_hash(length=4)}",
 		"ref_doctype": "Customer",
 		"report_type": "Query Report",
 		"query": "SELECT name FROM `tabCustomer` WHERE name = %(customer)s LIMIT 1",
+		"filters": [{"fieldname": "customer", "label": "Customer", "fieldtype": "Link", "options": "Customer"}],
 	})
 	record(_ok(
-		"T87d prepare_create_report Query Report tolerates %(name)s placeholders",
+		"T87d prepare_create_report Query Report tolerates %(name)s placeholders with matching filter def",
 		r.get("ok") is True and bool(r.get("preview_token")),
 		f"summary={r.get('summary')!r}",
 	))
@@ -1150,11 +1155,16 @@ def run():
 	))
 
 	# T87f: prepare_create_report Script Report happy path with script body.
+	# Cycle 17.3 — in-DB Script Reports require TOP-LEVEL `columns` + `result`
+	# vars (not `def execute()`). Frappe extracts them from safe_exec locals.
 	r = execute_tool("prepare_create_report", {
 		"report_name": f"_lazychat_smoke_script_{frappe.generate_hash(length=4)}",
 		"ref_doctype": "Customer",
 		"report_type": "Script Report",
-		"script": "def execute(filters=None):\n\tcolumns = [{'label': 'Name', 'fieldname': 'name', 'fieldtype': 'Data'}]\n\tdata = [{'name': 'smoke'}]\n\treturn columns, data\n",
+		"script": (
+			"columns = [{'label': 'Name', 'fieldname': 'name', 'fieldtype': 'Data'}]\n"
+			"result = []\n"
+		),
 	})
 	record(_ok(
 		"T87f prepare_create_report Script Report stages with valid script body",
@@ -1809,15 +1819,15 @@ def run():
 	))
 
 	# T88e: Script Report happy path with safe_exec-clean body.
+	# Cycle 17.3 — in-DB Script Reports use top-level `columns` + `result`
+	# (NOT `def execute()`); safe_exec extracts them from the locals namespace.
 	r = execute_tool("prepare_create_report", {
 		"report_name": f"_lz_smoke_sr_ok_{frappe.generate_hash(length=4)}",
 		"ref_doctype": "Customer",
 		"report_type": "Script Report",
 		"script": (
-			"def execute(filters=None):\n"
-			"\tcols = [{'label': 'Name', 'fieldname': 'name', 'fieldtype': 'Data'}]\n"
-			"\tdata = frappe.db.get_list('Customer', limit=1)\n"
-			"\treturn cols, data\n"
+			"columns = [{'label': 'Name', 'fieldname': 'name', 'fieldtype': 'Data'}]\n"
+			"result = frappe.db.get_list('Customer', limit=1)\n"
 		),
 	})
 	record(_ok(
@@ -4017,6 +4027,699 @@ def run():
 				  f"has_cta_phrase={has_cta_phrase}, has_prepare_clause={has_prepare_clause}"))
 	except Exception as _e:
 		record(_ok("T103o system prompt has CTA-must-have-tool rule", False, str(_e)))
+
+	# ---------- Cycle 16: Deliverable Discipline ----------
+	# T104a: cascade-aware insert_after — staged sibling counts as valid
+	try:
+		# Pick a doctype with no existing 'lz_cycle16_a' / 'lz_cycle16_b' fields.
+		_dt_c16 = "ToDo"
+		# Pick an existing fieldname on ToDo as the initial anchor.
+		_anchor = "status"
+		# Stage the first custom field (must pick a fresh fieldname).
+		import time as _t16
+		_suffix = str(int(_t16.time()))[-6:]
+		_fn_a = f"lz_c16_a_{_suffix}"
+		_fn_b = f"lz_c16_b_{_suffix}"
+		_r_a = execute_tool("prepare_create_custom_field", {
+			"dt": _dt_c16,
+			"label": f"Lz Cycle16 A {_suffix}",
+			"fieldname": _fn_a,
+			"fieldtype": "Data",
+			"insert_after": _anchor,
+		})
+		# Now stage B with insert_after = _fn_a (staged-but-not-applied sibling).
+		_r_b = execute_tool("prepare_create_custom_field", {
+			"dt": _dt_c16,
+			"label": f"Lz Cycle16 B {_suffix}",
+			"fieldname": _fn_b,
+			"fieldtype": "Data",
+			"insert_after": _fn_a,  # this must work despite _fn_a not being on live DocType yet
+		})
+		ok_a = bool(_r_a.get("preview_token"))
+		ok_b = bool(_r_b.get("preview_token"))
+		record(_ok("T104a cascade insert_after accepts staged sibling",
+				  ok_a and ok_b,
+				  f"a_ok={ok_a}, b_ok={ok_b}, b_err={_r_b.get('error','')[:120]}"))
+	except Exception as _e:
+		record(_ok("T104a cascade insert_after accepts staged sibling", False, str(_e)))
+
+	# T104b: prepare_create_note refuses code-dump body with implementation-y title
+	try:
+		_r_note_dump = execute_tool("prepare_create_note", {
+			"title": "Cash Discount Server-Side Python Implementation",
+			"content": (
+				"# FILE 1: hooks.py\n"
+				"import frappe\n"
+				"from frappe import _\n"
+				"\n"
+				"doc_events = {\n"
+				"    'Purchase Invoice': {\n"
+				"        'after_submit': 'myapp.cash_discount.purchase_invoice.auto_populate_grn_details',\n"
+				"        'validate': 'myapp.cash_discount.purchase_invoice.validate_grn_data',\n"
+				"    }\n"
+				"}\n"
+				"\n"
+				"@frappe.whitelist()\n"
+				"def calculate_discount(supplier, amount):\n"
+				"    supplier_doc = frappe.get_doc('Supplier', supplier)\n"
+				"    return frappe.db.get_value('Supplier', supplier, 'custom_cash_discount_30_days')\n"
+			),
+		})
+		ok = (
+			_r_note_dump.get("ok") is False
+			and "Notes are for human-readable text" in (_r_note_dump.get("error") or "")
+			and "prepare_create_server_script" in (_r_note_dump.get("hint") or "")
+		)
+		record(_ok("T104b prepare_create_note refuses code-dump body",
+				  ok,
+				  f"err='{(_r_note_dump.get('error') or '')[:80]}', hint_len={len(_r_note_dump.get('hint') or '')}"))
+	except Exception as _e:
+		record(_ok("T104b prepare_create_note refuses code-dump body", False, str(_e)))
+
+	# T104c: prepare_create_note ACCEPTS normal human-text content (regression guard)
+	try:
+		import time as _t104c
+		_r_note_ok = execute_tool("prepare_create_note", {
+			"title": f"Lz Cycle16 Meeting Notes {int(_t104c.time())}",
+			"content": (
+				"Met with the vendor today to discuss Q1 cash discount terms. "
+				"They agreed to 2% net 30, 1.5% net 60. We will share the updated "
+				"contract by EOD Friday. Next steps: route through legal, then to AP."
+			),
+		})
+		ok = bool(_r_note_ok.get("preview_token")) and _r_note_ok.get("ok") is True
+		record(_ok("T104c prepare_create_note accepts normal text content",
+				  ok,
+				  f"has_token={bool(_r_note_ok.get('preview_token'))}, err='{(_r_note_ok.get('error') or '')[:80]}'"))
+	except Exception as _e:
+		record(_ok("T104c prepare_create_note accepts normal text content", False, str(_e)))
+
+	# T104d: DELIVERABLE DISCIPLINE rule present in claude_bridge system prompt
+	try:
+		from lazychat_erpnext.desk_assistant.claude_bridge import _system_prompt as _sp_c16
+		_txt_c16 = _sp_c16({}, True) or ""
+		has_rule = "DELIVERABLE DISCIPLINE" in _txt_c16
+		has_note_ban = ("prepare_create_note" in _txt_c16) and ("substitute" in _txt_c16 or "human text" in _txt_c16)
+		record(_ok("T104d DELIVERABLE DISCIPLINE rule present",
+				  has_rule and has_note_ban,
+				  f"has_rule={has_rule}, has_note_ban={has_note_ban}"))
+	except Exception as _e:
+		record(_ok("T104d DELIVERABLE DISCIPLINE rule present", False, str(_e)))
+
+	# ---------- Cycle 16.1: SQL %-escape + filter-completeness guards ----------
+	# T104e: _validate_sql_percent_escaping refuses bare % in CASE string literal
+	try:
+		from lazychat_erpnext.desk_assistant.tools import _validate_sql_percent_escaping
+		bad_sql = "SELECT CASE WHEN x <= 30 THEN '30-Day: Apply 2%' ELSE 'none' END FROM `tabFoo` WHERE name = %(name)s"
+		err = _validate_sql_percent_escaping(bad_sql)
+		record(_ok("T104e bare %% in CASE string rejected",
+				  err is not None and "bare `%`" in err and "%%" in err,
+				  f"err_present={err is not None}, msg_excerpt={(err or '')[:80]}"))
+	except Exception as _e:
+		record(_ok("T104e bare %% in CASE string rejected", False, str(_e)))
+
+	# T104f: _validate_sql_percent_escaping accepts proper escapes + placeholders
+	try:
+		from lazychat_erpnext.desk_assistant.tools import _validate_sql_percent_escaping
+		good_sql = "SELECT CASE WHEN x <= 30 THEN '30-Day: Apply 2%%' ELSE 'none' END FROM `tabFoo` WHERE name = %(name)s AND date >= %(from_date)s"
+		err = _validate_sql_percent_escaping(good_sql)
+		record(_ok("T104f proper %%-escape + %(name)s placeholders accepted",
+				  err is None,
+				  f"err={err}"))
+	except Exception as _e:
+		record(_ok("T104f proper %%-escape + %(name)s placeholders accepted", False, str(_e)))
+
+	# T104g: _validate_sql_filter_completeness refuses when filters arg empty but placeholders present
+	try:
+		from lazychat_erpnext.desk_assistant.tools import _validate_sql_filter_completeness
+		sql_with_phs = "SELECT * FROM `tabPurchase Invoice` WHERE posting_date BETWEEN %(from_date)s AND %(to_date)s AND company = %(company)s"
+		err = _validate_sql_filter_completeness(sql_with_phs, [])
+		record(_ok("T104g empty filters arg rejected when placeholders present",
+				  err is not None and "from_date" in (err or "") and "to_date" in (err or "") and "company" in (err or ""),
+				  f"err_present={err is not None}, missing_mentioned=ok"))
+	except Exception as _e:
+		record(_ok("T104g empty filters arg rejected when placeholders present", False, str(_e)))
+
+	# T104h: _validate_sql_filter_completeness accepts when each placeholder has a matching filter-field dict
+	try:
+		from lazychat_erpnext.desk_assistant.tools import _validate_sql_filter_completeness
+		sql_with_phs = "SELECT * FROM `tabPurchase Invoice` WHERE posting_date BETWEEN %(from_date)s AND %(to_date)s AND company = %(company)s"
+		complete_filters = [
+			{"fieldname": "company", "label": "Company", "fieldtype": "Link", "options": "Company"},
+			{"fieldname": "from_date", "label": "From Date", "fieldtype": "Date"},
+			{"fieldname": "to_date", "label": "To Date", "fieldtype": "Date"},
+		]
+		err = _validate_sql_filter_completeness(sql_with_phs, complete_filters)
+		record(_ok("T104h complete filter defs accepted",
+				  err is None,
+				  f"err={err}"))
+	except Exception as _e:
+		record(_ok("T104h complete filter defs accepted", False, str(_e)))
+
+	# T104i: end-to-end via prepare_create_report — bare % in CASE rejected at stage time
+	try:
+		from lazychat_erpnext.desk_assistant.tools import execute_tool
+		import time as _t104i
+		_rep_name = f"Lz Cycle16-1 Bad Report {int(_t104i.time())}"
+		_r = execute_tool("prepare_create_report", {
+			"report_name": _rep_name,
+			"ref_doctype": "ToDo",
+			"report_type": "Query Report",
+			"query": "SELECT CASE WHEN 1=1 THEN 'Apply 2%' ELSE 'none' END AS suggestion FROM `tabToDo` WHERE owner = %(owner)s",
+			"filters": [{"fieldname": "owner", "label": "Owner", "fieldtype": "Data"}],
+		})
+		ok = (_r.get("ok") is False) and (_r.get("sql_phase") == "validate") and ("bare `%`" in (_r.get("error") or ""))
+		record(_ok("T104i end-to-end: prepare_create_report rejects bare %% at stage",
+				  ok,
+				  f"ok_false={_r.get('ok') is False}, sql_phase={_r.get('sql_phase')}, has_bare_pct={'bare `%`' in (_r.get('error') or '')}"))
+	except Exception as _e:
+		record(_ok("T104i end-to-end: prepare_create_report rejects bare %% at stage", False, str(_e)))
+
+	# T104j: end-to-end via prepare_create_report — placeholders without filter defs rejected at stage
+	try:
+		from lazychat_erpnext.desk_assistant.tools import execute_tool
+		import time as _t104j
+		_rep_name = f"Lz Cycle16-1 Missing Filters Report {int(_t104j.time())}"
+		_r = execute_tool("prepare_create_report", {
+			"report_name": _rep_name,
+			"ref_doctype": "ToDo",
+			"report_type": "Query Report",
+			"query": "SELECT name FROM `tabToDo` WHERE owner = %(owner)s AND status = %(status)s",
+			# Note: NOT passing filters arg → defaults to {} → completeness guard should fire
+		})
+		ok = (_r.get("ok") is False) and (_r.get("sql_phase") == "validate") and (("owner" in (_r.get("error") or "")) or ("status" in (_r.get("error") or "")))
+		record(_ok("T104j end-to-end: prepare_create_report rejects unmatched placeholders at stage",
+				  ok,
+				  f"ok_false={_r.get('ok') is False}, sql_phase={_r.get('sql_phase')}, mentions_placeholder={('owner' in (_r.get('error') or ''))}"))
+	except Exception as _e:
+		record(_ok("T104j end-to-end: prepare_create_report rejects unmatched placeholders at stage", False, str(_e)))
+
+	# T104l: commit handler auto-injects `filters` into Report.javascript for
+	# Query Reports so Frappe's Desk renders the filter form (the json field
+	# is Report Builder convention; Query Reports ignore it). Verifies the
+	# committed Report's javascript contains the filter assignment.
+	try:
+		from lazychat_erpnext.desk_assistant.tools import execute_tool, commit_prepared
+		import time as _t104l
+		import frappe as _fr_104l
+		_rep_name = f"Lz C16-1 JS Filters {int(_t104l.time())}"
+		_stage = execute_tool("prepare_create_report", {
+			"report_name": _rep_name,
+			"ref_doctype": "ToDo",
+			"report_type": "Query Report",
+			"query": "SELECT name FROM `tabToDo` WHERE owner = %(owner)s LIMIT 5",
+			"filters": [
+				{"fieldname": "owner", "label": "Owner", "fieldtype": "Data", "reqd": 1},
+			],
+		})
+		assert _stage.get("ok") is True, f"stage failed: {_stage}"
+		_commit = commit_prepared(_stage["preview_token"])
+		assert _commit.get("ok") is True, f"commit failed: {_commit}"
+		_js = _fr_104l.db.get_value("Report", _rep_name, "javascript") or ""
+		ok = (
+			"frappe.query_reports[" in _js
+			and ".filters = " in _js
+			and '"fieldname": "owner"' in _js
+		)
+		owner_marker = '"fieldname": "owner"'
+		record(_ok("T104l commit auto-injects filters into Report.javascript",
+				  ok,
+				  f"js_len={len(_js)}, has_assign={'filters = ' in _js}, has_owner_field={owner_marker in _js}"))
+	except Exception as _e:
+		record(_ok("T104l commit auto-injects filters into Report.javascript", False, f"{type(_e).__name__}: {str(_e)[:200]}"))
+	finally:
+		try:
+			import frappe as _fr_cleanup_104l
+			if _fr_cleanup_104l.db.exists("Report", _rep_name):
+				_fr_cleanup_104l.delete_doc("Report", _rep_name, ignore_permissions=True)
+		except Exception:
+			pass
+
+	# T104k: PROPER VERIFICATION METHODOLOGY — stage → commit → RUN the report
+	# end-to-end against frappe.desk.query_report.run with real filter values.
+	# Cycle 16 originally just checked DB existence; cycle 16.1 adds this
+	# stage to catch %-escape / filter-completeness / runtime errors that
+	# only surface when the report is actually executed by Frappe.
+	try:
+		from lazychat_erpnext.desk_assistant.tools import execute_tool, commit_prepared
+		import time as _t104k
+		_rep_name = f"Lz C16-1 Run E2E {int(_t104k.time())}"
+		# Includes both %-escape (CASE WHEN with %% literal) AND placeholders
+		# with matching filter defs to exercise all guards on the happy path.
+		_stage = execute_tool("prepare_create_report", {
+			"report_name": _rep_name,
+			"ref_doctype": "ToDo",
+			"report_type": "Query Report",
+			"query": (
+				"SELECT name, status, "
+				"CASE WHEN status = 'Open' THEN 'Active 100%%' ELSE 'Inactive 0%%' END AS pct "
+				"FROM `tabToDo` WHERE owner = %(owner)s LIMIT 5"
+			),
+			"filters": [
+				{"fieldname": "owner", "label": "Owner", "fieldtype": "Data", "reqd": 1},
+			],
+		})
+		assert _stage.get("ok") is True and _stage.get("preview_token"), f"stage failed: {_stage}"
+		_commit = commit_prepared(_stage["preview_token"])
+		assert _commit.get("ok") is True, f"commit failed: {_commit}"
+		# Now actually RUN the report — this is what the original Cycle 16
+		# verification SHOULD have done. The %-escape + filter-completeness
+		# bugs only surface here, NOT at stage or commit time.
+		import frappe as _frappe
+		from frappe.desk.query_report import run as _qr_run
+		_run = _qr_run(report_name=_rep_name, filters={"owner": _frappe.session.user})
+		# Returns {"result": [...], ...} on success. Any traceback would have
+		# raised by now (the function doesn't return error envelopes — it
+		# raises ValueError / KeyError on the bugs we're guarding against).
+		rows = _run.get("result") or []
+		ok = isinstance(rows, list)
+		record(_ok("T104k end-to-end: stage → commit → RUN succeeds (no ValueError/KeyError)",
+				  ok,
+				  f"row_count={len(rows)}"))
+		# Cleanup
+		try:
+			_frappe.delete_doc("Report", _rep_name, ignore_permissions=True)
+		except Exception:
+			pass
+	except Exception as _e:
+		record(_ok("T104k end-to-end: stage → commit → RUN succeeds (no ValueError/KeyError)", False, f"{type(_e).__name__}: {str(_e)[:200]}"))
+
+	# ---------- Cycle 17.0: Pre-Apply runtime verification ----------
+	# T105a: bare % in CASE string — survives static guards (escaped as %%) but
+	# we test the OPPOSITE: confirm the runtime check actually fires when we
+	# bypass the static guard. Easiest way: query that's valid at probe time
+	# (no bare %) but fails at runtime for another reason. Use a column that
+	# pymysql can't bind: an intentionally bad placeholder name.
+	# Actually simpler: test the happy path AND test that runtime check passes
+	# a verified preview_token through.
+	try:
+		from lazychat_erpnext.desk_assistant.tools import execute_tool
+		import time as _t105a, frappe as _fr_105a
+		_rep_name = f"Lz C17 Runtime OK {int(_t105a.time())}"
+		_r = execute_tool("prepare_create_report", {
+			"report_name": _rep_name,
+			"ref_doctype": "ToDo",
+			"report_type": "Query Report",
+			"query": (
+				"SELECT name, status, "
+				"CASE WHEN status = 'Open' THEN 'Active 100%%' ELSE 'Inactive 0%%' END AS pct "
+				"FROM `tabToDo` WHERE owner = %(owner)s LIMIT 5"
+			),
+			"filters": [{"fieldname": "owner", "label": "Owner", "fieldtype": "Data"}],
+		})
+		ok = _r.get("ok") is True and bool(_r.get("preview_token"))
+		# Verify the sample_rows in the response came from REAL runtime, not
+		# NULL-substituted probe — should be empty list (no ToDo matches Data
+		# default "") OR populated with real user ToDos. Either is fine; the
+		# key is the request completed.
+		record(_ok("T105a happy path — prepare_create_report Query Report passes runtime check",
+				  ok,
+				  f"has_token={bool(_r.get('preview_token'))}, sample_row_count={len(_r.get('preview', {}).get('sample_rows', []))}"))
+	except Exception as _e:
+		record(_ok("T105a happy path — prepare_create_report Query Report passes runtime check", False, str(_e)))
+
+	# T105b: synthetic runtime failure via a query that EXPLAIN passes but
+	# pymysql crashes on at runtime. Use a query with a divide-by-zero in the
+	# WHERE clause that doesn't trigger at EXPLAIN time but does at execute
+	# time. Actually MariaDB returns NULL for div-by-zero, so it won't crash.
+	# Better: write a query that uses an undefined SQL function — MariaDB
+	# rejects at parse time, not runtime, so EXPLAIN catches it.
+	# The CLEANEST way to test the runtime path: directly call _runtime_check_query_report
+	# against a Report we know will fail at run-time. We can't easily synthesize
+	# a real runtime failure without creating a bad Report doc. Instead test the
+	# helper directly with a non-existent report (which Frappe will fail to load).
+	try:
+		from lazychat_erpnext.desk_assistant.tools import _runtime_check_query_report
+		result = _runtime_check_query_report("_lz_c17_does_not_exist", [])
+		ok = (result.get("ok") is False) and ("hint" in result) and ("traceback" in result)
+		record(_ok("T105b _runtime_check_query_report returns structured error for missing report",
+				  ok,
+				  f"ok_false={result.get('ok') is False}, has_hint={'hint' in result}, has_tb={'traceback' in result}"))
+	except Exception as _e:
+		record(_ok("T105b _runtime_check_query_report returns structured error for missing report", False, str(_e)))
+
+	# T105c: savepoint rollback works — a Query Report dry-committed during
+	# runtime check must NOT persist if either runtime check failed OR the
+	# happy path completed (since happy path also rolls back at this layer;
+	# the real persist happens at commit_prepared_action time). After T105a
+	# above, the dry-committed Report row should NOT exist in the DB.
+	try:
+		import frappe as _fr_105c
+		# T105a's report name (need to reconstruct it; since we can't see the
+		# exact ts here, just check that NO report exists with the prefix)
+		from lazychat_erpnext.desk_assistant.tools import execute_tool as _et_105c
+		import time as _t105c
+		_rep_name = f"Lz C17 Rollback Probe {int(_t105c.time())}"
+		_r = _et_105c("prepare_create_report", {
+			"report_name": _rep_name,
+			"ref_doctype": "ToDo",
+			"report_type": "Query Report",
+			"query": "SELECT name FROM `tabToDo` LIMIT 1",
+			"filters": [],
+		})
+		# Now check the Report doc does NOT exist (rolled back).
+		exists = _fr_105c.db.exists("Report", _rep_name)
+		ok = (_r.get("ok") is True) and (exists is None)
+		record(_ok("T105c savepoint rolls back dry-committed Report (no persist before commit)",
+				  ok,
+				  f"prepare_ok={_r.get('ok')}, exists_after_stage={exists}"))
+	except Exception as _e:
+		record(_ok("T105c savepoint rolls back dry-committed Report (no persist before commit)", False, str(_e)))
+
+	# T105d: _synthesize_default_filters handles each fieldtype sensibly.
+	try:
+		from lazychat_erpnext.desk_assistant.tools import _synthesize_default_filters
+		defs = [
+			{"fieldname": "from_date", "fieldtype": "Date"},
+			{"fieldname": "company", "fieldtype": "Link", "options": "Company"},
+			{"fieldname": "owner", "fieldtype": "Data"},
+			{"fieldname": "count", "fieldtype": "Int"},
+			{"fieldname": "rate", "fieldtype": "Float"},
+			{"fieldname": "enabled", "fieldtype": "Check"},
+			{"fieldname": "kind", "fieldtype": "Select", "options": "Alpha\nBeta\nGamma"},
+			{"fieldname": "static_default", "fieldtype": "Data", "default": "hello"},
+		]
+		out = _synthesize_default_filters(defs)
+		ok = (
+			out.get("from_date") and  # today
+			out.get("owner") == "" and
+			out.get("count") == 0 and
+			out.get("rate") == 0 and
+			out.get("enabled") == 0 and
+			out.get("kind") == "Alpha" and
+			out.get("static_default") == "hello"
+		)
+		record(_ok("T105d _synthesize_default_filters per-fieldtype defaults",
+				  ok,
+				  f"out_keys={sorted(out.keys())}, kind={out.get('kind')!r}, static_default={out.get('static_default')!r}"))
+	except Exception as _e:
+		record(_ok("T105d _synthesize_default_filters per-fieldtype defaults", False, str(_e)))
+
+	# T105e: end-to-end — stage → commit → RUN (this is T104k under the new
+	# runtime-verified path; verifies the runtime-verified preview_token still
+	# results in a committable Report that actually runs).
+	try:
+		from lazychat_erpnext.desk_assistant.tools import execute_tool, commit_prepared
+		import time as _t105e, frappe as _fr_105e
+		from frappe.desk.query_report import run as _qr_run_105e
+		_rep_name = f"Lz C17 E2E Verified {int(_t105e.time())}"
+		_stage = execute_tool("prepare_create_report", {
+			"report_name": _rep_name,
+			"ref_doctype": "ToDo",
+			"report_type": "Query Report",
+			"query": (
+				"SELECT name, status, "
+				"CASE WHEN status = 'Open' THEN 'Active 100%%' ELSE 'Inactive 0%%' END AS pct "
+				"FROM `tabToDo` WHERE owner = %(owner)s LIMIT 5"
+			),
+			"filters": [{"fieldname": "owner", "label": "Owner", "fieldtype": "Data"}],
+		})
+		assert _stage.get("ok") is True, f"stage: {_stage}"
+		_commit = commit_prepared(_stage["preview_token"])
+		assert _commit.get("ok") is True, f"commit: {_commit}"
+		_run = _qr_run_105e(report_name=_rep_name, filters={"owner": _fr_105e.session.user})
+		rows = _run.get("result") or []
+		ok = isinstance(rows, list)
+		record(_ok("T105e e2e: runtime-verified stage → commit → RUN works",
+				  ok,
+				  f"row_count={len(rows)}"))
+		try:
+			_fr_105e.delete_doc("Report", _rep_name, ignore_permissions=True)
+		except Exception:
+			pass
+	except Exception as _e:
+		record(_ok("T105e e2e: runtime-verified stage → commit → RUN works", False, f"{type(_e).__name__}: {str(_e)[:200]}"))
+
+	# ---------- Cycle 17.1: Dependency-aware runtime check ----------
+	# T106a: _extract_doctype_refs_from_sql pulls all `tab<Name>` table refs
+	try:
+		from lazychat_erpnext.desk_assistant.tools import _extract_doctype_refs_from_sql
+		sql = (
+			"SELECT pi.name, pri.qty FROM `tabPurchase Invoice` pi "
+			"LEFT JOIN `tabPurchase Receipt Item` pri ON pri.parent = pi.name "
+			"WHERE pi.docstatus = 1"
+		)
+		refs = _extract_doctype_refs_from_sql(sql)
+		expected = {"Purchase Invoice", "Purchase Receipt Item"}
+		ok = expected.issubset(refs)
+		record(_ok("T106a _extract_doctype_refs_from_sql finds backtick-quoted tables",
+				  ok,
+				  f"refs={sorted(refs)}"))
+	except Exception as _e:
+		record(_ok("T106a _extract_doctype_refs_from_sql finds backtick-quoted tables", False, str(_e)))
+
+	# T106b: end-to-end — stage a Custom Field, then stage a Report whose SQL
+	# references that Custom Field. MariaDB InnoDB's ALTER TABLE auto-commits
+	# (breaks savepoint), so we CAN'T transiently materialize the staged CF.
+	# Instead, cycle 17.1 returns sql_phase=dependency with a clear "apply
+	# deps first" hint + structured staged_dependencies list, so the agent
+	# can tell the user to click Apply before re-staging.
+	try:
+		from lazychat_erpnext.desk_assistant.tools import execute_tool
+		import time as _t106b, frappe as _fr_106b
+		_dt = "ToDo"
+		_suffix = str(int(_t106b.time()))[-6:]
+		_test_fn = f"lz_c17_dep_{_suffix}"
+		# Stage the Custom Field (not applied).
+		_cf_stage = execute_tool("prepare_create_custom_field", {
+			"dt": _dt,
+			"label": f"Lz C17 Dep {_suffix}",
+			"fieldname": _test_fn,
+			"fieldtype": "Data",
+			"insert_after": "status",
+		})
+		assert _cf_stage.get("preview_token"), f"CF stage failed: {_cf_stage}"
+		# Now try to stage a Report whose SQL references the not-yet-applied CF.
+		# Cycle 17.1 should REFUSE with sql_phase=dependency + structured hint.
+		_rep_name = f"Lz C17 Dep Report {_suffix}"
+		_rep_stage = execute_tool("prepare_create_report", {
+			"report_name": _rep_name,
+			"ref_doctype": _dt,
+			"report_type": "Query Report",
+			"query": f"SELECT name, {_test_fn} FROM `tab{_dt}` LIMIT 1",
+			"filters": [],
+		})
+		ok = (
+			_rep_stage.get("ok") is False
+			and _rep_stage.get("sql_phase") == "dependency"
+			and isinstance(_rep_stage.get("staged_dependencies"), list)
+			and any(
+				dep.get("fieldname") == _test_fn
+				for dep in _rep_stage.get("staged_dependencies", [])
+			)
+		)
+		record(_ok("T106b dependency-class refusal with staged_dependencies list",
+				  ok,
+				  f"ok_false={_rep_stage.get('ok') is False}, sql_phase={_rep_stage.get('sql_phase')}, "
+				  f"deps_count={len(_rep_stage.get('staged_dependencies', []))}"))
+	except Exception as _e:
+		record(_ok("T106b dependency-class refusal with staged_dependencies list", False, str(_e)))
+
+	# T106c: Report SQL references a Custom Field NOT staged in this session —
+	# runtime check correctly fails with sql_phase=runtime
+	try:
+		from lazychat_erpnext.desk_assistant.tools import execute_tool
+		import time as _t106c
+		_suffix = str(int(_t106c.time()))[-6:]
+		_rep_name = f"Lz C17 Missing Field {_suffix}"
+		_r = execute_tool("prepare_create_report", {
+			"report_name": _rep_name,
+			"ref_doctype": "ToDo",
+			"report_type": "Query Report",
+			"query": f"SELECT name, lz_c17_does_not_exist_{_suffix} FROM `tabToDo` LIMIT 1",
+			"filters": [],
+		})
+		ok = (_r.get("ok") is False)
+		record(_ok("T106c runtime check correctly fails for non-staged missing column",
+				  ok,
+				  f"ok_false={_r.get('ok') is False}, sql_phase={_r.get('sql_phase')}, error={(_r.get('error') or '')[:100]}"))
+	except Exception as _e:
+		record(_ok("T106c runtime check correctly fails for non-staged missing column", False, str(_e)))
+
+	# T106d: _check_sql_dependencies_satisfied with no staged CFs → returns
+	# None (pass-through), regardless of how many doctypes are referenced.
+	try:
+		from lazychat_erpnext.desk_assistant.tools import _check_sql_dependencies_satisfied
+		out = _check_sql_dependencies_satisfied(
+			"SELECT name FROM `tabToDo` LIMIT 1",
+			{"ToDo"},
+		)
+		record(_ok("T106d dependency check passes when no staged CFs reference the SQL",
+				  out is None,
+				  f"out={out}"))
+	except Exception as _e:
+		record(_ok("T106d dependency check passes when no staged CFs reference the SQL", False, str(_e)))
+
+	# ---------- Cycle 17.3: Pre-Apply runtime verification for Script Reports ----------
+	# In-DB Script Reports (Report.report_script field) run via safe_exec which
+	# DOES NOT auto-call `def execute()`. The script must SET top-level
+	# variables `columns` and `result` (or `data`); Frappe extracts them from
+	# the safe_exec locals after the run completes.
+
+	# T107a: happy-path Script Report passes runtime check (sets top-level vars).
+	try:
+		from lazychat_erpnext.desk_assistant.tools import execute_tool
+		import time as _t107a
+		_rep_name = f"Lz C17.3 Script OK {int(_t107a.time())}"
+		_r = execute_tool("prepare_create_report", {
+			"report_name": _rep_name,
+			"ref_doctype": "ToDo",
+			"report_type": "Script Report",
+			"script": (
+				"columns = [\n"
+				"    {'label': 'Name', 'fieldname': 'name', 'fieldtype': 'Data'},\n"
+				"    {'label': 'Status', 'fieldname': 'status', 'fieldtype': 'Data'},\n"
+				"]\n"
+				"result = []\n"
+			),
+		})
+		ok = _r.get("ok") is True and bool(_r.get("preview_token"))
+		record(_ok("T107a Script Report happy-path passes runtime check (top-level vars)",
+				  ok,
+				  f"has_token={bool(_r.get('preview_token'))}, error={(_r.get('error') or '')[:100]}"))
+	except Exception as _e:
+		record(_ok("T107a Script Report happy-path passes runtime check (top-level vars)", False, str(_e)))
+
+	# T107b: Script defining `def execute()` but never calling it (the cycle 17.2
+	# chat-ui test bug — agent followed the file-based Script Report convention
+	# instead of the in-DB top-level convention) → sql_phase=runtime with
+	# hint pointing to the correct in-DB pattern.
+	try:
+		from lazychat_erpnext.desk_assistant.tools import execute_tool
+		import time as _t107b
+		_rep_name = f"Lz C17.3 Script Null {int(_t107b.time())}"
+		_r = execute_tool("prepare_create_report", {
+			"report_name": _rep_name,
+			"ref_doctype": "ToDo",
+			"report_type": "Script Report",
+			"script": (
+				"def execute(filters=None):\n"
+				"    # Defines function but never calls it → top-level result stays None\n"
+				"    return [], []\n"
+			),
+		})
+		err = _r.get("error") or ""
+		hint = _r.get("hint") or ""
+		ok = (
+			_r.get("ok") is False
+			and _r.get("sql_phase") == "runtime"
+			and "None" in err
+			and "top-level" in hint
+		)
+		record(_ok("T107b Script Report def execute() without call → caught with in-DB pattern hint",
+				  ok,
+				  f"sql_phase={_r.get('sql_phase')}, error={(err or '')[:80]}, hint_has_top_level={'top-level' in hint}"))
+	except Exception as _e:
+		record(_ok("T107b Script Report def execute() without call → caught with in-DB pattern hint", False, str(_e)))
+
+	# ---------- Cycle 17.4: Effort-tuned silent-retry budgets ----------
+	# T108a: EFFORT_MAP entries carry runtime_silent_retry_cap per tier.
+	try:
+		from lazychat_erpnext.desk_assistant.claude_bridge import EFFORT_MAP
+		caps = {t: EFFORT_MAP[t].get("runtime_silent_retry_cap") for t in ("low", "medium", "high", "max")}
+		ok = caps == {"low": 1, "medium": 2, "high": 5, "max": 8}
+		record(_ok("T108a EFFORT_MAP has runtime_silent_retry_cap per tier (1/2/5/8)",
+				  ok,
+				  f"caps={caps}"))
+	except Exception as _e:
+		record(_ok("T108a EFFORT_MAP has runtime_silent_retry_cap per tier (1/2/5/8)", False, str(_e)))
+
+	# T108b: _system_prompt includes ACTIVE EFFORT TIER block with the cap.
+	try:
+		from lazychat_erpnext.desk_assistant.claude_bridge import _system_prompt
+		txt_h = _system_prompt({}, True, effort="high")
+		txt_m = _system_prompt({}, True, effort="medium")
+		ok = (
+			"ACTIVE EFFORT TIER: high" in txt_h
+			and "5 attempt" in txt_h
+			and "ACTIVE EFFORT TIER: medium" in txt_m
+			and "2 attempt" in txt_m
+		)
+		record(_ok("T108b _system_prompt injects live Effort + retry budget",
+				  ok,
+				  f"has_high_block={'ACTIVE EFFORT TIER: high' in txt_h}, has_medium_block={'ACTIVE EFFORT TIER: medium' in txt_m}"))
+	except Exception as _e:
+		record(_ok("T108b _system_prompt injects live Effort + retry budget", False, str(_e)))
+
+	# ---------- Cycle 17.5: Custom Field Link/Table options DocType existence check ----------
+	# T108c: Link field with hallucinated options DocType → rejected with suggestions.
+	try:
+		from lazychat_erpnext.desk_assistant.tools import execute_tool
+		import time as _t108c
+		_suffix = str(int(_t108c.time()))[-6:]
+		_r = execute_tool("prepare_create_custom_field", {
+			"dt": "ToDo",
+			"label": f"Lz C17.5 Bad Link {_suffix}",
+			"fieldname": f"lz_c17_5_bad_link_{_suffix}",
+			"fieldtype": "Link",
+			"insert_after": "status",
+			"options": "Customerr",  # typo for "Customer"
+		})
+		err = (_r.get("error") or "")
+		ok = (
+			(_r.get("preview_token") in (None, "")) and
+			"is NOT an existing DocType" in err
+		)
+		# Also check the suggestion path fires for a near-miss
+		has_suggestion = "Closest existing" in err
+		record(_ok("T108c Link field with non-existent options rejected with suggestion",
+				  ok,
+				  f"rejected={('NOT an existing' in err)}, has_suggestion={has_suggestion}"))
+	except Exception as _e:
+		record(_ok("T108c Link field with non-existent options rejected with suggestion", False, str(_e)))
+
+	# T108d: Link field with valid existing options → passes (regression guard).
+	try:
+		from lazychat_erpnext.desk_assistant.tools import execute_tool
+		import time as _t108d
+		_suffix = str(int(_t108d.time()))[-6:]
+		_r = execute_tool("prepare_create_custom_field", {
+			"dt": "ToDo",
+			"label": f"Lz C17.5 Good Link {_suffix}",
+			"fieldname": f"lz_c17_5_good_link_{_suffix}",
+			"fieldtype": "Link",
+			"insert_after": "status",
+			"options": "Customer",  # valid DocType
+		})
+		ok = bool(_r.get("preview_token")) and not _r.get("error")
+		record(_ok("T108d Link field with valid options DocType passes",
+				  ok,
+				  f"has_token={bool(_r.get('preview_token'))}, error={(_r.get('error') or '')[:80]}"))
+	except Exception as _e:
+		record(_ok("T108d Link field with valid options DocType passes", False, str(_e)))
+
+	# T107c: Script that raises a top-level runtime exception. The earlier
+	# `safe_exec` dry-run (which precedes Cycle 17.3's savepoint runtime
+	# check in the prepare_create_report flow) catches this first, surfacing
+	# it as a stage-time error WITHOUT sql_phase. That's correct — both
+	# layers eventually surface the same exception class; we only need to
+	# confirm the agent sees `ZeroDivisionError` somewhere actionable.
+	try:
+		from lazychat_erpnext.desk_assistant.tools import execute_tool
+		import time as _t107c
+		_rep_name = f"Lz C17.3 Script Raise {int(_t107c.time())}"
+		_r = execute_tool("prepare_create_report", {
+			"report_name": _rep_name,
+			"ref_doctype": "ToDo",
+			"report_type": "Script Report",
+			"script": (
+				"columns = []\n"
+				"x = 1 / 0  # top-level ZeroDivisionError\n"
+				"result = []\n"
+			),
+		})
+		err = _r.get("error") or ""
+		# Both safe_exec dry-run path (returns just {"error": ...}, no "ok" key)
+		# and savepoint runtime path (returns {"ok": False, ...}) are acceptable.
+		ok = (
+			(_r.get("ok") is False or not _r.get("preview_token"))
+			and "ZeroDivision" in err
+		)
+		record(_ok("T107c Script Report top-level runtime exception caught (safe_exec or savepoint)",
+				  ok,
+				  f"ok_field={_r.get('ok')!r}, sql_phase={_r.get('sql_phase')}, error={(err or '')[:80]}"))
+	except Exception as _e:
+		record(_ok("T107c Script Report top-level runtime exception caught (safe_exec or savepoint)", False, str(_e)))
 
 	print(f"\n=== {results['pass']} pass, {results['fail']} fail, {results['skip']} skip ===")
 	return results

@@ -546,16 +546,332 @@ def _validate_script_report_body(script):
 					f"Reports are read-only and must not enqueue jobs, send "
 					f"emails, or mutate documents."
 				)
-	# Structural sanity — must define `execute` returning two-tuple
-	if not any(
+	# Structural sanity — Cycle 17.3 — accept EITHER convention:
+	# (a) `def execute(filters=None)` — file-based Script Report style. Note:
+	#     for in-DB Script Reports, this function is defined but NEVER CALLED
+	#     by Frappe's safe_exec. The runtime check (Cycle 17.3) will catch
+	#     that as a null-result error with the in-DB pattern hint.
+	# (b) Top-level `columns` and `result` (or `data`) assignments — in-DB
+	#     Script Report style. safe_exec extracts these from locals after
+	#     running the script. This is the convention that actually works.
+	has_execute_def = any(
 		isinstance(n, _ast.FunctionDef) and n.name == "execute"
 		for n in _ast.walk(tree)
-	):
+	)
+	# Top-level assignment to `columns` or `result` or `data`.
+	has_toplevel_columns = False
+	has_toplevel_result = False
+	for n in tree.body:
+		if isinstance(n, _ast.Assign):
+			for target in n.targets:
+				if isinstance(target, _ast.Name):
+					if target.id == "columns":
+						has_toplevel_columns = True
+					elif target.id in ("result", "data"):
+						has_toplevel_result = True
+	if not has_execute_def and not (has_toplevel_columns and has_toplevel_result):
 		return (
-			"script must define a top-level `def execute(filters=None):` "
-			"returning (columns, data)"
+			"Script Report body must EITHER define `def execute(filters=None)` "
+			"(file-based convention) OR set TOP-LEVEL `columns = [...]` AND "
+			"`result = [...]` (in-DB convention — the one that actually works "
+			"for Report.report_script since safe_exec doesn't auto-call functions). "
+			"PREFERRED in-DB pattern:\n"
+			"  columns = [{'label': 'Name', 'fieldname': 'name', 'fieldtype': 'Data'}]\n"
+			"  result = frappe.db.get_list('Doctype', filters=filters or {}, fields=['name'])"
 		)
 	return None
+
+
+def _validate_sql_percent_escaping(query):
+	"""Cycle 16.1 — refuse bare `%` characters that aren't part of a
+	`%(name)s` placeholder or a `%%` escape.
+
+	Why: Frappe runs Query Reports via `frappe.db.sql(query, filters)` —
+	pymysql's `mogrify` does Python-level `query % args` substitution BEFORE
+	the SQL hits MariaDB. ANY bare `%` (e.g. inside a CASE WHEN string literal
+	like `'30-Day: Apply 2%'`) is then interpreted as a format specifier;
+	`%'` raises `ValueError: unsupported format character ''' (0x27)`.
+
+	The EXPLAIN-probe and EXECUTE-probe both pass because they don't pass a
+	filters dict — pymysql skips the `%` substitution when args is omitted.
+	So this guard is the ONLY layer that catches the bug at preview time.
+
+	Returns an error string with actionable hint on failure, or None on pass.
+	"""
+	if not query:
+		return None
+	# Strip the two valid `%`-using shapes first, then any remaining `%` is bare.
+	scrubbed = re.sub(r'%%', '\x00', query)
+	scrubbed = re.sub(r'%\(\w+\)s', '\x01', scrubbed)
+	if '%' not in scrubbed:
+		return None
+	# Find the first bare `%` for actionable hint context.
+	pos = scrubbed.index('%')
+	# Map back to original-query position (markers are 1 char, originals were
+	# 2 chars for `%%` and 5+ for `%(name)s`; we want roughly the right region).
+	context_start = max(0, pos - 40)
+	context_end = min(len(scrubbed), pos + 40)
+	context = scrubbed[context_start:context_end].replace('\x00', '%%').replace('\x01', '%(…)s').replace('\n', ' ')
+	return (
+		f"Query contains a bare `%` character (not part of `%(name)s` placeholder or `%%` escape). "
+		f"Frappe runs Query Reports via `frappe.db.sql(query, filters)`; pymysql does Python "
+		f"`query % args` substitution BEFORE the SQL hits MariaDB, so any unescaped `%` raises "
+		f"`ValueError: unsupported format character`. Escape literal `%` as `%%` — for example, "
+		f"a CASE WHEN that should emit the string `2%` must be written as `'2%%'` in the SQL. "
+		f"Context near offense: …{context}…"
+	)
+
+
+def _inject_query_report_filters_into_javascript(doc, filter_defs):
+	"""Cycle 16.1 + 17 — Query Reports read filter defs from `Report.javascript`
+	(`frappe.query_reports[<name>].filters = [...]`), NOT `Report.json`. Mutates
+	`doc.javascript` in place by appending a trailing assignment, preserving
+	any existing javascript (e.g. agent-provided `onload` handlers with inner
+	buttons). Idempotent on re-call. Caller is responsible for `doc.save()`.
+
+	Shared between the commit handler (real persistence) and Cycle 17's
+	savepoint dry-run (so the runtime check sees the same setup as a real
+	commit would).
+	"""
+	if not isinstance(filter_defs, list) or not filter_defs:
+		return
+	existing_js = (doc.javascript or "").strip()
+	filters_json = json.dumps(filter_defs)
+	report_name_json = json.dumps(doc.report_name or doc.name)
+	# Idempotency guard: skip re-injection if the assignment is already present.
+	if existing_js and (".filters = " in existing_js) and (report_name_json in existing_js):
+		# Could still be a stale assignment; for safety, append a fresh one.
+		# Frappe loads all matching assignments in source order — last wins.
+		pass
+	assignment = (
+		f"\nfrappe.query_reports[{report_name_json}] = "
+		f"frappe.query_reports[{report_name_json}] || {{}};\n"
+		f"frappe.query_reports[{report_name_json}].filters = {filters_json};\n"
+	)
+	doc.javascript = (existing_js + "\n" + assignment) if existing_js else assignment
+
+
+def _synthesize_default_filters(filter_defs):
+	"""Cycle 17 — build a realistic filters dict from filter-field definitions
+	so the runtime check can actually RUN the Query Report (not just
+	NULL-substitute the placeholders like the EXECUTE probe does).
+
+	Type-aware defaults:
+	  - Date / Datetime → today / now
+	  - Link → first existing doc of the linked doctype (or "")
+	  - Select → first option
+	  - Int / Float / Currency / Percent / Check → 0
+	  - Data / Text / anything else → ""
+
+	If the def carries a `default` value that's a string (not a JS-side
+	function expression), it's honored verbatim.
+	"""
+	out = {}
+	if not isinstance(filter_defs, list):
+		return out
+	for f in filter_defs:
+		if not isinstance(f, dict):
+			continue
+		fn = f.get("fieldname")
+		if not fn:
+			continue
+		default = f.get("default")
+		# Honor literal defaults (strings, numbers, bools) but skip JS expressions.
+		if default not in (None, "") and not (
+			isinstance(default, str) and ("frappe." in default or "(" in default)
+		):
+			out[fn] = default
+			continue
+		ft = (f.get("fieldtype") or "").strip()
+		if ft == "Date":
+			out[fn] = frappe.utils.today()
+		elif ft in ("Datetime", "Datetime "):
+			out[fn] = frappe.utils.now()
+		elif ft == "Time":
+			out[fn] = "00:00:00"
+		elif ft == "Link":
+			opt = (f.get("options") or "").strip()
+			pick = None
+			if opt and frappe.db.exists("DocType", opt):
+				try:
+					pick = frappe.db.get_value(opt, {}, "name")
+				except Exception:
+					pick = None
+			out[fn] = pick or ""
+		elif ft == "Select":
+			opts = (f.get("options") or "").strip()
+			first = (opts.splitlines() or [""])[0].strip() if opts else ""
+			out[fn] = first
+		elif ft in ("Int", "Float", "Currency", "Percent", "Check"):
+			out[fn] = 0
+		else:
+			out[fn] = ""
+	return out
+
+
+def _runtime_check_query_report(report_name, filter_defs):
+	"""Cycle 17 — exercise a freshly-INSERTed Query Report against Frappe's
+	real `frappe.desk.query_report.run` endpoint with realistic default
+	filter values. This is the path that surfaces:
+	  - pymysql `ValueError: unsupported format character` (bare `%`)
+	  - pymysql `KeyError` (placeholder without matching filter def)
+	  - role/permission failures at run-time
+	  - JOIN issues that NULL-substitution in the probes couldn't see
+	  - any future bug class — runtime is runtime.
+
+	Returns:
+	  {ok: True, sample_rows: [...], sample_columns: [...], default_filters: {...}}
+	  on success, or
+	  {ok: False, error, traceback, hint} on failure.
+
+	Caller is responsible for wrapping in a savepoint and rolling back the
+	Report INSERT — this function does NOT manage transactions.
+	"""
+	import traceback as _tb
+	default_filters = _synthesize_default_filters(filter_defs)
+	try:
+		from frappe.desk.query_report import run as _frappe_run_qr
+		result = _frappe_run_qr(report_name=report_name, filters=default_filters)
+	except Exception as e:
+		tb_text = _tb.format_exc()
+		# Map common runtime errors to actionable hints.
+		err_name = type(e).__name__
+		msg = str(e)
+		if err_name == "ValueError" and "unsupported format character" in msg:
+			hint = (
+				"Bare `%` in SQL string literal triggered pymysql `mogrify`. "
+				"Escape every literal `%` as `%%` in CASE/THEN/ELSE strings. "
+				"Example: `'30-Day: Apply 2%%'` not `'30-Day: Apply 2%'`."
+			)
+		elif err_name == "KeyError":
+			missing = msg.strip().strip("'\"") if msg else "<unknown>"
+			hint = (
+				f"Filter `{missing}` is referenced as `%({missing})s` in the SQL but "
+				"has no matching filter-field definition. Add it to the `filters` arg: "
+				'`{"fieldname":"' + missing + '","label":"' + missing + '","fieldtype":"Data"}`.'
+			)
+		elif "OperationalError" in err_name or "ProgrammingError" in err_name:
+			# Reuse cycle-7 wrapper for DB-flavored errors.
+			wrapped = _wrap_db_error(e, "", "runtime_check")
+			hint = wrapped.get("hint") or f"DB error at runtime — {msg[:200]}"
+		elif "PermissionError" in err_name:
+			hint = (
+				"Permission denied when running the report. The Report's role list "
+				"may not include the calling user's roles. Update the `roles` field."
+			)
+		else:
+			hint = (
+				f"{err_name} at runtime: {msg[:200]}. The Report INSERTed cleanly but "
+				"failed when Frappe actually ran it. Read the traceback and re-stage."
+			)
+		return {
+			"ok": False,
+			"error": f"{err_name}: {msg[:300]}",
+			"traceback": tb_text[-1500:],
+			"hint": hint,
+			"default_filters": default_filters,
+		}
+	# Cycle 17.3 — return-shape validation. `frappe.desk.query_report.run`
+	# returns `{"result": [...], "columns": [...]}` on success. Script Reports
+	# whose `def execute(filters)` returns `None` (a real bug observed in
+	# the cycle 17.2 chat-ui test) silently produce `{"result": null, "columns": []}` —
+	# no traceback, but an empty report. Surface this as `sql_phase=runtime`
+	# so the agent fixes the script instead of shipping a broken artifact.
+	if not isinstance(result, dict):
+		return {
+			"ok": False,
+			"error": f"Runtime returned unexpected envelope type: {type(result).__name__}",
+			"traceback": "",
+			"hint": "frappe.desk.query_report.run should return a dict; got something else. Likely a Frappe internal change.",
+			"default_filters": default_filters,
+		}
+	raw_result = result.get("result")
+	# Distinguish: None (script returned nothing) vs [] (script returned empty list).
+	# Empty list is FINE — the report ran but found no matching rows for the default
+	# filters. None means the script didn't return at all.
+	if raw_result is None:
+		return {
+			"ok": False,
+			"error": "Script returned `None` — no rows extracted from safe_exec",
+			"traceback": "",
+			"hint": (
+				"In-DB Script Reports (Report.report_script field) run via Frappe's "
+				"safe_exec, which DOES NOT auto-call `def execute()`. Instead, the "
+				"script must SET top-level variables: `columns = [...]` and "
+				"`result = [...]` (or `data = [...]`). Frappe extracts these from "
+				"the safe_exec locals after running. CORRECT PATTERN:\n"
+				"  columns = [\n"
+				"    {'label': 'Name', 'fieldname': 'name', 'fieldtype': 'Data'},\n"
+				"  ]\n"
+				"  result = frappe.db.get_list('ToDo', fields=['name'], filters=filters or {})\n"
+				"WRONG: `def execute(filters): return columns, data` — this defines the "
+				"function but never calls it, so `result` stays None."
+			),
+			"default_filters": default_filters,
+		}
+	# At this point raw_result is the data list (possibly empty).
+	rows = raw_result if isinstance(raw_result, list) else []
+	# Frappe's run() returns a list of dicts (with `result` key); columns may
+	# be in `columns` if defined. For Query Reports, columns are derived from
+	# the SELECT itself so the columns key may be empty.
+	columns = []
+	cols_raw = result.get("columns") or []
+	columns = [c.get("label") or c.get("fieldname") for c in cols_raw if isinstance(c, dict)]
+	if not columns and rows and isinstance(rows[0], dict):
+		columns = list(rows[0].keys())
+	return {
+		"ok": True,
+		"sample_rows": rows[:5],
+		"sample_columns": columns,
+		"sample_truncated": len(rows) > 5,
+		"default_filters": default_filters,
+		"runtime_row_count": len(rows),
+	}
+
+
+def _validate_sql_filter_completeness(query, filters_arg):
+	"""Cycle 16.1 — cross-check that every `%(name)s` placeholder in the
+	query has a matching filter field definition in args["filters"].
+
+	Why: when the agent generates SQL like
+	  `WHERE pi.posting_date BETWEEN %(from_date)s AND %(to_date)s`
+	but ships an empty `filters` arg, the Report row commits successfully —
+	but at report-open time Frappe calls `frappe.db.sql(query, {})` and
+	pymysql raises `KeyError: 'from_date'` because there's no entry to
+	substitute. User sees a traceback instead of the report.
+
+	Accepts both the canonical `filters` shape (list of filter-field dicts
+	like `[{"fieldname":"from_date","label":"From Date","fieldtype":"Date"}]`)
+	and the legacy `dict` shape (just key→default). Returns an error string
+	with an actionable example on miss, or None on pass.
+	"""
+	if not query:
+		return None
+	placeholders = set(re.findall(r'%\((\w+)\)s', query))
+	if not placeholders:
+		return None
+	defined_names = set()
+	if isinstance(filters_arg, list):
+		for f in filters_arg:
+			if isinstance(f, dict) and f.get("fieldname"):
+				defined_names.add(f["fieldname"])
+	elif isinstance(filters_arg, dict):
+		defined_names.update(filters_arg.keys())
+	missing = placeholders - defined_names
+	if not missing:
+		return None
+	example = (
+		'[{"fieldname":"company","label":"Company","fieldtype":"Link","options":"Company","reqd":1},'
+		'{"fieldname":"from_date","label":"From Date","fieldtype":"Date","reqd":1},'
+		'{"fieldname":"to_date","label":"To Date","fieldtype":"Date","reqd":1}]'
+	)
+	return (
+		f"Query has placeholders {sorted(placeholders)} but Report's `filters` arg defines "
+		f"{sorted(defined_names) or 'nothing'} — missing {sorted(missing)}. Without matching "
+		f"filter definitions, Frappe calls the report with `filters={{}}` by default and pymysql "
+		f"raises `KeyError` for the missing keys when running `query % filters`. Pass `filters` "
+		f"as a list of filter-field definitions, one per `%(name)s` placeholder. Example: {example}"
+	)
 
 
 def _probe_select_sql_explain(query):
@@ -806,6 +1122,268 @@ def _retrieve_action(token: str) -> dict:
 
 def _consume_action(token):
 	frappe.cache().delete_value(PREP_KEY + token)
+
+
+def _session_staged_custom_field_names(dt: str) -> set:
+	"""Return fieldnames of Custom Fields staged in THIS user's session for
+	the given target doctype, but not yet committed.
+
+	Cycle 16 — closes the cascade-validation gap. When the LLM stages a coherent
+	group of Custom Fields (Section Break → 30 Days % → 60 Days % → 90 Days %
+	→ Column Break → Enable Check), the validator must see each freshly-staged
+	sibling as a valid `insert_after` target — otherwise everything past the
+	first staging fails because the live DocType meta doesn't have them yet.
+
+	Scans `lazychat:prep:*` keys (bounded by PREP_TTL_SEC=1800s, so cardinality
+	stays small) and returns the union of fieldnames for matching staged actions.
+	Returns empty set on any cache miss / decode error — never raises.
+
+	Implementation note: `frappe.cache().get_keys(k)` returns FULL prefixed keys
+	(bytes, with `<db_name>|` prepended by `make_key`), while `get_value(k)`
+	calls `make_key(k)` internally — so passing the full key to get_value
+	double-prefixes and misses. Strip the `<db_name>|` prefix before lookup.
+	"""
+	out: set = set()
+	if not dt:
+		return out
+	try:
+		cache = frappe.cache()
+		# get_keys auto-appends '*' inside make_key; pass the prefix as-is.
+		keys_raw = cache.get_keys(PREP_KEY) or []
+		db_prefix_str = f"{frappe.conf.db_name}|"
+		db_prefix_bytes = db_prefix_str.encode()
+		user = frappe.session.user
+		for k in keys_raw:
+			try:
+				# Normalize to str without the db-name prefix.
+				if isinstance(k, bytes):
+					if not k.startswith(db_prefix_bytes):
+						continue
+					suffix = k[len(db_prefix_bytes):].decode()
+				else:
+					if not k.startswith(db_prefix_str):
+						continue
+					suffix = k[len(db_prefix_str):]
+				if not suffix.startswith(PREP_KEY):
+					continue
+				raw = cache.get_value(suffix, expires=True)
+				if not raw:
+					continue
+				obj = json.loads(raw if isinstance(raw, str) else raw.decode("utf-8"))
+				if obj.get("user") != user:
+					continue
+				if obj.get("action") != "create_custom_field":
+					continue
+				payload = obj.get("payload") or {}
+				if payload.get("dt") != dt:
+					continue
+				fn = (payload.get("fieldname") or "").strip()
+				if fn:
+					out.add(fn)
+			except Exception:
+				continue
+	except Exception:
+		pass
+	return out
+
+
+def _session_staged_custom_field_payloads(dt: str) -> list:
+	"""Cycle 17.1 — return FULL Custom Field payload dicts staged in this
+	user's session for the given target doctype. Sibling to
+	_session_staged_custom_field_names (which only returns fieldnames).
+
+	Used by the Report runtime-check savepoint dry-run to materialize the
+	staged Custom Fields BEFORE running the report — so SQL that references
+	a freshly-staged column doesn't fail with "Unknown column" at runtime.
+
+	Same Redis-scan + db-prefix-strip mechanics as the names helper; returns
+	empty list on any cache miss / decode error — never raises.
+	"""
+	out: list = []
+	if not dt:
+		return out
+	try:
+		cache = frappe.cache()
+		keys_raw = cache.get_keys(PREP_KEY) or []
+		db_prefix_str = f"{frappe.conf.db_name}|"
+		db_prefix_bytes = db_prefix_str.encode()
+		user = frappe.session.user
+		for k in keys_raw:
+			try:
+				if isinstance(k, bytes):
+					if not k.startswith(db_prefix_bytes):
+						continue
+					suffix = k[len(db_prefix_bytes):].decode()
+				else:
+					if not k.startswith(db_prefix_str):
+						continue
+					suffix = k[len(db_prefix_str):]
+				if not suffix.startswith(PREP_KEY):
+					continue
+				raw = cache.get_value(suffix, expires=True)
+				if not raw:
+					continue
+				obj = json.loads(raw if isinstance(raw, str) else raw.decode("utf-8"))
+				if obj.get("user") != user:
+					continue
+				if obj.get("action") != "create_custom_field":
+					continue
+				payload = obj.get("payload") or {}
+				if payload.get("dt") != dt:
+					continue
+				if (payload.get("fieldname") or "").strip():
+					out.append(payload)
+			except Exception:
+				continue
+	except Exception:
+		pass
+	return out
+
+
+_TAB_DOCTYPE_RE = re.compile(r"`tab([A-Za-z][A-Za-z0-9 _]*)`")
+
+
+def _extract_doctype_refs_from_sql(sql: str) -> set:
+	"""Cycle 17.1 — extract DocType names referenced via `tab<Name>` table
+	identifiers in a SQL query. Used to figure out which doctypes the
+	Report's runtime-check savepoint needs to materialize staged Custom
+	Fields for.
+
+	Frappe always quotes table names with backticks (`tabPurchase Invoice`),
+	so a simple regex is sufficient. Returns lowercase-irrelevant DocType
+	names. Caller should validate each via frappe.db.exists("DocType", name).
+	"""
+	if not sql:
+		return set()
+	return set(m.strip() for m in _TAB_DOCTYPE_RE.findall(sql) if m.strip())
+
+
+def _runtime_verify_report_in_savepoint(rep_values, filter_defs, javascript):
+	"""Cycle 17.0/17.3 — savepoint-wrap an INSERT of the Report doc + invoke
+	`frappe.desk.query_report.run` against synthesized default filters, then
+	roll back. Works for BOTH Query Reports (cycle 17.0) AND Script Reports
+	(cycle 17.3) since Frappe's run endpoint handles both report types via
+	the same code path.
+
+	Returns the same envelope as `_runtime_check_query_report` plus a
+	`runtime_result_dict` key carrying the underlying dict (so callers can
+	promote sample_rows into their preview response).
+
+	Caller is responsible for: validating staticly, running dep check,
+	validating safe_exec (for Script Reports). This helper handles the
+	"actually run it" layer only.
+	"""
+	import secrets as _sec, traceback as _tb
+	sp_name = f"lz_dry_{_sec.token_hex(4)}"
+	dry_doc_inserted = False
+	try:
+		frappe.db.savepoint(sp_name)
+		dry_doc = frappe.get_doc(rep_values).insert(ignore_permissions=False)
+		dry_doc_inserted = True
+		# Mirror commit-handler's filter-injection so runtime check sees the
+		# same Report.javascript as a real commit would.
+		_inject_query_report_filters_into_javascript(
+			dry_doc, filter_defs if isinstance(filter_defs, list) else None
+		)
+		if isinstance(filter_defs, list) and filter_defs:
+			dry_doc.save(ignore_permissions=False)
+		return _runtime_check_query_report(
+			dry_doc.name, filter_defs if isinstance(filter_defs, list) else []
+		)
+	except Exception as _e:
+		return {
+			"ok": False,
+			"error": f"savepoint dry-commit failed: {type(_e).__name__}: {str(_e)[:200]}",
+			"traceback": _tb.format_exc()[-1500:],
+			"hint": (
+				"The Report INSERT itself failed at the savepoint dry-commit. "
+				"Common causes: missing required fields on Report, role/module "
+				"unknown, ref_doctype permission denied. Read the traceback."
+			),
+		}
+	finally:
+		try:
+			frappe.db.rollback(save_point=sp_name)
+		except Exception:
+			pass
+
+
+def _check_sql_dependencies_satisfied(query, ref_doctypes):
+	"""Cycle 17.1 — detect when a Query Report's SQL references Custom Fields
+	that are STAGED in this user's session but NOT YET APPLIED to the live
+	DocType. The savepoint runtime check can't materialize them (MariaDB
+	InnoDB's ALTER TABLE causes implicit COMMIT, breaking the savepoint),
+	so refuse the Report stage with a clear "apply deps first" hint instead
+	of letting the agent waste 5 silent retries on an unsatisfiable bug.
+
+	Mechanism:
+	  1. For each referenced doctype, get staged Custom Field fieldnames.
+	  2. Scan the SQL for token-boundary references to those fieldnames.
+	     We use word-boundary matching to avoid false positives on
+	     substrings (e.g. `name` matching `report_name`).
+	  3. If matches found → return structured refusal with hint.
+
+	Returns None on pass, or error dict {ok:False, error, hint, sql_phase, suggestion}.
+	"""
+	if not query or not ref_doctypes:
+		return None
+	# Build the set of (dt, fieldname) tuples that are staged in this session.
+	staged = {}  # fieldname → (dt, label)
+	for dt in ref_doctypes:
+		try:
+			for cf in _session_staged_custom_field_payloads(dt):
+				fn = (cf.get("fieldname") or "").strip()
+				if not fn:
+					continue
+				# Skip if already on the live DocType (cycle 16 already-applied case)
+				if frappe.db.exists("Custom Field", {"dt": dt, "fieldname": fn}):
+					continue
+				staged[fn] = (dt, cf.get("label") or fn)
+		except Exception:
+			continue
+	if not staged:
+		return None
+	# Look for word-boundary references to any staged fieldname in the SQL.
+	referenced_staged = []
+	for fn, (dt, label) in staged.items():
+		# Use word-boundary regex. `re.escape(fn)` defends against fieldnames
+		# that happen to contain regex metacharacters (unusual but possible).
+		if re.search(r'\b' + re.escape(fn) + r'\b', query):
+			referenced_staged.append((dt, fn, label))
+	if not referenced_staged:
+		return None
+	# Compose the refusal. List each referenced staged CF with its dt + label.
+	bullets = "\n".join(
+		f"  • `{fn}` ({label}) on `{dt}` — staged, not yet applied"
+		for dt, fn, label in referenced_staged
+	)
+	return {
+		"ok": False,
+		"sql_phase": "dependency",
+		"error": (
+			f"The Query Report's SQL references {len(referenced_staged)} Custom Field(s) "
+			f"that are STAGED in this session but NOT YET APPLIED to the live DocType:\n"
+			f"{bullets}"
+		),
+		"hint": (
+			"MariaDB InnoDB doesn't allow ALTER TABLE inside a savepoint, so the "
+			"runtime check cannot materialize these dependencies transiently. "
+			"INSTEAD: tell the user clearly to click Apply on the Custom Field(s) "
+			"above FIRST. Then in the next turn (after the user applies), re-stage "
+			"prepare_create_report. The runtime check will succeed once the schema "
+			"is committed. Do NOT retry prepare_create_report this turn — it will "
+			"fail again with the same error."
+		),
+		"staged_dependencies": [
+			{"dt": dt, "fieldname": fn, "label": label}
+			for dt, fn, label in referenced_staged
+		],
+		"suggestion": (
+			"User-facing message: 'I've staged the Custom Fields above. Please click "
+			"Apply on each one, then I'll create the Report (which uses those new "
+			"columns).' Then STOP retrying prepare_create_report this turn."
+		),
+	}
 
 
 _FILE_PATH_RE = re.compile(r"^/(?:private/)?files/")
@@ -4252,6 +4830,42 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 					"sql_phase": "validate",
 					"suggestion": "SELECT/WITH only; no DML/DDL keywords; no multi-statement.",
 				}
+			# Cycle 16.1 — guard against bare `%` in string literals that would
+			# trip pymysql's `query % args` substitution at report-run time.
+			percent_error = _validate_sql_percent_escaping(query)
+			if percent_error:
+				return {
+					"ok": False,
+					"error": percent_error,
+					"sql_error": percent_error,
+					"sql_phase": "validate",
+					"suggestion": "Escape literal `%` as `%%` in SQL string literals (e.g. CASE WHEN strings emitting percent values).",
+				}
+			# Cycle 16.1 — cross-check that every %(name)s placeholder has a
+			# matching filter field definition in the staged `filters` arg.
+			# Without this, the Report commits successfully but report-open
+			# raises `KeyError: '<name>'` because Frappe calls report with
+			# `filters={}` by default.
+			filter_complete_error = _validate_sql_filter_completeness(query, filters)
+			if filter_complete_error:
+				return {
+					"ok": False,
+					"error": filter_complete_error,
+					"sql_error": filter_complete_error,
+					"sql_phase": "validate",
+					"suggestion": "Pass a `filters` arg with one filter-field dict per `%(name)s` placeholder so Frappe's filter dialog populates them at report-open time.",
+				}
+			# Cycle 17.1 — pre-runtime dependency check MUST run BEFORE EXPLAIN
+			# so that "Unknown column" for a staged-but-not-applied Custom Field
+			# is mapped to sql_phase=dependency with an actionable hint instead
+			# of leaking through as sql_phase=explain (which would tell the
+			# agent to call describe_doctype — wrong fix path here).
+			_referenced_doctypes_dep_pre = _extract_doctype_refs_from_sql(query)
+			if ref_dt:
+				_referenced_doctypes_dep_pre.add(ref_dt)
+			_dep_error_pre = _check_sql_dependencies_satisfied(query, _referenced_doctypes_dep_pre)
+			if _dep_error_pre:
+				return _dep_error_pre
 			explain_error = _probe_select_sql_explain(query)
 			if explain_error:
 				return {
@@ -4280,6 +4894,53 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			sample_rows = exec_probe.get("rows") or []
 			sample_columns = exec_probe.get("columns") or []
 			sample_truncated = bool(exec_probe.get("row_count_capped"))
+			# Cycle 17 — Pre-Apply runtime verification. Savepoint-wrapped dry-commit
+			# + actual `frappe.desk.query_report.run` invocation against the report
+			# the user would see. Catches the remaining bug classes that NULL-substitution
+			# probes can't see: `%`/mogrify errors, KeyError from missing filter defs
+			# at runtime (not just stage), JOIN issues with realistic filter values,
+			# runtime permission failures, etc. On failure returns sql_phase=runtime
+			# WITHOUT a preview_token, so the LLM re-stages without the user ever
+			# seeing a broken Apply card.
+			# Cycle 17.1 dependency check already fired above (BEFORE EXPLAIN);
+			# remaining cycle-17.0 path is the savepoint dry-run via the shared
+			# helper introduced in cycle 17.3 (so Script Reports below can reuse it).
+			_dry_rep_values_qr = {
+				"doctype": "Report",
+				"report_name": report_name,
+				"ref_doctype": ref_dt,
+				"report_type": report_type,
+				"is_standard": "No",
+				"query": query,
+			}
+			if javascript:
+				_dry_rep_values_qr["javascript"] = javascript
+			_runtime_result = _runtime_verify_report_in_savepoint(
+				_dry_rep_values_qr, filters, javascript
+			)
+			if not _runtime_result.get("ok"):
+				return {
+					"ok": False,
+					"error": _runtime_result.get("error") or "runtime check failed",
+					"sql_error": _runtime_result.get("error"),
+					"sql_phase": "runtime",
+					"hint": _runtime_result.get("hint"),
+					"traceback": _runtime_result.get("traceback"),
+					"default_filters_used": _runtime_result.get("default_filters") or {},
+					"suggestion": (
+						"The artifact INSERTed cleanly and validators passed, but Frappe "
+						"raised an exception when ACTUALLY RUNNING the report. Read the "
+						"hint + traceback, then re-stage prepare_create_report with the fix. "
+						"This iteration is invisible to the user — keep retrying until verified."
+					),
+				}
+			# Runtime check passed — promote its sample (real-filter execution)
+			# over the probe sample (NULL-substituted) since it's strictly more
+			# realistic for what the user will see.
+			if _runtime_result.get("sample_rows"):
+				sample_rows = _runtime_result["sample_rows"]
+				sample_columns = _runtime_result.get("sample_columns") or sample_columns
+				sample_truncated = bool(_runtime_result.get("sample_truncated"))
 			# M1.6 — HTML cell scan for staged Query Reports.
 			from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 			_settings_html = get_lazychat_settings()
@@ -4334,6 +4995,49 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 					f"construct or switch to report_type='Query Report' for a "
 					f"simpler path that supports HTML link columns."
 				)}
+			# Cycle 17.3 — Pre-Apply runtime verification for Script Reports.
+			# Mirrors cycle 17.0 for Query Reports: savepoint-wrap an INSERT
+			# of the Report doc + invoke `frappe.desk.query_report.run` against
+			# synthesized default filters, then roll back. Catches bugs the
+			# safe_exec dry-run can't see — most importantly `def execute()`
+			# returning `None` instead of `(columns, data)` (the exact failure
+			# mode observed in the cycle 17.2 chat-ui test). Return-shape
+			# validation lives in `_runtime_check_query_report`.
+			_dry_rep_values_sr = {
+				"doctype": "Report",
+				"report_name": report_name,
+				"ref_doctype": ref_dt,
+				"report_type": report_type,
+				"is_standard": "No",
+				"report_script": script,
+				"script_type": "Python",
+			}
+			if javascript:
+				_dry_rep_values_sr["javascript"] = javascript
+			_sr_runtime_result = _runtime_verify_report_in_savepoint(
+				_dry_rep_values_sr, filters, javascript
+			)
+			if not _sr_runtime_result.get("ok"):
+				return {
+					"ok": False,
+					"error": _sr_runtime_result.get("error") or "Script Report runtime check failed",
+					"sql_error": _sr_runtime_result.get("error"),
+					"sql_phase": "runtime",
+					"hint": _sr_runtime_result.get("hint"),
+					"traceback": _sr_runtime_result.get("traceback"),
+					"default_filters_used": _sr_runtime_result.get("default_filters") or {},
+					"suggestion": (
+						"The Script Report INSERTed cleanly and safe_exec dry-run passed, "
+						"but Frappe raised an exception OR the script returned the wrong "
+						"shape when ACTUALLY RUNNING it. Read hint + traceback and re-stage. "
+						"Most common cause: `def execute()` returning `None` instead of "
+						"`(columns, data)` — end with `return columns, data` (or `return [], []` for empty)."
+					),
+				}
+			if _sr_runtime_result.get("sample_rows"):
+				sample_rows = _sr_runtime_result["sample_rows"]
+				sample_columns = _sr_runtime_result.get("sample_columns") or []
+				sample_truncated = bool(_sr_runtime_result.get("sample_truncated"))
 		token = _stage_action(
 			"create_report",
 			{
@@ -4682,6 +5386,43 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		title = (args.get("title") or "").strip()
 		content = args.get("content") or ""
 		public = bool(args.get("public"))
+		# Cycle 16: code-dump guard. Catches the "let me write up an
+		# implementation guide as a Note" anti-pattern where the agent
+		# substitutes a Note dump for failing to build the actual artifact.
+		# Heuristic — both signals must fire to avoid false positives on
+		# legitimate Notes that happen to quote a snippet:
+		#   (a) body contains substantial code-shaped content
+		#   (b) title hints at implementation/guide/server-side
+		_code_re = re.compile(
+			r"\b(import\s+frappe\b|from\s+frappe\b|def\s+execute\s*\(|hooks\s*=\s*\{|doc_events\s*=\s*\{|@frappe\.whitelist|frappe\.db\.(?:get_list|sql|get_value|set_value|get_all)|class\s+\w+\s*\(\s*Document\s*\)|cur_frm\.|frm\.set_value|frappe\.ui\.form|frappe\.call\s*\()",
+			re.IGNORECASE,
+		)
+		_dump_title_re = re.compile(
+			r"\b(implementation|server[\-\s]?side|hooks|python\s+(?:code|implementation)|file\s*\d|complete\s+(?:guide|solution)|client[\-\s]?side\s+(?:js|javascript)|api\s+code)\b",
+			re.IGNORECASE,
+		)
+		_code_hits = len(_code_re.findall(content or ""))
+		if _code_hits >= 2 and (_dump_title_re.search(title) or _code_hits >= 5):
+			return {
+				"ok": False,
+				"error": (
+					"Notes are for human-readable text content (meeting notes, decisions, briefs), "
+					"NOT implementation code. The body looks like Python/JS dumped as a 'guide', "
+					"which is meaningless on a running ERPNext — the user can't apply hooks.py "
+					"or copy-paste server scripts from a Note."
+				),
+				"hint": (
+					"Build the artifact directly instead:\n"
+					"  • Report → prepare_create_report\n"
+					"  • Server-side endpoint → prepare_create_server_script\n"
+					"  • Custom field → prepare_create_custom_field\n"
+					"  • Form-side JS / button → prepare_create_client_script\n"
+					"  • Workflow → prepare_create_doc(doctype='Workflow', …)\n"
+					"  • Notification → prepare_create_notification\n"
+					"If you genuinely cannot build it with available tools, SAY SO in plain text "
+					"to the user — don't substitute a Note dump."
+				),
+			}
 		# Cycle 15: exists-pre-check — redirect to prepare_update_doc if a Note
 		# with the same title already exists. Note autonames by hash; we search
 		# by title field to detect duplicates deterministically.
@@ -5803,13 +6544,50 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		except Exception as e:
 			return {"error": f"could not load meta for {dt}: {e}"}
 		fieldnames = [df.fieldname for df in meta.get("fields") or []]
-		if insert_after != "append" and insert_after not in fieldnames:
-			return {"error": f"insert_after '{insert_after}' is not a fieldname on {dt}. Valid: {fieldnames[:20]}…"}
-		if fieldname and fieldname in fieldnames:
-			return {"error": f"fieldname '{fieldname}' already exists on {dt}"}
+		# Cycle 16 — cascade-aware insert_after. When the LLM stages a group of
+		# Custom Fields in one turn (Section Break → 30 Days % → 60 Days % → …),
+		# each successive call must accept the freshly-staged sibling as a valid
+		# insert_after target. _session_staged_custom_field_names scans the
+		# current user's Redis-cached prep actions and returns their fieldnames.
+		_staged_fieldnames = _session_staged_custom_field_names(dt)
+		_valid_insert_after = set(fieldnames) | _staged_fieldnames
+		if insert_after != "append" and insert_after not in _valid_insert_after:
+			_hint_extra = (
+				f" (staged-in-session also valid: {sorted(_staged_fieldnames)[:10]})"
+				if _staged_fieldnames else ""
+			)
+			return {"error": f"insert_after '{insert_after}' is not a fieldname on {dt}. Valid: {fieldnames[:20]}…{_hint_extra}"}
+		if fieldname and (fieldname in fieldnames or fieldname in _staged_fieldnames):
+			return {"error": f"fieldname '{fieldname}' already exists on {dt} (live or staged in this session)"}
 		# Link/Table-flavored fields need `options` (target doctype / source field).
 		if fieldtype in ("Link", "Table", "Table MultiSelect", "Dynamic Link") and not args.get("options"):
 			return {"error": f"fieldtype={fieldtype} requires `options` (target DocType for Link/Table; source field for Dynamic Link)"}
+		# Cycle 17.5 — validate `options` for Link/Table actually references
+		# a real DocType. Catches the silent-success failure shape where the
+		# agent writes options="Some Hallucinated Doctype" — Apply succeeds at
+		# the DB layer but the field can't autocomplete to anything, so the
+		# user gets a broken form field with no way to know why. (MariaDB
+		# InnoDB ALTER TABLE prevents a savepoint runtime check for Custom
+		# Fields; static validation is what we can safely do here.)
+		if fieldtype in ("Link", "Table", "Table MultiSelect"):
+			_target_dt = (args.get("options") or "").strip()
+			if _target_dt and not frappe.db.exists("DocType", _target_dt):
+				_suggestions = []
+				try:
+					_all_dts = [d.name for d in frappe.db.get_list("DocType", fields=["name"], limit=2000) or []]
+					import difflib as _dl
+					_suggestions = _dl.get_close_matches(_target_dt, _all_dts, n=3, cutoff=0.55)
+				except Exception:
+					pass
+				_hint = (
+					f"options='{_target_dt}' is NOT an existing DocType. "
+					f"Link/Table/Table MultiSelect must reference a real DocType "
+					f"so the form can autocomplete + cascade-fetch. Verify the "
+					f"target with `search_doctype('{_target_dt}')` BEFORE re-staging."
+				)
+				if _suggestions:
+					_hint += f" Closest existing DocTypes: {_suggestions}."
+				return {"error": _hint}
 		payload = {
 			"dt": dt,
 			"label": label,
@@ -6808,6 +7586,14 @@ def commit_prepared(token, **extras):
 				err = _validate_select_sql(rep_values["query"])
 				if err:
 					return {"ok": False, "error": f"query failed validation at commit: {err}"}
+				# Cycle 16.1 — re-check %-escape + filter-completeness at commit
+				# so a stale or tampered token can't ship a runtime-broken report.
+				pct_err = _validate_sql_percent_escaping(rep_values["query"])
+				if pct_err:
+					return {"ok": False, "error": f"query failed %-escape check at commit: {pct_err}"}
+				fc_err = _validate_sql_filter_completeness(rep_values["query"], payload.get("filters"))
+				if fc_err:
+					return {"ok": False, "error": f"query failed filter-completeness check at commit: {fc_err}"}
 				probe_err = _probe_select_sql_explain(rep_values["query"])
 				if probe_err:
 					return {"ok": False, "error": f"query failed EXPLAIN at commit: {probe_err}"}
@@ -6828,6 +7614,19 @@ def commit_prepared(token, **extras):
 					"columns": payload.get("columns") or [],
 					"filters": payload.get("filters") or {},
 				})
+				doc.save(ignore_permissions=False)
+			# Cycle 16.1 — Query Reports read filter definitions from
+			# `Report.javascript` (`frappe.query_reports[<name>].filters = [...]`),
+			# NOT from `Report.json` (which is Report Builder's convention).
+			# Auto-inject via the shared helper so the dry-run path and the
+			# real-commit path stay byte-aligned.
+			_filter_defs_commit = payload.get("filters")
+			if (
+				payload.get("report_type") == "Query Report"
+				and isinstance(_filter_defs_commit, list)
+				and _filter_defs_commit
+			):
+				_inject_query_report_filters_into_javascript(doc, _filter_defs_commit)
 				doc.save(ignore_permissions=False)
 		elif action == "create_page":
 			# Cycle 13 M1 — commit a staged Desk Page. Re-checks System Manager

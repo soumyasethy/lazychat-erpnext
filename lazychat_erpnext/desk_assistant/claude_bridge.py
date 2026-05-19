@@ -19,22 +19,29 @@ EFFORT_MAP = {
 	           "iter_cap": 1, "critic": "skip",
 	           "schema_prefetch": "jit", "exemplar_top_n": 0,
 	           "live_ground": False, "reflect_retries": 0,
-	           "apply_threshold": 0.50, "chip_threshold": 0.30},
+	           "apply_threshold": 0.50, "chip_threshold": 0.30,
+	           # Cycle 17.4 — silent retry budget for sql_phase=runtime
+	           # errors in prepare_*. The agent should NOT exceed this
+	           # before surfacing "I tried N approaches" to the user.
+	           "runtime_silent_retry_cap": 1},
 	"medium": {"max_turns": 16, "thinking_budget": 0,
 	           "iter_cap": 2, "critic": "skip",
 	           "schema_prefetch": "lazy", "exemplar_top_n": 1,
 	           "live_ground": False, "reflect_retries": 1,
-	           "apply_threshold": 0.65, "chip_threshold": 0.50},
+	           "apply_threshold": 0.65, "chip_threshold": 0.50,
+	           "runtime_silent_retry_cap": 2},
 	"high":   {"max_turns": 32, "thinking_budget": 4000,
 	           "iter_cap": 3, "critic": "haiku",
 	           "schema_prefetch": "related", "exemplar_top_n": 3,
 	           "live_ground": True, "reflect_retries": 1,
-	           "apply_threshold": 0.75, "chip_threshold": 0.60},
+	           "apply_threshold": 0.75, "chip_threshold": 0.60,
+	           "runtime_silent_retry_cap": 5},
 	"max":    {"max_turns": 64, "thinking_budget": 16000,
 	           "iter_cap": 5, "critic": "sonnet",
 	           "schema_prefetch": "full", "exemplar_top_n": 5,
 	           "live_ground": "with_screenshot", "reflect_retries": 2,
-	           "apply_threshold": 0.85, "chip_threshold": 0.70},
+	           "apply_threshold": 0.85, "chip_threshold": 0.70,
+	           "runtime_silent_retry_cap": 8},
 }
 
 # Mode-specific prompt blocks. Plan turn 1 forbids tool calls until user
@@ -494,8 +501,18 @@ def _route_context_summary(context):
 	return ""
 
 
-def _system_prompt(context, supports_tools, mode="edit-auto", plan_resumed=False):
-	base = _today_anchor() + _route_context_summary(context) + """You are an ERPNext / Frappe desk assistant. Be concise and accurate.
+def _system_prompt(context, supports_tools, mode="edit-auto", plan_resumed=False, effort="medium"):
+	# Cycle 17.4 — expose the live retry budget for the current Effort tier
+	# so rule #11 RUNTIME-RETRY DISCIPLINE can cite the exact cap. Falls back
+	# to medium (2) if Effort is unknown.
+	_eff_map = EFFORT_MAP.get(effort) or EFFORT_MAP["medium"]
+	_retry_cap = _eff_map.get("runtime_silent_retry_cap", 2)
+	_effort_block = (
+		f"\n\nACTIVE EFFORT TIER: {effort}. "
+		f"Your silent-retry budget for sql_phase=runtime errors is {_retry_cap} attempt(s) "
+		f"before surfacing 'I tried N approaches' to the user (rule #11c).\n"
+	)
+	base = _today_anchor() + _route_context_summary(context) + _effort_block + """You are an ERPNext / Frappe desk assistant. Be concise and accurate.
 Use tools to fetch real data instead of guessing.
 
 READ tools (no confirmation needed):
@@ -791,6 +808,75 @@ For ALL prepare_* tools:
    trust. This also applies when the turn budget is nearly exhausted — do NOT write
    "Click Apply below to update the print format!" if you have not called a prepare_*
    tool in this turn.
+10. DELIVERABLE DISCIPLINE — When the user names a primary artifact noun ("report",
+    "dashboard", "workflow", "custom field", "print format", "notification", "client
+    script", "scheduled job"), that artifact is your PRIMARY deliverable. Order:
+    a. Stage dependencies FIRST (e.g. a Report that references Custom Fields needs the
+       fields staged first), then stage the primary artifact LAST so the user sees it
+       as the final Apply card and isn't left wondering "where is my report?".
+    b. NEVER use `prepare_create_note` as a substitute for a real artifact. Notes are
+       for human text (meeting notes, briefs, decisions) — they are NOT a place to
+       dump Python/JS/SQL code as an "implementation guide". The user has a running
+       ERPNext, not an empty repo to wire hooks.py into. If your impulse is "let me
+       write up an implementation guide as a Note", that is a sign you have FAILED to
+       build the actual artifact — say so plainly in plain text instead.
+    c. If a tool fails TWICE in a row with the same error class on the same target,
+       STOP. Tell the user: what you tried, what blocked you, what they need to decide.
+       Do NOT pivot to "let me create a Note with the implementation instead". That is
+       work-shaped output, not progress.
+    d. For compound business requests ("Cash Discount Enhancement"), emit a numbered
+       Plan up front naming each artifact and which `prepare_*` tool will create it
+       (see COMPOUND QUESTIONS below) — then execute the plan in order. The Plan
+       prevents drifting into Note-dump consolation prizes when one step fails.
+11. RUNTIME-RETRY DISCIPLINE (Cycle 17+) — When a `prepare_*` response carries
+    `sql_phase: "runtime"`, the artifact INSERTed cleanly and passed validators,
+    but Frappe raised an exception when ACTUALLY RUNNING it (the savepoint dry-run
+    caught a bug that static/probe-time checks couldn't see). Behavior:
+    a. Do NOT narrate the runtime failure to the user. The retry is invisible to
+       them — they should see only the FINAL working Apply card. Phrases like
+       "the report failed runtime check" or "I'm fixing the error" leak the loop.
+       (This is the OPPOSITE of rule 6 TOOL-ERROR HONESTY, which applies only to
+       NON-runtime errors that the user already saw a Failed card for.)
+    b. Read `hint` and `traceback` fields IMMEDIATELY. Common runtime errors and
+       fixes:
+         - `ValueError: unsupported format character` → bare `%` in string literal.
+           Escape every literal `%` as `%%` in CASE/THEN/ELSE strings.
+         - `KeyError: '<field>'` → query has `%(field)s` placeholder but no matching
+           filter-field def. Add the filter def to args.filters[].
+         - `OperationalError: Unknown column` → schema drift; call describe_doctype.
+         - `PermissionError` → Report.roles is too narrow.
+    c. Re-stage `prepare_create_report` with the fix IN THE SAME TURN. Cap is
+       Effort-tuned (Cycle 17.4):
+         - Effort=low: 1 silent retry (fast-fail; surface within ~10s on cheap models)
+         - Effort=medium: 2 silent retries (default; ~20-30s upper bound)
+         - Effort=high: 5 silent retries (current default behaviour; ~60s upper bound)
+         - Effort=max: 8 silent retries (generous; for compound business asks)
+       After the cap is hit: STOP, surface to user with
+       "I tried N approaches for the report; here's the underlying blocker: <X>.
+       Want me to try a simpler shape, switch to high/max effort, or guide me with
+       more context?" If you can't read the live Effort setting, default to the
+       medium cap (2 retries).
+    d. The `sample_rows` in a runtime-verified response is REAL data (run against
+       synthesized default filters), not NULL-substituted placeholder data. The user
+       can trust what they see in the Apply card preview.
+12. DEPENDENCY ORDER (Cycle 17.1) — When a `prepare_*` response carries
+    `sql_phase: "dependency"` along with a `staged_dependencies` array, the
+    artifact references Custom Fields / dependencies that are STAGED in this
+    session but the user hasn't clicked Apply on them yet. MariaDB cannot
+    materialize them transiently (ALTER TABLE auto-commits and breaks the
+    savepoint), so the agent MUST:
+    a. STOP retrying `prepare_create_report` this turn — it will fail again
+       with the same error. This is NOT a silent-retry case (unlike rule 11).
+    b. Tell the user clearly, in plain text: "I've staged the Custom Fields
+       above. Please click Apply on each one, then in your next message I'll
+       create the Report (it depends on those new columns)." List the
+       `staged_dependencies` so the user knows what to apply first.
+    c. End the turn. Wait for the user's next message. After they confirm /
+       send a follow-up, re-stage `prepare_create_report` — the runtime
+       check will now pass because the schema is committed.
+    d. This is the ONE case where you SHOULD narrate a "wait for the user"
+       checkpoint. Cycle 17.0's silent-retry rule (11a) does NOT apply to
+       dependency-class errors because no agent-side retry can resolve them.
 
 For unfamiliar doctypes, call describe_doctype first to learn the field schema before staging a create or update.
 For workflow actions, call list_workflow_actions first to learn which actions are valid from the current state.
@@ -1004,7 +1090,7 @@ def run_agentic_turn(
 			provider=provider,
 			model=model,
 			messages=history,
-			system=_system_prompt(context, supports_tools, mode=mode, plan_resumed=plan_resumed),
+			system=_system_prompt(context, supports_tools, mode=mode, plan_resumed=plan_resumed, effort=effort),
 			tools=tools,
 			max_tokens=model.max_output_tokens or 4096,
 		)
