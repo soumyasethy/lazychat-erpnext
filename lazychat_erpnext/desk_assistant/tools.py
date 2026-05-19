@@ -7155,6 +7155,10 @@ def commit_prepared(token, **extras):
 				"doc_type": payload["doc_type"],
 				"print_format_type": payload["print_format_type"],
 				"standard": payload.get("standard") or "No",
+				# cycle-15.1: Jinja / Custom Format require custom_format=1 to be
+				# rendered; without it Frappe ignores the html/format_data field and
+				# falls back to the default fieldgroup layout.
+				"custom_format": 1,
 			}
 			if payload["print_format_type"] == "Jinja":
 				values["html"] = payload.get("html") or ""
