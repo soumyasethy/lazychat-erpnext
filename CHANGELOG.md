@@ -6,6 +6,26 @@ The companion chat-ui ships from [`lazychat.ai`](https://github.com/soumyasethy/
 
 ## [Unreleased]
 
+## [0.5.0] — Cycle 15 — Apply-path hardening — 2026-05-16
+
+### Fixed
+
+- **URL slug 404 on typed-create Apply** — commit response `link` field used `frappe.scrub()` (underscores) instead of Frappe Desk's URL slug (hyphens). Added `_doctype_url_slug(doctype)` helper, replaced 4 call sites (commit response link, preview open_url for print format, revert handler, form-prefill capabilities). Print Format / Sales Invoice / Purchase Order and other multi-word doctypes now navigate correctly after Apply.
+- **Agent loops on duplicate-create** — typed `prepare_create_*` wrappers now pre-check existence and return a structured `prepare_update_doc` redirect on duplicate. New `_exists_redirect_to_update()` helper applied to 14 wrappers (Print Format, Report, KB, Note, Email Template, Email Group, Milestone Tracker, Number Card, Dashboard, Scheduled Job, Custom Field, Page, Workspace, Server Script). Calendar Event and Client Script intentionally skipped (hash autoname + suffix-loop respectively handle their cases differently).
+- **`PREP_TTL_SEC` too short** — bumped from 300 (5 min) to 1800 (30 min). Multi-turn agent loops survive realistic latency budgets. `_retrieve_action` refactored to distinguish three error categories (malformed / missing-or-expired / wrong-user) with actionable messages.
+- **Agent emits ghost CTAs** — `MAX_TURNS` default bumped from 8 to 16 (aligns with chat-ui's effort=medium budget). New CTA HONESTY system-prompt rule forbids "Click Apply" text without an accompanying `prepare_*` tool call in the same turn.
+
+### Changed
+
+- Tool-schema descriptions for typed `prepare_create_*` wrappers updated to spell out the duplicate-handling contract.
+- System prompt gained DUPLICATE PIVOT + CTA HONESTY rules (mirrored in chat-ui's `routerSystemPrompt.ts`).
+
+### Smoke
+
+- In-process: 283 → 293 / 0 fail (+10 new T103a-T103o cases; 5 pre-existing fails T66/T67/T68/T101b/T101d unchanged, unrelated to cycle-15).
+- HTTP-wire: 91/91 unchanged (no new tools, no schema changes).
+- Chat-ui vitest: 472 → 475 (+3 ghost-CTA detection).
+
 ## [0.4.3] — Cycle 14.6 — backfill stale tool counts in user-facing docs — 2026-05-15
 
 Pure docs/text fix. No Python code change. Tag: `cycle-14.6`.
@@ -253,7 +273,8 @@ ed130db chore(cycle-13/m1): address M1.1 code-quality review
 
 Earlier cycles (12, 11, 10, 9, 8, 7, …) are documented in [CLAUDE.md](CLAUDE.md). Per-cycle git tags exist (`cycle-12-m2`, `cycle-12-m1`, `cycle-11-m4`, …) — `git log --oneline <prev-tag>..<tag>` to see commits per cycle.
 
-[Unreleased]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-14.6...HEAD
+[Unreleased]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-15...HEAD
+[0.5.0]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-14.6...cycle-15
 [0.4.3]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-14.5...cycle-14.6
 [0.4.2]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-14.4...cycle-14.5
 [0.4.1]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-14...cycle-14.4
