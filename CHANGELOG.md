@@ -6,6 +6,17 @@ The companion chat-ui ships from [`lazychat.ai`](https://github.com/soumyasethy/
 
 ## [Unreleased]
 
+## [0.5.1] — Cycle 15.1 — Print Format `custom_format=1` hotfix — 2026-05-19
+
+### Fixed
+
+- **`prepare_create_print_format` produced Print Formats that silently fell back to the default fieldgroup layout** — surfaced by browser-replay testing the cycle-15 flow. The commit handler created the doc with `print_format_type='Jinja'` and a populated `html` field, but didn't set `custom_format=1`. Frappe ignores the `html` field when `custom_format=0` and renders the standard layout — the agent reported success and the URL opened (cycle-15 fix), but the actual `?format=...` print preview never showed the LLM-authored template. One-line fix in `commit_prepared(action='create_print_format')` adds `custom_format: 1` to the inserted doc. Verified end-to-end via Chrome DevTools MCP against a real Purchase Order — template now renders correctly on first commit.
+
+### Verification
+
+- Round-trip in bench console: `prepare_create_print_format` → commit → read back: `custom_format == 1` ✓.
+- Visual: `/printview?doctype=Purchase+Order&name=PO-C-26-000002&format=Purchase+Order+-+Agilitas` shows the LLM-written template (header, order details, supplier section, items table, grand total) instead of the default layout. Evidence at [`.github/assets/cycle-15/06-template-rendered-on-real-PO-after-custom-format-fix.png`](.github/assets/cycle-15/06-template-rendered-on-real-PO-after-custom-format-fix.png).
+
 ## [0.5.0] — Cycle 15 — Apply-path hardening — 2026-05-16
 
 ### Fixed
@@ -274,6 +285,7 @@ ed130db chore(cycle-13/m1): address M1.1 code-quality review
 Earlier cycles (12, 11, 10, 9, 8, 7, …) are documented in [CLAUDE.md](CLAUDE.md). Per-cycle git tags exist (`cycle-12-m2`, `cycle-12-m1`, `cycle-11-m4`, …) — `git log --oneline <prev-tag>..<tag>` to see commits per cycle.
 
 [Unreleased]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-15...HEAD
+[0.5.1]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-15...cycle-15.1
 [0.5.0]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-14.6...cycle-15
 [0.4.3]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-14.5...cycle-14.6
 [0.4.2]: https://github.com/soumyasethy/lazychat-erpnext/compare/cycle-14.4...cycle-14.5
