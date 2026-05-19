@@ -1030,7 +1030,10 @@ TOOL_SCHEMAS = [
 			"STAGE creating a new Lazychat Knowledge Base. Returns "
 			"{preview_token, summary, confirm_with}. After staging, ask the user to "
 			"'/commit TOKEN' to apply. is_public=true is System Manager only. If "
-			"`slug` is omitted it's auto-derived from `title` (lowercase, kebab-case)."
+			"`slug` is omitted it's auto-derived from `title` (lowercase, kebab-case). "
+			"If a Knowledge Base with the given slug already exists, returns {ok: false, "
+			"error: '... already exists', hint: 'use prepare_update_doc'}. Switch to "
+			"prepare_update_doc on duplicate; do NOT retry create."
 		),
 		"input_schema": {
 			"type": "object",
@@ -1109,7 +1112,10 @@ TOOL_SCHEMAS = [
 			"sample-executed (LIMIT 5, 8s timeout). All three MUST pass before a preview_token is "
 			"issued. On failure, response is `{ok: false, error, sql_error, sql_phase: "
 			"'validate'|'explain'|'execute', suggestion}` — route on sql_phase to apply targeted "
-			"fixes (call describe_doctype if sql_phase === 'explain', etc.)."
+			"fixes (call describe_doctype if sql_phase === 'explain', etc.). "
+			"If a Report with the given report_name already exists, returns {ok: false, "
+			"error: '... already exists', hint: 'use prepare_update_doc'}. Switch to "
+			"prepare_update_doc on duplicate; do NOT retry create."
 		),
 		"input_schema": {
 			"type": "object",
@@ -1169,6 +1175,9 @@ TOOL_SCHEMAS = [
 		"description": (
 			"Stage a new Scheduled Job Type (Frappe's cron). Requires System Manager role + create permission. "
 			"frequency=Cron requires cron_format (e.g. '0 */6 * * *'). Two-phase: returns preview_token; "
+			"If a Scheduled Job Type with the given method already exists, returns {ok: false, "
+			"error: '... already exists', hint: 'use prepare_update_doc'}. Switch to "
+			"prepare_update_doc on duplicate; do NOT retry create. "
 			"user runs `/commit TOKEN` to apply."
 		),
 		"input_schema": {
@@ -1190,7 +1199,10 @@ TOOL_SCHEMAS = [
 		"description": (
 			"Stage a new Number Card (single-stat tile for the dashboard). function=Count needs no aggregate_field; "
 			"Sum/Avg/Min/Max require aggregate_field. filters_json is the same JSON-string shape Number Card stores. "
-			"Two-phase: returns preview_token; user runs `/commit TOKEN` to apply."
+			"Two-phase: returns preview_token; user runs `/commit TOKEN` to apply. "
+			"If a Number Card with the given label already exists, returns {ok: false, "
+			"error: '... already exists', hint: 'use prepare_update_doc'}. Switch to "
+			"prepare_update_doc on duplicate; do NOT retry create."
 		),
 		"input_schema": {
 			"type": "object",
@@ -1210,7 +1222,10 @@ TOOL_SCHEMAS = [
 		"description": (
 			"Stage a new Dashboard composed of existing Dashboard Charts and Number Cards. Each entry can be a "
 			"plain string (chart/card name) or {chart|card, width: 'Half'|'Full'}. Two-phase: returns preview_token; "
-			"user runs `/commit TOKEN` to apply. Use after make_chart / prepare_create_number_card."
+			"user runs `/commit TOKEN` to apply. Use after make_chart / prepare_create_number_card. "
+			"If a Dashboard with the given dashboard_name already exists, returns {ok: false, "
+			"error: '... already exists', hint: 'use prepare_update_doc'}. Switch to "
+			"prepare_update_doc on duplicate; do NOT retry create."
 		),
 		"input_schema": {
 			"type": "object",
@@ -1264,7 +1279,10 @@ TOOL_SCHEMAS = [
 		"description": (
 			"Stage a new Frappe Note. Note autonames as hash, so the actual document name is generated at /commit "
 			"time and returned in the response — DO NOT pass the title to follow-up tools that take `name` (e.g. "
-			"prepare_add_comment); use the `name` from the commit response. Two-phase: returns preview_token."
+			"prepare_add_comment); use the `name` from the commit response. Two-phase: returns preview_token. "
+			"If a Note with the same title already exists, returns {ok: false, "
+			"error: '... already exists', hint: 'use prepare_update_doc'}. Switch to "
+			"prepare_update_doc on duplicate; do NOT retry create."
 		),
 		"input_schema": {
 			"type": "object",
@@ -1313,7 +1331,10 @@ TOOL_SCHEMAS = [
 		"name": "prepare_create_print_format",
 		"description": (
 			"Stage a new Print Format. Validates doc_type exists and (when print_format_type=Jinja) dry-renders the "
-			"HTML against an empty sample doc to catch Jinja syntax errors at preview time. Two-phase: returns preview_token."
+			"HTML against an empty sample doc to catch Jinja syntax errors at preview time. Two-phase: returns preview_token. "
+			"If a Print Format with the given name already exists, returns {ok: false, "
+			"error: '... already exists', hint: 'use prepare_update_doc'}. Switch to "
+			"prepare_update_doc on duplicate; do NOT retry create."
 		),
 		"input_schema": {
 			"type": "object",
@@ -1354,7 +1375,10 @@ TOOL_SCHEMAS = [
 		"description": (
 			"Stage a new Email Template. Validates Jinja syntax in `subject` and `response` (body) at preview time "
 			"by dry-rendering against an empty context. Templates are inert until used by send tools. Two-phase: "
-			"returns preview_token."
+			"returns preview_token. "
+			"If an Email Template with the given name already exists, returns {ok: false, "
+			"error: '... already exists', hint: 'use prepare_update_doc'}. Switch to "
+			"prepare_update_doc on duplicate; do NOT retry create."
 		),
 		"input_schema": {
 			"type": "object",
@@ -1468,7 +1492,10 @@ TOOL_SCHEMAS = [
 		"description": (
 			"Stage a new Milestone Tracker — auto-creates Milestones whenever a particular field on a doctype "
 			"changes. Validates ref_doctype + track_field exist and that the field is a Link/Select. Two-phase: "
-			"returns preview_token."
+			"returns preview_token. "
+			"If a Milestone Tracker for the given document_type + track_field already exists, returns {ok: false, "
+			"error: '... already exists', hint: 'use prepare_update_doc'}. Switch to "
+			"prepare_update_doc on duplicate; do NOT retry create."
 		),
 		"input_schema": {
 			"type": "object",
@@ -1511,7 +1538,10 @@ TOOL_SCHEMAS = [
 		"name": "prepare_create_email_group",
 		"description": (
 			"Stage a new Email Group (mailing list bucket). Refuses if an Email Group with the same title "
-			"already exists. Two-phase: returns preview_token."
+			"already exists. Two-phase: returns preview_token. "
+			"If an Email Group with the same title already exists, returns {ok: false, "
+			"error: '... already exists', hint: 'use prepare_update_doc'}. Switch to "
+			"prepare_update_doc on duplicate; do NOT retry create."
 		),
 		"input_schema": {
 			"type": "object",
@@ -1644,7 +1674,10 @@ TOOL_SCHEMAS = [
 			"Stage a new Custom Field on an existing DocType. Use this INSTEAD of "
 			"prepare_create_doc({doctype:'Custom Field'}) — it validates dt, fieldtype enum, "
 			"and insert_after up front so the model gets actionable errors at preview time. "
-			"Requires System Manager. Two-phase: returns preview_token; user clicks Apply to confirm."
+			"Requires System Manager. Two-phase: returns preview_token; user clicks Apply to confirm. "
+			"If a Custom Field with the given dt+fieldname already exists, returns {ok: false, "
+			"error: '... already exists', hint: 'use prepare_update_doc'}. Switch to "
+			"prepare_update_doc on duplicate; do NOT retry create."
 		),
 		"input_schema": {
 			"type": "object",
@@ -1713,7 +1746,10 @@ TOOL_SCHEMAS = [
 			"structural HTML (<header>, <main>, <section>), missing "
 			"`document.body.dataset.lazychatReady = '1'` marker at end of JS "
 			"(disables precise screenshot timing).\n\n"
-			"Two-phase: returns preview_token; user clicks Apply to commit."
+			"Two-phase: returns preview_token; user clicks Apply to commit. "
+			"If a Page with the given page_name already exists, returns {ok: false, "
+			"error: '... already exists', hint: 'use prepare_update_doc'}. Switch to "
+			"prepare_update_doc on duplicate; do NOT retry create."
 		),
 		"input_schema": {
 			"type": "object",
@@ -1744,7 +1780,10 @@ TOOL_SCHEMAS = [
 			"prepare_create_doc / prepare_update_doc.\n\n"
 			"Output: end with `frappe.response.message = <dict>` — the API returns null otherwise.\n\n"
 			"Gated: requires site_config lazychat_allow_dangerous_tools=true + System Manager role. "
-			"Always explicit Apply (never auto-Apply)."
+			"Always explicit Apply (never auto-Apply).\n\n"
+			"If a Server Script with the given name already exists, returns "
+			"{ok: false, error: '... already exists.', hint: 'use prepare_update_doc'}. "
+			"Switch to prepare_update_doc on duplicate; do NOT retry create."
 		),
 		"input_schema": {
 			"type": "object",
@@ -1825,7 +1864,10 @@ TOOL_SCHEMAS = [
 			"Use this for SIMPLE dashboard needs (KPI cards in a grid). For sophisticated "
 			"custom layouts (topbar + sidebar + custom sections), use `prepare_create_page` "
 			"instead — Workspace's layout is fixed-grid.\n\n"
-			"Render-preview rejects: unknown Number Card / Dashboard Chart / DocType references."
+			"Render-preview rejects: unknown Number Card / Dashboard Chart / DocType references.\n\n"
+			"If a Workspace with the given title already exists (name = frappe.scrub(title)), "
+			"returns {ok: false, error: '... already exists.', hint: 'use prepare_update_doc'}. "
+			"Switch to prepare_update_doc on duplicate; do NOT retry create."
 		),
 		"input_schema": {
 			"type": "object",
