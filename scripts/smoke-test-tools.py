@@ -3816,5 +3816,63 @@ def run():
 	except Exception as _e:
 		record(_ok("T103e commit link uses slug helper", False, str(_e)[:200]))
 
+	# ─── Cycle 15 — Token TTL + retrieve-action errors ───────────────────────────
+	print("\n=== Cycle 15 — Token TTL + retrieve-action errors ===")
+
+	try:
+		from lazychat_erpnext.desk_assistant.tools import PREP_TTL_SEC
+		record(_ok("T103j PREP_TTL_SEC >= 1800",
+				  PREP_TTL_SEC >= 1800,
+				  f"PREP_TTL_SEC = {PREP_TTL_SEC}"))
+	except Exception as _e:
+		record(_ok("T103j PREP_TTL_SEC >= 1800", False, str(_e)))
+
+	try:
+		from lazychat_erpnext.desk_assistant.tools import _retrieve_action
+		out = _retrieve_action("")
+		ok = (
+			isinstance(out, dict)
+			and out.get("ok") is False
+			and "malformed" in (out.get("error") or "").lower()
+		)
+		record(_ok("T103k _retrieve_action malformed token", ok, repr(out)[:200]))
+	except Exception as _e:
+		record(_ok("T103k _retrieve_action malformed token", False, str(_e)))
+
+	try:
+		from lazychat_erpnext.desk_assistant.tools import _retrieve_action
+		out = _retrieve_action("nonexistent-token-xyz-T103l-12345")
+		err = (out.get("error") or "").lower() if isinstance(out, dict) else ""
+		ok = (
+			isinstance(out, dict)
+			and out.get("ok") is False
+			and ("expired" in err or "consumed" in err or "not found" in err)
+		)
+		record(_ok("T103l _retrieve_action missing token", ok, repr(out)[:200]))
+	except Exception as _e:
+		record(_ok("T103l _retrieve_action missing token", False, str(_e)))
+
+	# T103m: wrong-user test. Stage as current user (Administrator under bench execute),
+	# switch to Guest, attempt retrieve, expect "different user" / "not yours" error.
+	try:
+		from lazychat_erpnext.desk_assistant.tools import _stage_action, _retrieve_action
+		payload = {"action": "test_t103m", "args": {}}
+		token_t103m = _stage_action("test_t103m", payload)
+		original_user = frappe.session.user
+		try:
+			frappe.set_user("Guest")
+			out = _retrieve_action(token_t103m)
+			err = (out.get("error") or "").lower() if isinstance(out, dict) else ""
+			ok = (
+				isinstance(out, dict)
+				and out.get("ok") is False
+				and ("different user" in err or "not yours" in err)
+			)
+			record(_ok("T103m _retrieve_action wrong user", ok, repr(out)[:200]))
+		finally:
+			frappe.set_user(original_user)
+	except Exception as _e:
+		record(_ok("T103m _retrieve_action wrong user", False, str(_e)[:200]))
+
 	print(f"\n=== {results['pass']} pass, {results['fail']} fail, {results['skip']} skip ===")
 	return results
