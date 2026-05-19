@@ -10,7 +10,7 @@ from lazychat_erpnext.desk_assistant.providers import resolve_model
 from lazychat_erpnext.desk_assistant.tool_schemas import TOOL_SCHEMAS
 from lazychat_erpnext.desk_assistant.tools import execute_tool
 
-MAX_TURNS = 8
+MAX_TURNS = 16  # was 8. Aligns backend-LLM default with chat-ui's effort=medium budget.
 
 # Effort tiers control turn budget and (for Anthropic) extended-thinking
 # budget. Mirrors apps/chat-ui/src/lib/effortConfig.ts EFFORT_CONFIG.
@@ -783,6 +783,14 @@ For ALL prepare_* tools:
    patch={...})` on the next turn to modify it. If the user explicitly asked for a NEW
    doc, choose a different name/label/title that doesn't conflict. Never call the same
    `prepare_create_X` again with the same name after an "already exists" error.
+9. CTA HONESTY — NEVER emit text like "Click Apply" / "click the Apply button" /
+   "Apply below" / "tap Apply" without an accompanying prepare_* tool call in the
+   SAME turn. If your last action FAILED and you cannot stage a fresh prepare_* this
+   turn, say "I need to re-stage — calling prepare_X now" and call it. Phantom CTAs
+   (text suggesting an Apply button when none exists) waste the user's time and break
+   trust. This also applies when the turn budget is nearly exhausted — do NOT write
+   "Click Apply below to update the print format!" if you have not called a prepare_*
+   tool in this turn.
 
 For unfamiliar doctypes, call describe_doctype first to learn the field schema before staging a create or update.
 For workflow actions, call list_workflow_actions first to learn which actions are valid from the current state.

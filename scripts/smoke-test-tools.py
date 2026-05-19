@@ -3983,5 +3983,40 @@ def run():
 	except Exception as _e:
 		record(_ok("T103i _exists_redirect_to_update returns None for missing doc", False, str(_e)[:200]))
 
+	# ─── Cycle 15 — Turn budget + CTA-must-have-tool rule ─────────────────────────
+	print("\n=== Cycle 15 — Turn budget + CTA-must-have-tool rule ===")
+
+	try:
+		from lazychat_erpnext.desk_assistant.claude_bridge import MAX_TURNS
+		record(_ok("T103n MAX_TURNS >= 16",
+				  MAX_TURNS >= 16,
+				  f"MAX_TURNS = {MAX_TURNS}"))
+	except Exception as _e:
+		record(_ok("T103n MAX_TURNS >= 16", False, str(_e)))
+
+	try:
+		from lazychat_erpnext.desk_assistant.claude_bridge import _system_prompt
+		import inspect
+		# Call _system_prompt with a minimal valid context regardless of exact signature.
+		# Try several call shapes to stay forward-compatible.
+		try:
+			txt = _system_prompt(context={}, supports_tools=True)
+		except TypeError:
+			try:
+				txt = _system_prompt(None, True)
+			except TypeError:
+				txt = _system_prompt()
+		has_cta_phrase = ("Click Apply" in txt) or ("click Apply" in txt)
+		has_prepare_clause = (
+			("without an accompanying prepare_" in txt)
+			or ("without staging a prepare_" in txt)
+			or ("without an accompanying tool call" in txt)
+		)
+		record(_ok("T103o system prompt has CTA-must-have-tool rule",
+				  has_cta_phrase and has_prepare_clause,
+				  f"has_cta_phrase={has_cta_phrase}, has_prepare_clause={has_prepare_clause}"))
+	except Exception as _e:
+		record(_ok("T103o system prompt has CTA-must-have-tool rule", False, str(_e)))
+
 	print(f"\n=== {results['pass']} pass, {results['fail']} fail, {results['skip']} skip ===")
 	return results
