@@ -217,6 +217,16 @@ TOOL_ARGS: dict[str, dict[str, Any]] = {
         "ref_doctype": "Customer",
         "report_type": "Report Builder",
     },
+    # DocType meta-creation — System Manager gated; EXPECT_ERROR_OK handles both
+    # permission-deny and a prior run's "already exists" on the static name.
+    "prepare_create_doctype": {
+        "values": {
+            "name": "_lz_wire_dt",
+            "module": "Core",
+            "naming_rule": "Autoincrement",
+            "fields": [{"fieldname": "amount", "fieldtype": "Currency", "label": "Amount"}],
+        },
+    },
     # Scheduled Job Type creation requires System Manager — when the smoke
     # runs as that role, expect a token; otherwise expect a permission error
     # (still validates the dispatch path).
@@ -397,6 +407,9 @@ EXPECT_ERROR_OK: set[str] = {
     # prepare_create_scheduled_job is conditionally OK_ERROR — the harness
     # may or may not have System Manager. Treat permission-deny as graceful.
     "prepare_create_scheduled_job",
+    # prepare_create_doctype — System Manager gated + static name may already
+    # exist from a prior run; either way a graceful error validates the path.
+    "prepare_create_doctype",
     # Commit 1 additions:
     "prepare_bulk_update",            # gated by lazychat_allow_dangerous_tools
     "restore_deleted_doc",            # nonexistent target on purpose
@@ -809,6 +822,7 @@ VALIDATORS: dict[str, Callable[[dict], tuple[bool, str]]] = {
     "prepare_upload_file": _v_prepare_token,  # also returns file_picker:true
     "prepare_create_report": _v_prepare_token,
     "prepare_create_scheduled_job": _v_prepare_token,
+    "prepare_create_doctype": _v_prepare_token,
     "prepare_create_number_card": _v_prepare_token,
     # prepare_create_dashboard is EXPECT_ERROR_OK so it doesn't run through
     # this validator — kept here for symmetry if a future smoke seeds a real chart.
