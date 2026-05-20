@@ -4779,7 +4779,6 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 	# doctype-specific fields up front so the model gets actionable errors
 	# at preview time, not at /commit + open time.
 	if name == "prepare_create_doctype":
-		import difflib
 		values = args.get("values") or {}
 		if not isinstance(values, dict):
 			return {"error": "values must be an object describing the new DocType (name, module, fields, …)"}
@@ -4811,7 +4810,7 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				"hint": f"Valid modules include: {_mods[:10]}",
 			}
 		if naming_rule and naming_rule not in _NAMING_RULES:
-			_close = difflib.get_close_matches(naming_rule, list(_NAMING_RULES), n=1)
+			_close = _difflib.get_close_matches(naming_rule, list(_NAMING_RULES), n=1)
 			return {
 				"error": f"naming_rule {naming_rule!r} is invalid. Must be one of: {sorted(_NAMING_RULES)}.",
 				"hint": (f"Did you mean {_close[0]!r}? " if _close else "")
@@ -4848,7 +4847,8 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 			"preview_token": token,
 			"summary": f"Will create DocType '{dt_name}' with {len(fields)} field(s)",
 			"preview": {"doctype": "DocType", "fields": values},
-			"action": "create",
+			"expires_in_sec": PREP_TTL_SEC,
+			"confirm_with": "click the inline Apply button to confirm",
 		}
 
 	if name == "prepare_create_report":
