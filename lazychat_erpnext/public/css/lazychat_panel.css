@@ -127,6 +127,25 @@ body.lazychat-resizing #lazychat-panel {
 	display: none;
 }
 
+/* Minimized: collapse the docked panel to a small circular launcher bubble in
+ * the bottom-right corner. The chat-ui renders the bubble inside the shrunken
+ * iframe; clicking it posts panelStateChanged{state:'normal'} to restore. */
+#lazychat-panel.lazychat-minimized {
+	top: auto !important;
+	left: auto !important;
+	width: 64px !important;
+	height: 64px !important;
+	right: 20px;
+	bottom: 20px;
+	border: none !important;
+	border-radius: 9999px !important;
+	overflow: hidden;
+	box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+}
+#lazychat-panel.lazychat-minimized #lazychat-resize-handle {
+	display: none;
+}
+
 @media (max-width: 640px) {
 	#lazychat-panel {
 		width: 100% !important;
