@@ -6,6 +6,20 @@ The companion chat-ui ships from [`lazychat.ai`](https://github.com/soumyasethy/
 
 ## [Unreleased]
 
+## [0.5.8] — Cycle 18 — Panel minimize state + edit-auto hands-free (host half) — 2026-05-19
+
+Host-shim companion to lazychat.ai cycle-18 (instant edit-auto apply → same-tab navigate → minimize). No backend/tool changes. (chat-ui mirror in lazychat.ai)
+
+### Changed
+
+- **`public/js/lazychat_panel.bundle.js`** — the boolean `maximizeChanged` handler is replaced by a `panelStateChanged` handler that reads `payload.state` ∈ `normal | minimized | maximized` and toggles the mutually-exclusive `lazychat-maximized` / `lazychat-minimized` classes on `#lazychat-panel`.
+- **`public/css/lazychat_panel.css`** — new `.lazychat-minimized` rule collapses the docked panel to a 64px circular launcher bubble pinned bottom-right (`top/left: auto`, `border-radius: 9999px`, `overflow: hidden`, drop shadow) and hides the resize handle. The chat-ui paints the bubble inside the shrunken iframe; clicking it posts `panelStateChanged{state:'normal'}` to restore the docked width.
+- **Rebuilt `public/lazychat_dist/`** with chat-ui 0.3.0 (instant edit-auto apply + nav + minimize).
+
+### Safety
+
+- In `edit-auto`, destructive mutations now commit instantly with no `/commit` confirmation on the chat-ui side. The server-side two-phase boundary is unchanged — `commit_prepared_action` still re-checks permissions inside a savepoint — but the user-facing confirm step is gone in edit-auto. `ask` mode remains the safe path.
+
 ## [0.5.7] — Cycle 17.4 + 17.5 — Effort-tuned retry budgets + Custom Field Link options validation — 2026-05-19
 
 ### Added (Cycle 17.4 — Effort-tuned silent-retry budgets)

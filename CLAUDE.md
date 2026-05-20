@@ -545,6 +545,18 @@ When debugging *"my report URL gave 404 even though the chat said it was
 created"*: confirm the chat-ui bundle was rebuilt after this fix landed
 (`?v=` query in iframe URL should be > `1778066844`).
 
+## Cycle 18 — Panel minimize state + edit-auto hands-free (host half) (2026-05-19)
+
+Host-shim companion to lazychat.ai "Cycle 18" (hands-free edit-auto: instant apply → same-tab navigate → minimize). The chat-ui's panel-state postMessage went tri-state and gained a minimized launcher; the shim renders it. No backend/tool changes.
+
+- **`panelStateChanged` handler** ([public/js/lazychat_panel.bundle.js](lazychat_erpnext/public/js/lazychat_panel.bundle.js)): replaces the boolean `maximizeChanged` handler. Reads `payload.state` ∈ `normal | minimized | maximized` and toggles `lazychat-maximized` / `lazychat-minimized` classes on `#lazychat-panel` (mutually exclusive).
+- **`.lazychat-minimized` CSS** ([public/css/lazychat_panel.css](lazychat_erpnext/public/css/lazychat_panel.css)): collapses the docked panel to a 64px circular launcher bubble pinned bottom-right (`top/left: auto`, `border-radius: 9999px`, `overflow: hidden`, drop shadow); hides the resize handle. The chat-ui paints the bubble inside the shrunken iframe; clicking it posts `panelStateChanged{state:'normal'}` to restore the docked width.
+- **Rebuilt `public/lazychat_dist/`** with the new chat-ui bundle (instant edit-auto apply + nav + minimize). In-process + HTTP-wire smoke unaffected (no tool-surface change).
+
+⚠️ **Safety:** in edit-auto, destructive mutations now commit instantly with no `/commit` confirm on the chat-ui side. The server-side two-phase boundary is unchanged — `commit_prepared_action` still re-checks permissions inside a savepoint — but the user-facing confirmation step is gone in edit-auto. `ask` mode remains the safe path.
+
+---
+
 ## Cycle 17.4 + 17.5 — Effort-tuned retry budgets + Custom Field Link options validation (2026-05-19)
 
 Two small, focused improvements on top of cycle 17.3. Tag: `cycle-17.5`. Backend `0.5.7`.

@@ -715,12 +715,18 @@
 		 * second close button in our header. */
 		bridge.on("closed", () => close());
 
-		/* Maximize toggle: chat-ui emits maximizeChanged when the user clicks the
-		 * Maximize2 icon in SidebarChrome. We stretch #lazychat-panel to full
-		 * viewport width via a CSS class; the class also hides the resize handle.
-		 * Restoring drops back to the saved width set by the drag handle. */
-		bridge.on("maximizeChanged", (payload) => {
-			panel.classList.toggle("lazychat-maximized", !!(payload && payload.maximized));
+		/* Panel state: chat-ui emits panelStateChanged with
+		 * state = 'normal' | 'minimized' | 'maximized'.
+		 *  - 'maximized' stretches #lazychat-panel to full viewport width.
+		 *  - 'minimized' shrinks it to a small corner launcher bubble; the
+		 *    chat-ui renders the bubble UI inside the shrunken iframe and posts
+		 *    panelStateChanged{state:'normal'} when the bubble is clicked.
+		 *  - 'normal' restores the docked (saved-width) panel.
+		 * Both classes are mutually exclusive via the toggles below. */
+		bridge.on("panelStateChanged", (payload) => {
+			const state = (payload && payload.state) || "normal";
+			panel.classList.toggle("lazychat-maximized", state === "maximized");
+			panel.classList.toggle("lazychat-minimized", state === "minimized");
 		});
 
 		const sidToConvo = readSidMap();
