@@ -1176,6 +1176,29 @@ TOOL_SCHEMAS = [
 		},
 	},
 	{
+		"name": "prepare_create_doctype",
+		"description": (
+			"Stage creation of a NEW DocType (database table). Use this — NOT "
+			"prepare_create_doc({doctype:'DocType'}) — so naming_rule, fields, and autoname "
+			"are validated at stage time. Pass the full definition under `values`: "
+			"{name, module, fields:[{fieldname,fieldtype,label}], naming_rule, autoname?}. "
+			"naming_rule MUST be one of Frappe's exact values (e.g. 'By fieldname' lowercase f "
+			"— NOT 'By Fieldname'). To name by a field use naming_rule='By fieldname' + "
+			"autoname='field:<fieldname>'. Requires System Manager. Two-phase: returns "
+			"preview_token; the user runs `/commit TOKEN` (or clicks Apply) to create it."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"values": {
+					"type": "object",
+					"description": "The DocType definition: name, module, fields[], naming_rule, autoname, is_submittable, etc.",
+				},
+			},
+			"required": ["values"],
+		},
+	},
+	{
 		"name": "prepare_create_scheduled_job",
 		"description": (
 			"Stage a new Scheduled Job Type (Frappe's cron). Requires System Manager role + create permission. "
