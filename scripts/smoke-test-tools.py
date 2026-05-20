@@ -4721,5 +4721,50 @@ def run():
 	except Exception as _e:
 		record(_ok("T107c Script Report top-level runtime exception caught (safe_exec or savepoint)", False, str(_e)))
 
+	# T109: prepare_create_doctype validation (edit-auto hands-free foundation).
+	# These exercise stage-time validation so an invalid DocType definition never
+	# becomes an Apply card that fails at commit (the "Naming Rule cannot be
+	# 'By Fieldname'" production bug).
+	from lazychat_erpnext.desk_assistant.tools import execute_tool as _xt109
+	_mod109 = (frappe.get_all("Module Def", filters={"app_name": "lazychat_erpnext"}, limit=1, pluck="name")
+	           or frappe.get_all("Module Def", limit=1, pluck="name") or ["Core"])[0]
+	_dt109 = f"_lz_smoke_dt_{frappe.generate_hash(length=5)}"
+	_good_fields = [{"fieldname": "amount", "fieldtype": "Currency", "label": "Amount"}]
+
+	# T109a — invalid naming_rule "By Fieldname" rejected with hint, no token
+	_r = _xt109("prepare_create_doctype", {"values": {
+		"name": _dt109, "module": _mod109, "naming_rule": "By Fieldname", "fields": _good_fields}})
+	record(_ok("T109a naming_rule 'By Fieldname' rejected at stage time",
+			  not _r.get("preview_token") and "naming_rule" in (_r.get("error") or ""),
+			  f"error={(_r.get('error') or '')[:80]}"))
+
+	# T109b — valid definition stages (returns preview_token)
+	_r = _xt109("prepare_create_doctype", {"values": {
+		"name": _dt109, "module": _mod109, "naming_rule": "Autoincrement", "fields": _good_fields}})
+	record(_ok("T109b valid DocType definition stages",
+			  bool(_r.get("preview_token")) and not _r.get("error"),
+			  f"token={bool(_r.get('preview_token'))}"))
+
+	# T109c — generic prepare_create_doc({doctype:'DocType'}) redirects to wrapper
+	_r = _xt109("prepare_create_doc", {"doctype": "DocType", "values": {"name": _dt109}})
+	record(_ok("T109c generic create redirects to prepare_create_doctype",
+			  "prepare_create_doctype" in (_r.get("error") or ""),
+			  f"error={(_r.get('error') or '')[:80]}"))
+
+	# T109d — field missing fieldname rejected
+	_r = _xt109("prepare_create_doctype", {"values": {
+		"name": _dt109, "module": _mod109, "fields": [{"fieldtype": "Data", "label": "X"}]}})
+	record(_ok("T109d field missing fieldname rejected",
+			  not _r.get("preview_token") and "fieldname" in (_r.get("error") or ""),
+			  f"error={(_r.get('error') or '')[:80]}"))
+
+	# T109e — autoname referencing a non-existent field rejected
+	_r = _xt109("prepare_create_doctype", {"values": {
+		"name": _dt109, "module": _mod109, "naming_rule": "By fieldname",
+		"autoname": "field:nonexistent", "fields": _good_fields}})
+	record(_ok("T109e autoname 'field:nonexistent' rejected",
+			  not _r.get("preview_token") and "autoname" in (_r.get("error") or ""),
+			  f"error={(_r.get('error') or '')[:80]}"))
+
 	print(f"\n=== {results['pass']} pass, {results['fail']} fail, {results['skip']} skip ===")
 	return results
