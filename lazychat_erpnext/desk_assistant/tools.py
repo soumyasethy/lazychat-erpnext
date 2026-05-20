@@ -445,6 +445,7 @@ _SQL_PLACEHOLDER_RE = re.compile(r"%\([^)]+\)s")
 # no ref_doctype, Custom Field with no insert_after, Notification with
 # no event, etc.) that explode at /commit or open time.
 _TYPED_WRAPPER_FOR_DOCTYPE = {
+	"DocType": "prepare_create_doctype",
 	"Report": "prepare_create_report",
 	"Custom Field": "prepare_create_custom_field",
 	"Client Script": "prepare_create_client_script",
@@ -4777,6 +4778,79 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 	# wrappers. These coexist with prepare_create_doc — they validate
 	# doctype-specific fields up front so the model gets actionable errors
 	# at preview time, not at /commit + open time.
+	if name == "prepare_create_doctype":
+		import difflib
+		values = args.get("values") or {}
+		if not isinstance(values, dict):
+			return {"error": "values must be an object describing the new DocType (name, module, fields, …)"}
+		dt_name = values.get("name")
+		module = values.get("module")
+		fields = values.get("fields") or []
+		naming_rule = values.get("naming_rule", "") or ""
+		autoname = values.get("autoname", "") or ""
+
+		# Frappe's exact Naming Rule enum. The observed production bug was the
+		# LLM emitting "By Fieldname" (capital F) — caught here at stage time
+		# instead of exploding at commit with a cryptic message.
+		_NAMING_RULES = {
+			"", "Set by user", "Autoincrement", "By fieldname",
+			'By "Naming Series" field', "Expression",
+			"Expression (old style)", "Random", "By script",
+		}
+
+		if not frappe.has_permission("DocType", "create"):
+			return {"error": "no create permission on DocType (System Manager required)"}
+		if not dt_name:
+			return {"error": "values.name (the new DocType's name) is required"}
+		if frappe.db.exists("DocType", dt_name):
+			return {"error": f"DocType '{dt_name}' already exists. Use prepare_update_doc to modify it."}
+		if not module or not frappe.db.exists("Module Def", module):
+			_mods = [m.name for m in frappe.get_all("Module Def", limit=20, fields=["name"])]
+			return {
+				"error": f"values.module must be an existing Module Def (got {module!r}).",
+				"hint": f"Valid modules include: {_mods[:10]}",
+			}
+		if naming_rule and naming_rule not in _NAMING_RULES:
+			_close = difflib.get_close_matches(naming_rule, list(_NAMING_RULES), n=1)
+			return {
+				"error": f"naming_rule {naming_rule!r} is invalid. Must be one of: {sorted(_NAMING_RULES)}.",
+				"hint": (f"Did you mean {_close[0]!r}? " if _close else "")
+				        + "To name by a field, use naming_rule='By fieldname' (lowercase f) with autoname='field:<fieldname>'.",
+			}
+		if not isinstance(fields, list) or not fields:
+			return {"error": "values.fields must be a non-empty list of field definitions (each with fieldname, fieldtype, label)"}
+
+		_valid_fieldtypes = set(
+			(frappe.get_meta("DocField").get_field("fieldtype").options or "").split("\n")
+		) - {""}
+		for i, f in enumerate(fields):
+			if not isinstance(f, dict):
+				return {"error": f"fields[{i}] must be an object"}
+			if not f.get("fieldname"):
+				return {"error": f"fields[{i}] is missing 'fieldname'"}
+			if not f.get("fieldtype"):
+				return {"error": f"fields[{i}] (fieldname={f.get('fieldname')!r}) is missing 'fieldtype'"}
+			if _valid_fieldtypes and f["fieldtype"] not in _valid_fieldtypes:
+				return {
+					"error": f"fields[{i}] fieldtype {f['fieldtype']!r} is invalid.",
+					"hint": f"Valid fieldtypes: {sorted(_valid_fieldtypes)}",
+				}
+
+		# autoname/naming_rule consistency: field:<x> must reference a real field
+		if autoname.startswith("field:"):
+			_fld = autoname.split(":", 1)[1]
+			if _fld not in {f.get("fieldname") for f in fields}:
+				return {"error": f"autoname 'field:{_fld}' references a fieldname not present in values.fields[]"}
+
+		token = _stage_action("create", {"doctype": "DocType", "values": values})
+		return {
+			"ok": True,
+			"preview_token": token,
+			"summary": f"Will create DocType '{dt_name}' with {len(fields)} field(s)",
+			"preview": {"doctype": "DocType", "fields": values},
+			"action": "create",
+		}
+
 	if name == "prepare_create_report":
 		report_name = args.get("report_name") or args.get("name")
 		ref_dt = args.get("ref_doctype")
