@@ -545,6 +545,36 @@ When debugging *"my report URL gave 404 even though the chat said it was
 created"*: confirm the chat-ui bundle was rebuilt after this fix landed
 (`?v=` query in iframe URL should be > `1778066844`).
 
+## Cycle 19 — Report correctness for hands-free reports (DocType validation, brace guard, auto-default filters) (2026-05-21)
+
+Companion to lazychat.ai "Cycle 19" (hands-free orchestrator). Real-user runs of "create the Cash Discount AP report" repeatedly produced reports that errored on open / showed no data while the agent narrated success. Root cause was a chain of report-SQL gaps the agent kept hitting; this cycle closes them so the agent's reports OPEN WITH DATA + WORKING FILTERS. All changes in [tools.py](lazychat_erpnext/desk_assistant/tools.py) + [tool_schemas.py](lazychat_erpnext/desk_assistant/tool_schemas.py).
+
+### 1. Validated DocType meta-creation
+`prepare_create_doc({doctype:"DocType"})` flowed through the unvalidated generic path, so the LLM shipped DocTypes with an invalid `naming_rule` ("By Fieldname" vs Frappe's "By fieldname") that only failed at Apply. New `prepare_create_doctype` typed wrapper (added to `_TYPED_WRAPPER_FOR_DOCTYPE`) validates at STAGE time: naming_rule enum (difflib hint), module exists, fields[] shape, fieldtype validity, autoname/field consistency. Stages a normal `create` action (reuses the generic commit handler). Smoke T109a-e.
+
+### 2. Report-UPDATE SQL validation
+The agent "fixed" a broken report via `prepare_update_doc(patch={query})`, which ran NONE of the Query-Report validators `prepare_create_report` runs → shipped unvalidated SQL (e.g. `FROM tabPurchase Invoice` without backticks → MariaDB 1064) while narrating success. `prepare_update_doc` on a Report's `query` now runs the full gauntlet (SELECT regex → brace guard → %-escape → EXPLAIN → execute probe). Smoke T110a/b.
+
+### 3. Brace-placeholder guard
+During retries the LLM wrote `WHERE pi.company = '{company}'` (Python .format braces) instead of `%(company)s` — VALID SQL that compares against the literal string "{company}" → 0 rows forever, undetectable by the runtime check. New `_validate_sql_no_brace_placeholders` rejects `{name}` braces with a hint to use `%(name)s`; wired into create + update + commit. tool_schemas `query` description teaches `%(fieldname)s`. Smoke T111.
+
+### 4. Auto-fill placeholder filter DEFAULTS — the key fix
+Frappe OMITS an empty filter from the runtime dict, so a `%(name)s` placeholder whose filter has no `default` raises KeyError at open AND fails the cycle-17 runtime check. The LLM coped by DROPPING filters entirely (shipping unfiltered reports). `_ensure_placeholder_filter_defaults(query, filter_defs)` now guarantees every `%(name)s`-referenced filter has a NON-EMPTY default (creating the def via `_guess_filter_def` if missing), so the agent's natural `%(company)s` query binds + runs with WORKING filters on the first try. Hooked into `prepare_create_report` (before the runtime check; flows to the staged payload + commit javascript injection) + commit-side defense-in-depth. Smoke T112a-c; T104j updated to assert auto-fill (supersedes the old "reject unmatched placeholders").
+
+Type-aware defaults (`_synthesize_default_filters`):
+- **Company → the caller's user-default company** (`frappe.defaults.get_user_default("Company")` → global default → first row). DYNAMIC per-user/site, never hardcoded. Verified multi-company (4 companies; the filter scopes data correctly per company — One8=63, Sports Yard=3, Agilitas Sports=3036, Agilitas Brands=3099 rows).
+- **`from_date`/`start` dates → 1-year lookback** (`add_years(today, -1)`) so a from/to pair isn't an empty `today..today` range; other dates → today.
+- Link → first existing doc; Select → first option; Int/Float/Currency/Percent/Check → 0; Data → "".
+
+### Live end-to-end (chrome-devtools, as a user)
+v11 run: the agent created the Cash Discount AP report in ONE attempt (vs ~8 retries before the fixes), opening with 53 rows + working default filters (company = user's company, from = 1yr ago, to = today). Evidence: [.github/assets/edit-auto/](.github/assets/edit-auto/) (02 report-with-data, 05 v11 working-filters).
+
+### Smoke
+In-process **332 pass / 5 fail (pre-existing T66-68 proxy-mock + T88q open_url + T92c flaky) / 6 skip** (+T109-T112; T104j updated). The host minimize-shrink fix is chat-ui side (lazychat.ai Cycle 19 `App.tsx`); the panel-shim's existing `panelStateChanged` handler then shrinks the iframe correctly.
+
+---
+
+
 ## Cycle 18 — Panel minimize state + edit-auto hands-free (host half) (2026-05-19)
 
 Host-shim companion to lazychat.ai "Cycle 18" (hands-free edit-auto: instant apply → same-tab navigate → minimize). The chat-ui's panel-state postMessage went tri-state and gained a minimized launcher; the shim renders it. No backend/tool changes.
