@@ -623,6 +623,32 @@ def _validate_sql_percent_escaping(query):
 	)
 
 
+def _validate_sql_no_brace_placeholders(query):
+	"""Refuse `{name}`-style curly-brace placeholders in Query Report SQL.
+
+	Frappe Query Reports bind filters via pymysql NAMED params — `%(fieldname)s`
+	(e.g. `%(company)s`) — NOT Python `.format` braces. A query like
+	`WHERE pi.company = '{company}'` is VALID SQL but compares against the literal
+	string "{company}", so it silently returns 0 rows forever. The runtime check
+	can't catch this (the SQL runs without error). This guard does.
+
+	Returns an actionable error string on match, or None.
+	"""
+	if not query:
+		return None
+	hits = re.findall(r"\{[A-Za-z_][A-Za-z0-9_]{0,40}\}", query)
+	if not hits:
+		return None
+	uniq = sorted(set(hits))
+	return (
+		f"Query contains {{name}}-style placeholder(s) {uniq}. Frappe Query Reports do "
+		f"NOT use Python .format braces — filters bind via pymysql named params: "
+		f"%(fieldname)s (e.g. %(company)s). Replace each {{name}} with %(name)s. Also give "
+		f"every filter referenced by %(name)s a `default` in the report filters so the key "
+		f"is always present (an optional filter left empty omits the key and errors)."
+	)
+
+
 def _inject_query_report_filters_into_javascript(doc, filter_defs):
 	"""Cycle 16.1 + 17 — Query Reports read filter defs from `Report.javascript`
 	(`frappe.query_reports[<name>].filters = [...]`), NOT `Report.json`. Mutates
@@ -2649,6 +2675,9 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				_ve = _validate_select_sql(_q)
 				if _ve:
 					return {"ok": False, "error": _ve, "sql_error": _ve, "sql_phase": "validate", "suggestion": "SELECT/WITH only; no DML/DDL keywords; no multi-statement."}
+				_be = _validate_sql_no_brace_placeholders(_q)
+				if _be:
+					return {"ok": False, "error": _be, "sql_error": _be, "sql_phase": "validate", "suggestion": "Use %(fieldname)s named placeholders (e.g. %(company)s) for Query Report filters, NOT {fieldname} Python-format braces."}
 				_pe = _validate_sql_percent_escaping(_q)
 				if _pe:
 					return {"ok": False, "error": _pe, "sql_error": _pe, "sql_phase": "validate", "suggestion": "Escape literal % as %% in SQL string literals."}
@@ -4930,6 +4959,9 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 				}
 			# Cycle 16.1 — guard against bare `%` in string literals that would
 			# trip pymysql's `query % args` substitution at report-run time.
+			_be = _validate_sql_no_brace_placeholders(query)
+			if _be:
+				return {"ok": False, "error": _be, "sql_error": _be, "sql_phase": "validate", "suggestion": "Use %(fieldname)s named placeholders (e.g. %(company)s) for Query Report filters, NOT {fieldname} Python-format braces."}
 			percent_error = _validate_sql_percent_escaping(query)
 			if percent_error:
 				return {
@@ -7686,6 +7718,9 @@ def commit_prepared(token, **extras):
 					return {"ok": False, "error": f"query failed validation at commit: {err}"}
 				# Cycle 16.1 — re-check %-escape + filter-completeness at commit
 				# so a stale or tampered token can't ship a runtime-broken report.
+				_be = _validate_sql_no_brace_placeholders(rep_values["query"])
+				if _be:
+					return {"ok": False, "error": _be, "sql_error": _be, "sql_phase": "validate", "suggestion": "Use %(fieldname)s named placeholders (e.g. %(company)s) for Query Report filters, NOT {fieldname} Python-format braces."}
 				pct_err = _validate_sql_percent_escaping(rep_values["query"])
 				if pct_err:
 					return {"ok": False, "error": f"query failed %-escape check at commit: {pct_err}"}

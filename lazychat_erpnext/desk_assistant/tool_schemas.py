@@ -1123,7 +1123,7 @@ TOOL_SCHEMAS = [
 				"report_name": {"type": "string", "description": "Title for the new report"},
 				"ref_doctype": {"type": "string", "description": "DocType the report runs against (must exist + user must have report permission)"},
 				"report_type": {"type": "string", "enum": ["Report Builder", "Query Report", "Script Report"], "default": "Report Builder"},
-				"query": {"type": "string", "description": "SELECT-only SQL for Query Report. Validated by the same regex as prepare_run_sql. EXPLAIN-probed against the live DB so table/column errors surface at preview time. Required iff report_type=Query Report."},
+				"query": {"type": "string", "description": "SELECT-only SQL for Query Report. Validated by the same regex as prepare_run_sql. EXPLAIN-probed against the live DB so table/column errors surface at preview time. Required iff report_type=Query Report. FILTERS: reference report filters with pymysql NAMED placeholders %(fieldname)s — e.g. WHERE pi.company = %(company)s — NOT {company} Python-format braces (those compare against the literal string '{company}' and silently return 0 rows). Table names with spaces MUST be backtick-quoted (e.g. `tabPurchase Invoice`, not tabPurchase Invoice). Give EVERY filter referenced by a %(name)s placeholder a `default` value in `filters` so the key is always present — an optional filter left empty omits the key and raises a KeyError at open time."},
 				"script": {"type": "string", "description": (
 					"Python source for Script Report. Required iff report_type=Script Report. "
 					"PREFER report_type='Query Report' with HTML link columns when buttons are needed — "
