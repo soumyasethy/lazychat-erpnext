@@ -4798,5 +4798,18 @@ def run():
 		_skip("T110a prepare_update_doc rejects broken Report SQL", "could not create temp Query Report")
 		_skip("T110b prepare_update_doc accepts valid Report SQL", "could not create temp Query Report")
 
+	# T111: brace-placeholder guard. {name} Python-format braces in Query Report
+	# SQL are rejected — they're VALID SQL (compare against the literal string
+	# "{name}") so they silently return 0 rows forever. Frappe uses %(name)s.
+	from lazychat_erpnext.desk_assistant.tools import execute_tool as _xt111
+	_r = _xt111("prepare_create_report", {
+		"report_name": f"_lz_smoke_brace_{frappe.generate_hash(length=4)}",
+		"ref_doctype": "ToDo", "report_type": "Query Report",
+		"query": "SELECT name FROM `tabToDo` WHERE status = '{status}' LIMIT 1"})
+	_msg111 = (_r.get("error") or "") + (_r.get("suggestion") or "")
+	record(_ok("T111 Query Report rejects {name} brace placeholders",
+			  not _r.get("preview_token") and "%(fieldname)s" in _msg111,
+			  f"error={(_r.get('error') or '')[:90]}"))
+
 	print(f"\n=== {results['pass']} pass, {results['fail']} fail, {results['skip']} skip ===")
 	return results
