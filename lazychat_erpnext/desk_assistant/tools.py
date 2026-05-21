@@ -711,7 +711,14 @@ def _synthesize_default_filters(filter_defs):
 			continue
 		ft = (f.get("fieldtype") or "").strip()
 		if ft == "Date":
-			out[fn] = frappe.utils.today()
+			_ln = (fn or "").lower()
+			# "from"/"start" dates default to a 1-year lookback so a from/to pair
+			# yields a NON-EMPTY default range — both defaulting to today would
+			# make the report open with 0 rows (today..today).
+			if "from" in _ln or "start" in _ln:
+				out[fn] = frappe.utils.add_years(frappe.utils.today(), -1)
+			else:
+				out[fn] = frappe.utils.today()
 		elif ft in ("Datetime", "Datetime "):
 			out[fn] = frappe.utils.now()
 		elif ft == "Time":
