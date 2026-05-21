@@ -4766,5 +4766,37 @@ def run():
 			  not _r.get("preview_token") and "autoname" in (_r.get("error") or ""),
 			  f"error={(_r.get('error') or '')[:80]}"))
 
+	# T110: prepare_update_doc on a Query Report runs the SAME SQL validators as
+	# prepare_create_report. Regression for the "agent fixes a report via
+	# prepare_update_doc(patch={query}) and ships broken SQL while narrating
+	# success" loop (unbackticked `tabPurchase Invoice` -> MariaDB 1064).
+	from lazychat_erpnext.desk_assistant.tools import execute_tool as _xt110, commit_prepared as _cp110
+	_rep110 = f"_lz_smoke_qr_upd_{frappe.generate_hash(length=5)}"
+	_mk = _xt110("prepare_create_report", {
+		"report_name": _rep110, "ref_doctype": "ToDo", "report_type": "Query Report",
+		"query": "SELECT name FROM `tabToDo` LIMIT 1"})
+	if _mk.get("preview_token"):
+		_cp110(_mk["preview_token"])
+	if frappe.db.exists("Report", _rep110):
+		# T110a — broken SQL (unbackticked multi-word table) rejected at stage time
+		_r = _xt110("prepare_update_doc", {"doctype": "Report", "name": _rep110,
+			"patch": {"query": "SELECT name FROM tabBad Table Name LIMIT 1"}})
+		record(_ok("T110a prepare_update_doc rejects broken Report SQL",
+				  not _r.get("preview_token") and _r.get("sql_phase") in ("explain", "execute", "validate"),
+				  f"sql_phase={_r.get('sql_phase')}, token={bool(_r.get('preview_token'))}"))
+		# T110b — valid SQL update stages cleanly
+		_r = _xt110("prepare_update_doc", {"doctype": "Report", "name": _rep110,
+			"patch": {"query": "SELECT name, description FROM `tabToDo` LIMIT 1"}})
+		record(_ok("T110b prepare_update_doc accepts valid Report SQL",
+				  bool(_r.get("preview_token")) and not _r.get("error"),
+				  f"token={bool(_r.get('preview_token'))}"))
+		try:
+			frappe.delete_doc("Report", _rep110, force=1, ignore_permissions=True); frappe.db.commit()
+		except Exception:
+			pass
+	else:
+		_skip("T110a prepare_update_doc rejects broken Report SQL", "could not create temp Query Report")
+		_skip("T110b prepare_update_doc accepts valid Report SQL", "could not create temp Query Report")
+
 	print(f"\n=== {results['pass']} pass, {results['fail']} fail, {results['skip']} skip ===")
 	return results

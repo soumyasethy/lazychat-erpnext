@@ -2636,6 +2636,30 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		diff = {}
 		for f, v in patch.items():
 			diff[f] = {"from": doc.get(f) if hasattr(doc, "get") else None, "to": v}
+		# Validate Report query updates with the SAME gauntlet as prepare_create_report.
+		# Without this, the LLM "fixes" a broken report via prepare_update_doc(patch={query})
+		# and ships UNVALIDATED SQL (e.g. FROM tabPurchase Invoice without backticks -> MariaDB
+		# 1064 syntax error) while narrating success. Catch it at stage time.
+		if dt == "Report" and "query" in patch:
+			_rt = patch.get("report_type") or doc.get("report_type")
+			if _rt == "Query Report":
+				_q = (patch.get("query") or "").strip()
+				if not _q:
+					return {"ok": False, "error": "Report.query patch is empty for a Query Report.", "sql_phase": "validate"}
+				_ve = _validate_select_sql(_q)
+				if _ve:
+					return {"ok": False, "error": _ve, "sql_error": _ve, "sql_phase": "validate", "suggestion": "SELECT/WITH only; no DML/DDL keywords; no multi-statement."}
+				_pe = _validate_sql_percent_escaping(_q)
+				if _pe:
+					return {"ok": False, "error": _pe, "sql_error": _pe, "sql_phase": "validate", "suggestion": "Escape literal % as %% in SQL string literals."}
+				_xe = _probe_select_sql_explain(_q)
+				if _xe:
+					return {"ok": False, "error": _xe, "sql_error": _xe, "sql_phase": "explain", "suggestion": "Table/column missing OR a SQL syntax error. ERPNext table names with spaces MUST be backtick-quoted (the table for a multi-word DocType needs backticks around the whole tab<Name>). Run describe_doctype to verify names, fix, and re-stage."}
+				_xp = _probe_select_sql_execute(_q, sample_size=5, timeout_sec=8)
+				if not _xp.get("ok"):
+					_e = _xp.get("error") or "query failed at execution"
+					_h = _xp.get("hint")
+					return {"ok": False, "error": (f"{_e}\nHint: {_h}" if _h else _e), "sql_error": _e, "sql_phase": "execute", "suggestion": _h or "EXPLAIN passed but execution failed; inspect NULL handling / divide-by-zero / missing JOIN keys."}
 		# M1.7 — universal validator on update path.
 		from lazychat_erpnext.desk_assistant.boot import get_lazychat_settings
 		_settings_upd = get_lazychat_settings()
