@@ -726,7 +726,16 @@ def _synthesize_default_filters(filter_defs):
 		elif ft == "Link":
 			opt = (f.get("options") or "").strip()
 			pick = None
-			if opt and frappe.db.exists("DocType", opt):
+			# For a Company filter prefer the caller's OWN default company
+			# (per-user / per-site, dynamic) over an arbitrary first row — the
+			# standard ERPNext convention. Falls back to the first Company.
+			if opt == "Company":
+				try:
+					pick = (frappe.defaults.get_user_default("Company")
+					        or frappe.defaults.get_global_default("company"))
+				except Exception:
+					pick = None
+			if not pick and opt and frappe.db.exists("DocType", opt):
 				try:
 					pick = frappe.db.get_value(opt, {}, "name")
 				except Exception:
