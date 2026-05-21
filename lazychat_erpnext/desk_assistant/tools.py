@@ -736,6 +736,63 @@ def _synthesize_default_filters(filter_defs):
 	return out
 
 
+def _guess_filter_def(name):
+	"""Best-effort filter definition for a %(name)s placeholder that has no
+	explicit def. Maps common ERPNext field names to Link/Date so a usable
+	default can be synthesized."""
+	n = (name or "").lower()
+	label = (name or "").replace("_", " ").title()
+	if "date" in n:
+		return {"fieldname": name, "label": label, "fieldtype": "Date"}
+	link_map = {
+		"company": "Company", "supplier": "Supplier", "customer": "Customer",
+		"item": "Item", "item_code": "Item", "warehouse": "Warehouse",
+		"cost_center": "Cost Center", "project": "Project",
+		"supplier_group": "Supplier Group", "customer_group": "Customer Group",
+	}
+	if n in link_map:
+		return {"fieldname": name, "label": label, "fieldtype": "Link", "options": link_map[n]}
+	return {"fieldname": name, "label": label, "fieldtype": "Data"}
+
+
+def _ensure_placeholder_filter_defaults(query, filter_defs):
+	"""Guarantee every %(name)s placeholder in a Query Report's SQL has a filter
+	def WITH a non-empty `default` (Link -> first existing doc, Date -> today, …).
+
+	Frappe omits a filter from the runtime dict when its value is empty, so a
+	`%(name)s` placeholder with no default raises KeyError at open time AND fails
+	the cycle-17 runtime check (which synthesizes from the defs). Auto-filling a
+	default makes the report bind + run cleanly with the filters actually working
+	— without this the LLM tends to DROP the filters entirely to satisfy the
+	runtime check, shipping an unfiltered report.
+
+	Returns a list of filter defs (the existing list augmented in place, or a new
+	list). Safe no-op when the query has no named placeholders.
+	"""
+	if not query:
+		return filter_defs if isinstance(filter_defs, list) else []
+	names = []
+	for m in re.finditer(r"%\((\w+)\)s", query):
+		if m.group(1) not in names:
+			names.append(m.group(1))
+	if not names:
+		return filter_defs if isinstance(filter_defs, list) else []
+	defs = filter_defs if isinstance(filter_defs, list) else []
+	by_name = {d.get("fieldname"): d for d in defs if isinstance(d, dict)}
+	for nm in names:
+		d = by_name.get(nm)
+		if d is None:
+			d = _guess_filter_def(nm)
+			defs.append(d)
+			by_name[nm] = d
+		cur = d.get("default")
+		is_js = isinstance(cur, str) and ("frappe." in cur or "(" in cur)
+		if cur in (None, "") or is_js:
+			val = _synthesize_default_filters([d]).get(nm)
+			d["default"] = val if val is not None else ""
+	return defs
+
+
 def _runtime_check_query_report(report_name, filter_defs):
 	"""Cycle 17 — exercise a freshly-INSERTed Query Report against Frappe's
 	real `frappe.desk.query_report.run` endpoint with realistic default
@@ -4918,6 +4975,12 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		javascript = (args.get("javascript") or "").strip()
 		columns = args.get("columns") or []
 		filters = args.get("filters") or {}
+		# Auto-fill a default for every %(name)s placeholder filter so the report
+		# binds + RUNS with its filters actually working — instead of the LLM
+		# dropping the filters to get past the runtime check. Flows into the
+		# runtime check + the staged payload (commit re-derives for defense).
+		if report_type == "Query Report":
+			filters = _ensure_placeholder_filter_defaults(query, filters)
 		if not report_name or not ref_dt:
 			return {"error": "report_name and ref_doctype required"}
 		if report_type not in ("Report Builder", "Query Report", "Script Report"):
@@ -7754,6 +7817,12 @@ def commit_prepared(token, **extras):
 			# Auto-inject via the shared helper so the dry-run path and the
 			# real-commit path stay byte-aligned.
 			_filter_defs_commit = payload.get("filters")
+			if payload.get("report_type") == "Query Report" and rep_values.get("query"):
+				# Defense-in-depth: re-derive placeholder defaults at commit so a
+				# stale/tampered token still yields a report whose filters bind.
+				_filter_defs_commit = _ensure_placeholder_filter_defaults(
+					rep_values["query"], _filter_defs_commit
+				)
 			if (
 				payload.get("report_type") == "Query Report"
 				and isinstance(_filter_defs_commit, list)

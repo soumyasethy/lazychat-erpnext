@@ -4195,24 +4195,30 @@ def run():
 	except Exception as _e:
 		record(_ok("T104i end-to-end: prepare_create_report rejects bare %% at stage", False, str(_e)))
 
-	# T104j: end-to-end via prepare_create_report — placeholders without filter defs rejected at stage
+	# T104j: end-to-end — prepare_create_report AUTO-FILLS filter defs (with
+	# defaults) for %(name)s placeholders that have no explicit filter, so the
+	# report binds + runs (instead of rejecting / the LLM dropping the filters).
+	# Supersedes the old "reject unmatched placeholders" behavior — auto-fill is
+	# friendlier and is what makes the agent's filtered reports actually work.
 	try:
 		from lazychat_erpnext.desk_assistant.tools import execute_tool
 		import time as _t104j
-		_rep_name = f"Lz Cycle16-1 Missing Filters Report {int(_t104j.time())}"
+		_rep_name = f"Lz Autofill Filters Report {int(_t104j.time())}"
 		_r = execute_tool("prepare_create_report", {
 			"report_name": _rep_name,
 			"ref_doctype": "ToDo",
 			"report_type": "Query Report",
 			"query": "SELECT name FROM `tabToDo` WHERE owner = %(owner)s AND status = %(status)s",
-			# Note: NOT passing filters arg → defaults to {} → completeness guard should fire
+			# NOT passing filters → auto-fill should create owner + status defs
 		})
-		ok = (_r.get("ok") is False) and (_r.get("sql_phase") == "validate") and (("owner" in (_r.get("error") or "")) or ("status" in (_r.get("error") or "")))
-		record(_ok("T104j end-to-end: prepare_create_report rejects unmatched placeholders at stage",
+		_pfilters = (_r.get("preview") or {}).get("filters") if isinstance(_r.get("preview"), dict) else None
+		_fnames = {d.get("fieldname") for d in (_pfilters or []) if isinstance(d, dict)}
+		ok = bool(_r.get("preview_token")) and {"owner", "status"}.issubset(_fnames)
+		record(_ok("T104j end-to-end: prepare_create_report auto-fills placeholder filter defs",
 				  ok,
-				  f"ok_false={_r.get('ok') is False}, sql_phase={_r.get('sql_phase')}, mentions_placeholder={('owner' in (_r.get('error') or ''))}"))
+				  f"token={bool(_r.get('preview_token'))}, filter_fields={sorted(_fnames)}"))
 	except Exception as _e:
-		record(_ok("T104j end-to-end: prepare_create_report rejects unmatched placeholders at stage", False, str(_e)))
+		record(_ok("T104j end-to-end: prepare_create_report auto-fills placeholder filter defs", False, str(_e)))
 
 	# T104l: commit handler auto-injects `filters` into Report.javascript for
 	# Query Reports so Frappe's Desk renders the filter form (the json field
@@ -4810,6 +4816,27 @@ def run():
 	record(_ok("T111 Query Report rejects {name} brace placeholders",
 			  not _r.get("preview_token") and "%(fieldname)s" in _msg111,
 			  f"error={(_r.get('error') or '')[:90]}"))
+
+	# T112: placeholder-filter default auto-fill. A %(name)s filter with no
+	# default omits the key (KeyError at open / runtime-check fail), so the LLM
+	# tends to drop filters. This guarantees a default so filters actually work.
+	from lazychat_erpnext.desk_assistant.tools import _ensure_placeholder_filter_defaults as _epfd112
+	_defs112 = _epfd112(
+		"SELECT name FROM `tabX` WHERE company = %(company)s AND posting_date >= %(from_date)s", [])
+	_by112 = {d.get("fieldname"): d for d in _defs112}
+	record(_ok("T112a auto-fills defaults for unspecified placeholder filters",
+			  bool(_by112.get("company", {}).get("default")) and bool(_by112.get("from_date", {}).get("default")),
+			  f"company_default={_by112.get('company',{}).get('default')!r}, from_date_default={_by112.get('from_date',{}).get('default')!r}"))
+	# T112b: an existing def WITHOUT a default gets one synthesized
+	_defs112b = _epfd112(
+		"SELECT name FROM `tabX` WHERE company = %(company)s",
+		[{"fieldname": "company", "label": "Company", "fieldtype": "Link", "options": "Company"}])
+	_co112b = next((d for d in _defs112b if d.get("fieldname") == "company"), {})
+	record(_ok("T112b existing def without default gets one",
+			  bool(_co112b.get("default")), f"default={_co112b.get('default')!r}"))
+	# T112c: no placeholders -> unchanged (no forced filters)
+	_defs112c = _epfd112("SELECT name FROM `tabX` WHERE docstatus = 1", [])
+	record(_ok("T112c no placeholders -> no filters forced", _defs112c == [], f"defs={_defs112c}"))
 
 	print(f"\n=== {results['pass']} pass, {results['fail']} fail, {results['skip']} skip ===")
 	return results
