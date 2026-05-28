@@ -6,6 +6,19 @@ The companion chat-ui ships from [`lazychat.ai`](https://github.com/soumyasethy/
 
 ## [Unreleased]
 
+## [0.5.9] — Cycle 20 — Dist rebuild for adaptive-retry chat-ui — 2026-05-28
+
+Bundled `public/lazychat_dist/` rebuilt with chat-ui 0.4.0 (cycle-20) shipping four stream-signal-driven retry modes that eliminate the misleading *"LLM returned an empty response"* error for reasoning models, models with broken tool templates, and models loaded with too-small context. No backend / tool / doctype changes. (chat-ui mirror in lazychat.ai)
+
+### Changed
+
+- **Rebuilt `public/lazychat_dist/`** with chat-ui 0.4.0. Bundle hash: `index-CAoD49u2.js`. Includes brotli + gzip sidecars for nginx `brotli_static on; gzip_static on;` serving.
+- The committed dist now contains the cycle-20 retry chain: Mode 1 (budget retry), Mode 2 (tool-degradation), Mode 4 (context-overflow), Mode 3 (raw upstream error surface). Per-mode flags allow Mode 2 → Mode 4 chaining within a single user message. Full cycle notes: [lazychat.ai/CHANGELOG.md](https://github.com/soumyasethy/lazychat.ai/blob/main/CHANGELOG.md#040--cycle-20--stream-driven-adaptive-retry-3-modes--chaining--2026-05-28) + [lazychat.ai/CLAUDE.md](https://github.com/soumyasethy/lazychat.ai/blob/main/CLAUDE.md) Cycle 20 section.
+
+### Why this ships from this repo
+
+Per the repo's established pattern (CLAUDE.md "Source-of-truth + multi-bench install"): the chat-ui SPA is committed under `public/lazychat_dist/` so `bench get-app --branch main` and Frappe Cloud marketplace installs ship a working panel out of the box without a `pnpm install` / build step. Marketplace + new-bench installers will pick up the cycle-20 retry behavior automatically.
+
 ## [0.5.8] — Cycle 18 — Panel minimize state + edit-auto hands-free (host half) — 2026-05-19
 
 Host-shim companion to lazychat.ai cycle-18 (instant edit-auto apply → same-tab navigate → minimize). No backend/tool changes. (chat-ui mirror in lazychat.ai)
