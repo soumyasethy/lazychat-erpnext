@@ -6,6 +6,20 @@ The companion chat-ui ships from [`lazychat.ai`](https://github.com/soumyasethy/
 
 ## [Unreleased]
 
+## [0.5.13] — Cycle 20.4 — Dist rebuild for Website Item + Mode 5 — 2026-05-28
+
+Bundled `public/lazychat_dist/` rebuilt with chat-ui 0.4.4 (cycle-20.4). Two fixes:
+
+1. **Prompt fix**: cycle-20.3 taught `Item.published_in_website` which doesn't exist on ERPNext v13+ (Frappe refactored website-publishing onto separate `Website Item` doctype). Prompt now teaches `Website Item` doctype + schema table.
+2. **Mode 5 (code)**: `_streamToolTurn` HTTP non-2xx responses now convert to `stream_error` instead of throwing, so the existing Mode 2 / Mode 4 retry chain auto-catches HTTP-layer errors. Specifically, upstream context-overflow HTTP 400 from llm_proxy now triggers Mode 4 retry (drop system + history) automatically.
+
+No backend / tool / doctype changes. (chat-ui mirror in lazychat.ai)
+
+### Changed
+
+- **Rebuilt `public/lazychat_dist/`** with chat-ui 0.4.4. Includes brotli + gzip sidecars.
+- Committed dist now contains Website Item schema docs + Mode 5 HTTP-error capture. Full cycle notes: [lazychat.ai/CLAUDE.md](https://github.com/soumyasethy/lazychat.ai/blob/main/CLAUDE.md) "Cycle 20.4" section.
+
 ## [0.5.12] — Cycle 20.3 — Dist rebuild for full ERPNext Website module map — 2026-05-28
 
 Bundled `public/lazychat_dist/` rebuilt with chat-ui 0.4.3 (cycle-20.3). Prompt-only follow-up that maps user intent to the right Website doctype — for product listings, prefer `Item.published_in_website` + Item Group over hand-rolled Web Page. ERPNext auto-renders `/all-products` and `/<item-group-route>` with filters, search, pagination. No backend / tool / doctype changes. (chat-ui mirror in lazychat.ai)
