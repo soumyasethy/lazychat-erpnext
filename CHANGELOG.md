@@ -6,6 +6,15 @@ The companion chat-ui ships from [`lazychat.ai`](https://github.com/soumyasethy/
 
 ## [Unreleased]
 
+## [0.5.12] — Cycle 20.3 — Dist rebuild for full ERPNext Website module map — 2026-05-28
+
+Bundled `public/lazychat_dist/` rebuilt with chat-ui 0.4.3 (cycle-20.3). Prompt-only follow-up that maps user intent to the right Website doctype — for product listings, prefer `Item.published_in_website` + Item Group over hand-rolled Web Page. ERPNext auto-renders `/all-products` and `/<item-group-route>` with filters, search, pagination. No backend / tool / doctype changes. (chat-ui mirror in lazychat.ai)
+
+### Changed
+
+- **Rebuilt `public/lazychat_dist/`** with chat-ui 0.4.3. Includes brotli + gzip sidecars.
+- Committed dist now contains the ERPNext Website module decision table (10 rows: Item-as-product, Web Form, Blog Post, Web Page Block, Portal Menu Item, Website Settings, Website Theme, Custom HTML Block, Web Page as fallback) + the "do not hand-roll /all-products" rule. Full cycle notes: [lazychat.ai/CLAUDE.md](https://github.com/soumyasethy/lazychat.ai/blob/main/CLAUDE.md) "Cycle 20.3" section.
+
 ## [0.5.11] — Cycle 20.2 — Dist rebuild for Web Page schema in prompt — 2026-05-28
 
 Bundled `public/lazychat_dist/` rebuilt with chat-ui 0.4.2 (cycle-20.2). Prompt-only follow-up to cycle-20.1: documents exact Web Page schema (`title`, `route`, `published`, `content_type`, `main_section`) so the agent's first stage call succeeds instead of needing a `describe_doctype` round-trip. No backend / tool / doctype changes. (chat-ui mirror in lazychat.ai)
