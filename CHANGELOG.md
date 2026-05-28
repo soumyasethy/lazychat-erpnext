@@ -6,6 +6,15 @@ The companion chat-ui ships from [`lazychat.ai`](https://github.com/soumyasethy/
 
 ## [Unreleased]
 
+## [0.5.11] — Cycle 20.2 — Dist rebuild for Web Page schema in prompt — 2026-05-28
+
+Bundled `public/lazychat_dist/` rebuilt with chat-ui 0.4.2 (cycle-20.2). Prompt-only follow-up to cycle-20.1: documents exact Web Page schema (`title`, `route`, `published`, `content_type`, `main_section`) so the agent's first stage call succeeds instead of needing a `describe_doctype` round-trip. No backend / tool / doctype changes. (chat-ui mirror in lazychat.ai)
+
+### Changed
+
+- **Rebuilt `public/lazychat_dist/`** with chat-ui 0.4.2. Includes brotli + gzip sidecars.
+- Committed dist now contains the Web Page schema docs in the system prompt. Full cycle notes: [lazychat.ai/CLAUDE.md](https://github.com/soumyasethy/lazychat.ai/blob/main/CLAUDE.md) "Cycle 20.2" section.
+
 ## [0.5.10] — Cycle 20.1 — Dist rebuild for Web Page disambiguation — 2026-05-28
 
 Bundled `public/lazychat_dist/` rebuilt with chat-ui 0.4.1 (cycle-20.1). System-prompt-only follow-up that fixes an agent-routing bug: customer-facing "website" prompts now route to `Web Page` doctype (Frappe CMS, no developer_mode) instead of `prepare_create_page` (which requires `developer_mode=1`). No backend / tool / doctype changes. (chat-ui mirror in lazychat.ai)
