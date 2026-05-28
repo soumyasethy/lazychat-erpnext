@@ -6,6 +6,22 @@ The companion chat-ui ships from [`lazychat.ai`](https://github.com/soumyasethy/
 
 ## [Unreleased]
 
+## [0.5.10] — Cycle 20.1 — Dist rebuild for Web Page disambiguation — 2026-05-28
+
+Bundled `public/lazychat_dist/` rebuilt with chat-ui 0.4.1 (cycle-20.1). System-prompt-only follow-up that fixes an agent-routing bug: customer-facing "website" prompts now route to `Web Page` doctype (Frappe CMS, no developer_mode) instead of `prepare_create_page` (which requires `developer_mode=1`). No backend / tool / doctype changes. (chat-ui mirror in lazychat.ai)
+
+### Changed
+
+- **Rebuilt `public/lazychat_dist/`** with chat-ui 0.4.1. Bundle hash: `index-Dt79GMAZ.js`. brotli + gzip sidecars included.
+- The committed dist now contains the new CRITICAL DISAMBIGUATE FIRST table in the system prompt: website / Desk / Workspace routing. Full cycle notes: [lazychat.ai/CLAUDE.md](https://github.com/soumyasethy/lazychat.ai/blob/main/CLAUDE.md) "Cycle 20.1" section.
+
+### Live evidence (Playwright MCP against `gpt-oss-120b:free`)
+
+- Prompt: *"Create a website PLP page at /products listing items starting with L"*.
+- Network: `prepare_create_doc` with `args.doctype = "Web Page"` (was: `prepare_create_page`).
+- `commit_prepared_action` → HTTP 200. No `Not in Developer Mode` error.
+- Desk nav landed at `/app/web-page/products`.
+
 ## [0.5.9] — Cycle 20 — Dist rebuild for adaptive-retry chat-ui — 2026-05-28
 
 Bundled `public/lazychat_dist/` rebuilt with chat-ui 0.4.0 (cycle-20) shipping four stream-signal-driven retry modes that eliminate the misleading *"LLM returned an empty response"* error for reasoning models, models with broken tool templates, and models loaded with too-small context. No backend / tool / doctype changes. (chat-ui mirror in lazychat.ai)
