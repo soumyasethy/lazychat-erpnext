@@ -3533,10 +3533,12 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 		try:
 			from frappe.desk.search import search_link as _search_link
 
-			# search_link writes its result to frappe.response["results"]
+			# Older Frappe wrote results to frappe.response["results"] as a
+			# side effect; this version's search_link returns them directly.
+			# Handle both so this keeps working across Frappe versions.
 			frappe.response.pop("results", None)
-			_search_link(doctype=dt, txt=txt, page_length=limit)
-			results = frappe.response.get("results") or []
+			returned = _search_link(doctype=dt, txt=txt, page_length=limit)
+			results = returned or frappe.response.get("results") or []
 			return {"ok": True, "doctype": dt, "query": txt, "count": len(results), "results": results}
 		except Exception as e:
 			return {"error": str(e)}
@@ -4669,6 +4671,124 @@ def execute_tool(name, args, *, allow_writes=False, desk_context=None):
 
 	# RQ Job tools — early Tier D pieces. Read + cancel; full enqueue/schedule
 	# arrives with the rest of Tier D.
+	if name == "export_report_pdf":
+		report_name = args.get("report_name")
+		report_filters = args.get("filters") or {}
+		orientation = args.get("orientation") or "Landscape"
+		if isinstance(report_filters, str):
+			try:
+				report_filters = json.loads(report_filters)
+			except Exception:
+				return {"error": "invalid filters JSON"}
+		if not report_name or not frappe.db.exists("Report", report_name):
+			return {"error": "invalid report name"}
+		try:
+			ref_dt = frappe.db.get_value("Report", report_name, "ref_doctype")
+			if ref_dt and not frappe.has_permission(ref_dt, "read"):
+				return {"error": "no read permission on report's ref_doctype"}
+			from frappe.desk.query_report import run as _run_report
+
+			data = _run_report(report_name=report_name, filters=report_filters)
+			rows = data.get("result") if isinstance(data, dict) else None
+			if not isinstance(rows, list):
+				return {"error": "report returned no data (result was not a list)"}
+			columns = data.get("columns") or []
+			# Build column list: prefer declared columns, else fall back to row keys.
+			col_defs = []
+			for c in columns:
+				if isinstance(c, dict):
+					if c.get("hidden"):
+						continue
+					col_defs.append({
+						"fieldname": c.get("fieldname"),
+						"label": c.get("label") or c.get("fieldname"),
+						"fieldtype": c.get("fieldtype") or "Data",
+					})
+			if not col_defs and rows and isinstance(rows[0], dict):
+				col_defs = [{"fieldname": k, "label": k, "fieldtype": "Data"} for k in rows[0].keys()]
+
+			def _fmt_cell(row, col):
+				val = row.get(col["fieldname"]) if isinstance(row, dict) else None
+				if val is None:
+					return ""
+				if col.get("fieldtype") in ("Currency", "Float", "Int", "Percent") and isinstance(val, (int, float)):
+					if val == 0:
+						return ""
+					return f"{val:,.2f}" if col.get("fieldtype") != "Int" else f"{val:,}"
+				return frappe.utils.escape_html(str(val))
+
+			company = report_filters.get("company") or ""
+			from_date = report_filters.get("from_date") or ""
+			to_date = report_filters.get("to_date") or ""
+			indent_px = 18
+
+			head_cells = "".join(
+				f'<th style="text-align:{"left" if c["fieldtype"] not in ("Currency","Float","Int","Percent") else "right"};'
+				f'padding:4px 6px;border:1px solid #ccc;background:#14213D;color:#fff;font-size:11px;">'
+				f'{frappe.utils.escape_html(c["label"] or "")}</th>'
+				for c in col_defs
+			)
+			body_rows = []
+			for r in rows:
+				if not isinstance(r, dict):
+					continue
+				is_total = str(r.get(col_defs[0]["fieldname"])).strip("'\"") == "Total" if col_defs else False
+				is_group = bool(r.get("is_group_account")) or is_total
+				indent = int(r.get("indent") or 0)
+				cells = []
+				for i, c in enumerate(col_defs):
+					val = _fmt_cell(r, c)
+					style = "padding:3px 6px;border:1px solid #ddd;font-size:10.5px;"
+					style += "text-align:right;" if c["fieldtype"] in ("Currency", "Float", "Int", "Percent") else "text-align:left;"
+					if is_group or is_total:
+						style += "font-weight:bold;"
+					if i == 0 and indent:
+						style += f"padding-left:{6 + indent * indent_px}px;"
+					if is_total:
+						style += "background:#E8F5E9;border-top:2px solid #000;"
+					cells.append(f'<td style="{style}">{val}</td>')
+				body_rows.append("<tr>" + "".join(cells) + "</tr>")
+
+			filter_bits = [f"{k}: {v}" for k, v in report_filters.items() if v not in (None, "")]
+			html = f"""
+			<html><head><meta charset="utf-8"></head>
+			<body style="font-family:Helvetica,Arial,sans-serif;">
+			<div style="text-align:center;margin-bottom:4px;">
+				<div style="font-size:15px;font-weight:bold;">{frappe.utils.escape_html(company)}</div>
+				<div style="font-size:12px;font-weight:bold;">{frappe.utils.escape_html(report_name)}</div>
+				<div style="font-size:9px;color:#555;">{frappe.utils.escape_html(" | ".join(filter_bits))}</div>
+			</div>
+			<table style="width:100%;border-collapse:collapse;margin-top:8px;">
+				<thead><tr>{head_cells}</tr></thead>
+				<tbody>{"".join(body_rows)}</tbody>
+			</table>
+			</body></html>
+			"""
+
+			from frappe.utils.pdf import get_pdf
+
+			pdf_bytes = get_pdf(html, {"orientation": orientation})
+			ts = frappe.utils.now_datetime().strftime("%Y-%m-%d-%H%M%S")
+			fname = f"{frappe.scrub(report_name)}-{ts}.pdf"
+			file_doc = frappe.get_doc({
+				"doctype": "File",
+				"file_name": fname,
+				"is_private": 1,
+				"content": pdf_bytes,
+				"attached_to_doctype": "User",
+				"attached_to_name": frappe.session.user,
+			}).insert(ignore_permissions=False)
+			return {
+				"ok": True,
+				"file_url": file_doc.file_url,
+				"absolute_url": _frappe_get_url(file_doc.file_url),
+				"file_name": fname,
+				"row_count": len(rows),
+				"size_bytes": len(pdf_bytes),
+			}
+		except Exception as e:
+			return {"error": f"report PDF render failed: {e}"}
+
 	if name == "list_my_jobs":
 		limit = min(int(args.get("limit") or 20), 100)
 		try:

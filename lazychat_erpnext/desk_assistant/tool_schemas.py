@@ -866,6 +866,34 @@ TOOL_SCHEMAS = [
 		},
 	},
 	{
+		"name": "export_report_pdf",
+		"description": (
+			"Render a Query/Script Report (e.g. Trial Balance, General Ledger, Sales "
+			"Register -- anything listed by list_reports, NOT a single document) to PDF "
+			"using the SAME filters the user has open on screen, and save it in "
+			"/private/files/. Returns {file_url, absolute_url, file_name, row_count}. "
+			"Use THIS for export/print/download <report name> as PDF requests -- "
+			"do NOT use export_doc_pdf for reports, that tool is only for one "
+			"document own Print Format (e.g. one Sales Order) and will silently "
+			"produce the wrong output for a multi-row report. Always pass the exact "
+			"filters dict the user is viewing (company, from_date, to_date, "
+			"fiscal_year, and any report-specific flags like show_net_values, "
+			"show_group_accounts, with_period_closing_entry_for_opening, "
+			"with_period_closing_entry_for_current_period) -- call report_requirements "
+			"first if unsure which filters a report accepts. Permission: Read on the "
+			"report ref_doctype."
+		),
+		"input_schema": {
+			"type": "object",
+			"properties": {
+				"report_name": {"type": "string", "description": "Exact Report doctype name, e.g. Trial Balance."},
+				"filters": {"type": "object", "description": "Same filter dict run_report/the on-screen report uses. Pass every filter visible on screen, not just company/dates."},
+				"orientation": {"type": "string", "enum": ["Portrait", "Landscape"], "default": "Landscape", "description": "Reports are usually wide; Landscape is the safer default."},
+			},
+			"required": ["report_name"],
+		},
+	},
+	{
 		"name": "list_my_jobs",
 		"description": (
 			"List background jobs (RQ Job doctype rows) queued by the calling user, newest-first. "
